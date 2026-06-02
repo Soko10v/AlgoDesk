@@ -1,0 +1,81 @@
+You are building AlgoDesk — a no-code algorithmic trading bot 
+constructor for crypto traders.
+
+## Project Overview
+Web platform where users can create, backtest, and run trading 
+bots on Bybit without writing code. Visual drag-and-drop strategy 
+builder with real-time execution.
+
+## Tech Stack
+- Backend: Python 3.11 + FastAPI + WebSockets
+- Database: PostgreSQL (main) + Redis (cache, live prices)
+- Exchange: CCXT library (Bybit as primary)
+- Frontend: React 18 + TailwindCSS + Zustand (state)
+- Infrastructure: Docker + Docker Compose
+- Payments: CryptoBot API (Telegram, USDT)
+- Auth: Telegram OAuth (telegram-login-widget)
+
+## Project Structure
+/backend
+  /api         → FastAPI routes
+  /core        → trading engine, bot runner
+  /models      → DB models (SQLAlchemy)
+  /services    → bybit, backtest, user services
+  /workers     → background tasks (bot execution)
+/frontend
+  /components  → UI components
+  /pages       → main pages
+  /store       → Zustand state
+  /hooks       → custom hooks
+/infra
+  docker-compose.yml
+  .env.example
+
+## Core Features to Build (MVP)
+1. Auth — Telegram OAuth login, JWT sessions
+2. Exchange connection — user adds Bybit API key/secret, 
+   stored encrypted (Fernet)
+3. Strategy builder — visual editor with blocks:
+   - Entry condition (price crosses MA, RSI threshold, etc.)
+   - Exit condition
+   - Stop-loss (% or fixed)
+   - Take-profit (% or fixed)
+   - Position size (% of balance)
+4. Paper trading — run strategy with fake balance, 
+   real market prices via WebSocket
+5. Backtest — run strategy on historical OHLCV data from Bybit, 
+   return: total return %, max drawdown, win rate, equity curve
+6. Live trading — real execution via Bybit API with position limits
+7. Trade log — all orders with timestamp, price, PnL
+8. Telegram alerts — notify user when bot opens/closes position 
+   or crashes
+
+## Database Models
+- User (id, telegram_id, username, api_key_encrypted, created_at)
+- Strategy (id, user_id, name, config_json, status, created_at)
+- Trade (id, strategy_id, symbol, side, price, amount, pnl, 
+  timestamp)
+- Subscription (id, user_id, plan, expires_at, paid_in_usdt)
+
+## Key Rules
+- Never store API keys in plaintext — always encrypt with Fernet
+- All bot instances run as async background tasks via asyncio
+- Use CCXT unified interface so adding new exchanges later is easy
+- Frontend communicates with backend only via REST + WebSocket
+- One active bot per strategy max
+- Paper trading and live trading share same engine, 
+  different execution layer
+
+## Environment Variables (.env)
+DATABASE_URL=postgresql://...
+REDIS_URL=redis://...
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_BOT_USERNAME=...
+SECRET_KEY=...
+FERNET_KEY=...
+CRYPTOBOT_TOKEN=...
+
+## Start with
+Generate the full project scaffold with Docker Compose, 
+FastAPI app skeleton, SQLAlchemy models, and React app 
+with routing. Include README with setup instructions.
