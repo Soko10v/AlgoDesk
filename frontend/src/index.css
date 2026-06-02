@@ -1,0 +1,85 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-ink-950 text-slate-200 antialiased;
+    font-family: Inter, system-ui, -apple-system, sans-serif;
+    background-image: radial-gradient(55% 45% at 50% -5%, rgba(16, 185, 129, 0.1), transparent 70%),
+      radial-gradient(40% 35% at 100% 0%, rgba(99, 102, 241, 0.1), transparent 60%);
+    background-attachment: fixed;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-white/10;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-white/20;
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-white/[0.06] bg-white/[0.03] shadow-card backdrop-blur-sm;
+  }
+  .card-hover {
+    @apply transition duration-200 hover:border-white/[0.12] hover:bg-white/[0.05];
+  }
+
+  .input {
+    @apply w-full rounded-xl border border-white/[0.08] bg-ink-900/60 px-3.5 py-2.5 text-sm text-slate-100
+      placeholder:text-slate-500 outline-none transition;
+  }
+  .input:focus {
+    @apply border-brand-500/60 ring-2 ring-brand-500/20;
+  }
+
+  .label {
+    @apply mb-1.5 block text-xs font-medium uppercase tracking-wider text-slate-400;
+  }
+
+  .btn {
+    @apply inline-flex select-none items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold
+      transition active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply bg-brand-500 text-ink-950 hover:bg-brand-400;
+    box-shadow: 0 10px 28px -12px rgba(16, 185, 129, 0.7);
+  }
+  .btn-secondary {
+    @apply bg-indigo-500 text-white hover:bg-indigo-400;
+  }
+  .btn-ghost {
+    @apply border border-white/[0.07] bg-white/[0.04] text-slate-200 hover:bg-white/[0.08];
+  }
+  .btn-danger {
+    @apply bg-rose-500/90 text-white hover:bg-rose-500;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium;
+  }
+}

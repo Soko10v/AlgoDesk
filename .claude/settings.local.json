@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell([Console]::OutputEncoding = [System.Text.Encoding]::UTF8; wsl -d Ubuntu bash -lc 'cd /home/atralin/AlgoDesk && echo \"TRACKED_ENV_FILES:\" && git ls-files | grep -i \"env\" ; echo \"GITIGNORE_TRACKED:\" && git ls-files | grep -i \"gitignore\" ; echo \"IS_infra/.env_IGNORED:\" && git check-ignore infra/.env ; echo \"DONE\"')",
+      "PowerShell(wsl -d Ubuntu python3 -c 'import os,base64,secrets; print\\(\"FERNET=\"+base64.urlsafe_b64encode\\(os.urandom\\(32\\)\\).decode\\(\\)\\); print\\(\"SECRET=\"+secrets.token_urlsafe\\(48\\)\\)')",
+      "PowerShell($rng = [System.Security.Cryptography.RandomNumberGenerator]; $b1 = New-Object byte[] 32; $rng::Fill\\($b1\\); $b2 = New-Object byte[] 48; $rng::Fill\\($b2\\); $fernet = [Convert]::ToBase64String\\($b1\\).Replace\\('+','-'\\).Replace\\('/','_'\\); $secret = [Convert]::ToBase64String\\($b2\\).Replace\\('+','-'\\).Replace\\('/','_'\\).TrimEnd\\('='\\); Write-Output \"FERNET=$fernet\"; Write-Output \"SECRET=$secret\")",
+      "PowerShell($exe = \"C:\\\\Program Files\\\\Docker\\\\Docker\\\\Docker Desktop.exe\"; Write-Output \\(\"INSTALLED: \" + \\(Test-Path $exe\\)\\); $p = Get-Process \"Docker Desktop\" -ErrorAction SilentlyContinue; Write-Output \\(\"RUNNING: \" + [bool]$p\\); $svc = Get-Service com.docker.service -ErrorAction SilentlyContinue; if \\($svc\\) { Write-Output \\(\"SERVICE: \" + $svc.Status\\) } else { Write-Output \"SERVICE: not found\" })"
+    ]
+  }
+}
