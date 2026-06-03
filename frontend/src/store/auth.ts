@@ -1,31 +1,37 @@
 import { create } from "zustand";
 
-type User = { id: number; username: string | null; telegram_id: number } | null;
+export type AppUser = {
+  id: number;
+  email: string | null;
+  username: string | null;
+} | null;
 
 type AuthState = {
   token: string | null;
-  user: User;
+  user: AppUser;
   setToken: (token: string | null) => void;
-  setUser: (user: User) => void;
+  setUser: (user: AppUser) => void;
   logout: () => void;
 };
 
-const initialToken = localStorage.getItem("algodesk_token");
+const TOKEN_KEY = "algodesk_token";
+
+const initialToken = localStorage.getItem(TOKEN_KEY);
 
 export const useAuthStore = create<AuthState>((set) => ({
   token: initialToken,
   user: null,
   setToken: (token) => {
     if (token) {
-      localStorage.setItem("algodesk_token", token);
+      localStorage.setItem(TOKEN_KEY, token);
     } else {
-      localStorage.removeItem("algodesk_token");
+      localStorage.removeItem(TOKEN_KEY);
     }
     set({ token });
   },
   setUser: (user) => set({ user }),
   logout: () => {
-    localStorage.removeItem("algodesk_token");
+    localStorage.removeItem(TOKEN_KEY);
     set({ token: null, user: null });
   },
 }));

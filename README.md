@@ -5,7 +5,7 @@ No-code algorithmic trading bot constructor for crypto traders.
 ## Stack
 
 - Backend: Python 3.11, FastAPI, SQLAlchemy (async), Redis, CCXT
-- Database: **Supabase** (hosted PostgreSQL) — users, strategies, trades, subscriptions
+- Database & auth: **Supabase** (PostgreSQL + email/password Auth)
 - Frontend: React 18, Vite, TypeScript, TailwindCSS, Zustand, React Query
 - Infra: Docker on VPS (Redis + API/workers + nginx); no Postgres on VPS
 
@@ -20,7 +20,7 @@ No-code algorithmic trading bot constructor for crypto traders.
 
 | Supabase (durable) | VPS (runtime) |
 | --- | --- |
-| Users, Telegram id, encrypted exchange keys | Live price stream (Bybit → Redis) |
+| Auth (`auth.users`) + app profiles, encrypted exchange keys | Live price stream (Bybit → Redis) |
 | Strategies (`config_json`, status) | Bot supervisor (in-process state) |
 | Trades history | Redis: `price:*`, `closes:*`, pub/sub for WebSocket |
 | Subscriptions / payments state | FastAPI, CCXT live orders, Telegram alerts |
@@ -29,8 +29,8 @@ See `supabase/README.md` for creating a project and applying the schema.
 
 ## Quick start (VPS / production)
 
-1. Create a Supabase project and run `supabase/migrations/20260603000000_initial.sql` (or `alembic upgrade head` once).
-2. Configure `infra/.env` from `.env.example` with your `DATABASE_URL` and `RUN_DB_MIGRATIONS=false`.
+1. Create a Supabase project, enable Email auth, run both SQL migrations in `supabase/migrations/` (or `alembic upgrade head` once).
+2. Configure `infra/.env` from `.env.example` with `DATABASE_URL`, `SUPABASE_*`, `VITE_SUPABASE_*`, and `RUN_DB_MIGRATIONS=false`.
 3. Deploy:
 
 ```bash
@@ -52,12 +52,10 @@ docker compose --profile local-db up --build
 
 ## Logging in
 
-- **Dev login** (default): when `DEV_AUTH=true`, the login screen shows a
-  username field that issues a session instantly — no Telegram bot required.
-  Disable it with `DEV_AUTH=false` in production.
-- **Telegram OAuth**: set `TELEGRAM_BOT_USERNAME` and `TELEGRAM_BOT_TOKEN`,
-  point your bot's domain (BotFather → `/setdomain`) at the public frontend
-  URL, and the official Telegram Login Widget appears automatically.
+- **Email + password** via Supabase Auth on the login page.
+- Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` for the frontend build, and
+  `SUPABASE_URL` / `SUPABASE_ANON_KEY` for the backend (token validation).
+- Optional: `TELEGRAM_BOT_TOKEN` still sends trade alerts if users have a `telegram_id` linked later.
 
 ## Environment
 
@@ -66,12 +64,13 @@ Edit `infra/.env`. Important values:
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` | Supabase Postgres (`postgresql+asyncpg://...`) |
+| `SUPABASE_URL` / `SUPABASE_ANON_KEY` | Backend validates Supabase access tokens |
+| `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | Frontend Supabase Auth client (build-time) |
 | `RUN_DB_MIGRATIONS` | `false` on VPS after schema exists; `true` for local Postgres profile |
 | `REDIS_URL` | Ephemeral prices and WS events (stays on VPS) |
-| `SECRET_KEY` | JWT signing key |
+| `SECRET_KEY` | Legacy/internal signing (retained for compatibility) |
 | `FERNET_KEY` | Encrypts exchange API keys at rest |
-| `DEV_AUTH` | Enables the dev login bypass (set `false` in prod) |
-| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_BOT_USERNAME` | Telegram OAuth + alerts |
+| `TELEGRAM_BOT_TOKEN` | Optional trade alerts |
 | `CRYPTOBOT_TOKEN` | CryptoBot (USDT) payments |
 
 Generate fresh secrets:
