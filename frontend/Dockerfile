@@ -1,12 +1,17 @@
-FROM node:20-alpine
-
+# --- build stage ---
+FROM node:20-alpine AS build
 WORKDIR /app
-
 COPY package.json package-lock.json* ./
 RUN npm install
-
 COPY . .
+# Relative API base so the SPA talks to the same origin (nginx proxies /api).
+ARG VITE_API_BASE=/api/v1
+ENV VITE_API_BASE=$VITE_API_BASE
+RUN npm run build
 
-EXPOSE 5173
-
-CMD ["npm", "run", "dev"]
+# --- serve stage ---
+FROM nginx:alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]

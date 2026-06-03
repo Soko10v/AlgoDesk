@@ -6,8 +6,6 @@ services:
       POSTGRES_USER: algodesk
       POSTGRES_PASSWORD: algodesk
       POSTGRES_DB: algodesk
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -19,8 +17,6 @@ services:
   redis:
     image: redis:7
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -28,8 +24,8 @@ services:
       retries: 10
 
   # Bots and the live price stream run inside this single backend process and
-  # are recovered on startup. Run a single backend replica — runtime state is
-  # held in-process (see app/workers/bot_supervisor.py).
+  # are recovered on startup. Run a single backend replica (state is in-process).
+  # Not published externally — nginx (frontend) proxies /api to it.
   backend:
     build:
       context: ../backend
@@ -39,9 +35,8 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://algodesk:algodesk@postgres:5432/algodesk
       REDIS_URL: redis://redis:6379/0
-      FRONTEND_ORIGIN: http://localhost:5173
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,17 +47,19 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 20s
+      start_period: 30s
 
+  # nginx serves the built SPA and reverse-proxies /api (+ WebSocket) to backend.
+  # The only externally published port.
   frontend:
     build:
       context: ../frontend
+      args:
+        VITE_API_BASE: /api/v1
     restart: unless-stopped
-    environment:
-      VITE_API_BASE: http://localhost:8000/api/v1
-      VITE_WS_BASE: ws://localhost:8000/api/v1/ws
+    # Bound to loopback; the host nginx terminates TLS and proxies to this.
     ports:
-      - "5173:5173"
+      - "127.0.0.1:8080:80"
     depends_on:
       backend:
         condition: service_healthy
