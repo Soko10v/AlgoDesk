@@ -57,6 +57,8 @@ services:
       context: ../frontend
       args:
         VITE_API_BASE: /api/v1
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
     restart: unless-stopped
     ports:
       - "127.0.0.1:8080:80"

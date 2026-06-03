@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 class UserOut(BaseModel):
     id: int
-    telegram_id: int
+    email: str | None
     username: str | None
     created_at: datetime
 

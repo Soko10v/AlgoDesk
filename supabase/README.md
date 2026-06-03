@@ -1,6 +1,6 @@
-# Supabase (hosted PostgreSQL)
+# Supabase (hosted PostgreSQL + Auth)
 
-AlgoDesk stores durable data in **Supabase Postgres**: users, strategies, trades, subscriptions, encrypted exchange keys.
+AlgoDesk stores durable data in **Supabase Postgres** and uses **Supabase Auth** (email/password) for login.
 
 The **VPS** runs only runtime services: FastAPI (bots + price stream + API), Redis, and the frontend proxy.
 
@@ -9,14 +9,21 @@ The **VPS** runs only runtime services: FastAPI (bots + price stream + API), Red
 1. [supabase.com](https://supabase.com) → New project.
 2. Wait until the database is ready.
 
-## 2. Apply schema
+## 2. Enable Auth (email/password)
 
-**Option A — SQL (one-time)**
+1. Dashboard → **Authentication** → **Providers**.
+2. Enable **Email**.
+3. For quick testing: **Authentication** → **Sign In / Providers** → disable **Confirm email** (optional).
+4. For production: enable email confirmation.
 
-1. Dashboard → **SQL Editor**.
-2. Paste and run `supabase/migrations/20260603000000_initial.sql`.
+## 3. Apply schema
 
-**Option B — Alembic (from your machine or CI)**
+Run both SQL files in order in **SQL Editor**:
+
+1. `supabase/migrations/20260603000000_initial.sql`
+2. `supabase/migrations/20260603100000_supabase_auth.sql`
+
+Or from the backend machine:
 
 ```bash
 cd backend
@@ -24,46 +31,47 @@ export DATABASE_URL="postgresql+asyncpg://postgres.[ref]:[PASSWORD]@db.[ref].sup
 alembic upgrade head
 ```
 
-**Option C — Supabase CLI**
+After the schema exists, set `RUN_DB_MIGRATIONS=false` on the VPS.
 
-```bash
-supabase link --project-ref <your-ref>
-supabase db push
-```
+## 4. API keys and connection string
 
-After the schema exists, set `RUN_DB_MIGRATIONS=false` on the VPS so the container does not run Alembic on every start.
+**Project Settings** → **API**:
 
-## 3. Connection string for the backend
+- `Project URL` → `SUPABASE_URL` and `VITE_SUPABASE_URL`
+- `anon` `public` key → `SUPABASE_ANON_KEY` and `VITE_SUPABASE_ANON_KEY`
 
-Dashboard → **Project Settings** → **Database** → **Connection string**.
-
-Use the **URI** format and switch the driver to async:
+**Project Settings** → **Database** → **Connection string** (Session pooler, port 5432):
 
 ```
 postgresql+asyncpg://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:5432/postgres
 ```
 
-Recommendations:
+→ `DATABASE_URL` in `infra/.env`
 
-| Mode | Port | Use for AlgoDesk backend |
-|------|------|---------------------------|
-| **Session pooler** | 5432 | Yes — long-lived bots + async SQLAlchemy |
-| Transaction pooler | 6543 | Avoid for this app (bots hold connections) |
-| Direct | 5432 (`db.*.supabase.co`) | OK for migrations / low connection count |
+SSL to Supabase Postgres is enabled automatically in the backend.
 
-Put the URL in `infra/.env` as `DATABASE_URL=...`.
-
-SSL is enabled automatically when the host is `*.supabase.co` or `*.supabase.com`.
-
-## 4. VPS `.env` checklist
+## 5. VPS `.env` checklist
 
 ```env
 DATABASE_URL=postgresql+asyncpg://...
+SUPABASE_URL=https://xxxx.supabase.co
+SUPABASE_ANON_KEY=eyJ...
+VITE_SUPABASE_URL=https://xxxx.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJ...
 REDIS_URL=redis://redis:6379/0
 RUN_DB_MIGRATIONS=false
 SECRET_KEY=...
 FERNET_KEY=...
 DEV_AUTH=false
+FRONTEND_ORIGIN=https://your-domain
 ```
 
-Do **not** run a Postgres container on the VPS when using Supabase.
+Rebuild frontend after changing `VITE_*` vars (`docker compose up --build`).
+
+## 6. Auth flow
+
+1. User signs up / signs in on the frontend via `@supabase/supabase-js`.
+2. Frontend sends Supabase `access_token` as `Authorization: Bearer` to FastAPI.
+3. Backend validates token with `GET /auth/v1/user`, then creates/loads row in `users` by `auth_user_id`.
+
+Do **not** put the Supabase **service_role** key in the browser or frontend build.

@@ -24,8 +24,7 @@ export type Strategy = {
   created_at: string;
 };
 
-export type CurrentUser = { id: number; username: string | null; telegram_id: number };
-export type AuthConfig = { telegram_bot_username: string; dev_auth: boolean };
+export type CurrentUser = { id: number; email: string | null; username: string | null; created_at: string };
 export type Subscription = { plan: string; expires_at: string | null };
 
 export type Trade = {
@@ -46,22 +45,6 @@ export type BacktestResult = {
   trades: Array<Record<string, unknown>>;
   equity_curve: Array<{ x: number; y: number }>;
 };
-
-// ---- auth ----
-export async function authConfig() {
-  const { data } = await api.get("/auth/config");
-  return data as AuthConfig;
-}
-
-export async function authTelegram(payload: Record<string, unknown>) {
-  const { data } = await api.post("/auth/telegram", payload);
-  return data as { access_token: string };
-}
-
-export async function devLogin(username: string) {
-  const { data } = await api.post("/auth/dev-login", { username });
-  return data as { access_token: string };
-}
 
 export async function me() {
   const { data } = await api.get("/auth/me");

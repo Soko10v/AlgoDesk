@@ -1,8 +1,7 @@
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Activity, BarChart3, Boxes, Send, ShieldCheck, Zap } from "lucide-react";
-import { authTelegram, devLogin } from "../api/endpoints";
-import { useAuthConfig } from "../hooks/useAuth";
+import { Activity, BarChart3, Boxes, Mail, ShieldCheck, Zap } from "lucide-react";
+import { supabase, supabaseConfigured } from "../lib/supabase";
 import { useAuthStore } from "../store/auth";
 import { toast } from "../store/toast";
 import { Button, Card, Input, Spinner } from "../components/ui";
@@ -16,48 +15,42 @@ const features = [
 
 export function LoginPage() {
   const token = useAuthStore((s) => s.token);
-  const setToken = useAuthStore((s) => s.setToken);
   const navigate = useNavigate();
-  const { data: config, isLoading } = useAuthConfig();
-  const widgetRef = useRef<HTMLDivElement | null>(null);
-  const [username, setUsername] = useState("");
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!config?.telegram_bot_username || !widgetRef.current) return;
-    (window as unknown as { onTelegramAuth?: (u: Record<string, unknown>) => void }).onTelegramAuth = async (user) => {
-      try {
-        const { access_token } = await authTelegram(user);
-        setToken(access_token);
-        navigate("/");
-      } catch {
-        toast.error("Telegram login failed", "Check the bot domain configuration.");
-      }
-    };
-    const script = document.createElement("script");
-    script.src = "https://telegram.org/js/telegram-widget.js?22";
-    script.async = true;
-    script.setAttribute("data-telegram-login", config.telegram_bot_username);
-    script.setAttribute("data-size", "large");
-    script.setAttribute("data-radius", "12");
-    script.setAttribute("data-onauth", "onTelegramAuth(user)");
-    script.setAttribute("data-request-access", "write");
-    widgetRef.current.innerHTML = "";
-    widgetRef.current.appendChild(script);
-  }, [config?.telegram_bot_username, navigate, setToken]);
 
   if (token) return <Navigate to="/" replace />;
 
-  async function handleDevLogin(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!username.trim()) return;
+    if (!email.trim() || !password) return;
+    if (!supabaseConfigured) {
+      toast.error("Auth not configured", "Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
+      return;
+    }
     setBusy(true);
     try {
-      const { access_token } = await devLogin(username.trim());
-      setToken(access_token);
-      navigate("/");
-    } catch {
-      toast.error("Dev login failed", "Is DEV_AUTH enabled on the backend?");
+      if (mode === "signup") {
+        const { error } = await supabase.auth.signUp({ email: email.trim(), password });
+        if (error) throw error;
+        toast.success("Account created", "Check your email if confirmation is enabled, then sign in.");
+        setMode("signin");
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+        if (error) throw error;
+        if (!data.session?.access_token) {
+          throw new Error("No session returned");
+        }
+        navigate("/");
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Authentication failed";
+      toast.error(mode === "signup" ? "Sign up failed" : "Sign in failed", message);
     } finally {
       setBusy(false);
     }
@@ -65,7 +58,6 @@ export function LoginPage() {
 
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
-      {/* Marketing panel */}
       <div className="relative hidden flex-col justify-between overflow-hidden border-r border-white/[0.06] p-12 lg:flex">
         <div className="flex items-center gap-3">
           <div className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-brand-400 to-brand-600 text-ink-950 shadow-glow">
@@ -98,7 +90,6 @@ export function LoginPage() {
         <div className="text-xs text-slate-600">Built for crypto traders · Bybit · USDT</div>
       </div>
 
-      {/* Auth panel */}
       <div className="flex items-center justify-center p-6">
         <Card className="w-full max-w-md animate-slide-up p-8">
           <div className="mb-6 flex items-center gap-3 lg:hidden">
@@ -108,57 +99,72 @@ export function LoginPage() {
             <div className="text-lg font-bold text-white">AlgoDesk</div>
           </div>
 
-          <h2 className="text-xl font-bold text-white">Sign in</h2>
-          <p className="mt-1 text-sm text-slate-400">Welcome back — choose how you want to continue.</p>
+          <h2 className="text-xl font-bold text-white">{mode === "signin" ? "Sign in" : "Create account"}</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            {mode === "signin" ? "Welcome back — enter your email and password." : "Start with email and password."}
+          </p>
 
-          {isLoading ? (
-            <div className="mt-8 flex justify-center">
-              <Spinner />
+          {!supabaseConfigured ? (
+            <div className="mt-6 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm text-amber-200">
+              Supabase Auth is not configured. Set <code className="text-slate-300">VITE_SUPABASE_URL</code> and{" "}
+              <code className="text-slate-300">VITE_SUPABASE_ANON_KEY</code> in the frontend environment.
             </div>
           ) : (
-            <div className="mt-6 space-y-6">
-              {config?.telegram_bot_username && (
-                <div>
-                  <div className="label flex items-center gap-2">
-                    <Send className="h-3.5 w-3.5" /> Telegram
-                  </div>
-                  <div ref={widgetRef} className="flex min-h-[48px] items-center" />
-                </div>
-              )}
-
-              {config?.telegram_bot_username && config?.dev_auth && (
-                <div className="flex items-center gap-3 text-xs text-slate-600">
-                  <span className="h-px flex-1 bg-white/[0.08]" /> or <span className="h-px flex-1 bg-white/[0.08]" />
-                </div>
-              )}
-
-              {config?.dev_auth && (
-                <form onSubmit={handleDevLogin} className="space-y-3">
-                  <div>
-                    <span className="label">Developer login</span>
-                    <Input
-                      placeholder="Pick a username"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      autoFocus
-                    />
-                  </div>
-                  <Button type="submit" className="w-full" loading={busy}>
-                    Continue
-                  </Button>
-                  <p className="text-center text-xs text-slate-500">
-                    Local development bypass · disable with <code className="text-slate-400">DEV_AUTH=false</code>
-                  </p>
-                </form>
-              )}
-
-              {!config?.telegram_bot_username && !config?.dev_auth && (
-                <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm text-amber-200">
-                  No login method is configured. Set <code>TELEGRAM_BOT_USERNAME</code> or <code>DEV_AUTH=true</code> on
-                  the backend.
-                </div>
-              )}
-            </div>
+            <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+              <div>
+                <span className="label flex items-center gap-2">
+                  <Mail className="h-3.5 w-3.5" /> Email
+                </span>
+                <Input
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  required
+                />
+              </div>
+              <div>
+                <span className="label">Password</span>
+                <Input
+                  type="password"
+                  placeholder={mode === "signup" ? "At least 6 characters" : "Your password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                  minLength={mode === "signup" ? 6 : 1}
+                  required
+                />
+              </div>
+              <Button type="submit" className="w-full" loading={busy}>
+                {mode === "signin" ? "Sign in" : "Sign up"}
+              </Button>
+              <p className="text-center text-sm text-slate-500">
+                {mode === "signin" ? (
+                  <>
+                    No account?{" "}
+                    <button
+                      type="button"
+                      className="text-brand-400 hover:underline"
+                      onClick={() => setMode("signup")}
+                    >
+                      Sign up
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    Already have an account?{" "}
+                    <button
+                      type="button"
+                      className="text-brand-400 hover:underline"
+                      onClick={() => setMode("signin")}
+                    >
+                      Sign in
+                    </button>
+                  </>
+                )}
+              </p>
+            </form>
           )}
         </Card>
       </div>
