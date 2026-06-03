@@ -9,6 +9,7 @@ import {
   ScrollText,
   SlidersHorizontal,
 } from "lucide-react";
+import { signOut } from "../hooks/useAuth";
 import { useAuthStore } from "../store/auth";
 import { Toaster } from "./Toaster";
 import { cn } from "../lib/cn";
@@ -38,7 +39,9 @@ function Brand() {
 
 export function Layout() {
   const user = useAuthStore((s) => s.user);
-  const logout = useAuthStore((s) => s.logout);
+  const handleLogout = () => {
+    void signOut();
+  };
   const location = useLocation();
   const current =
     nav.find((n) => (n.end ? location.pathname === n.to : location.pathname.startsWith(n.to))) ?? nav[0];
@@ -78,12 +81,14 @@ export function Layout() {
               {(user?.username ?? "?").slice(0, 2).toUpperCase()}
             </div>
             <div className="min-w-0">
-              <div className="truncate text-sm font-medium text-slate-200">{user?.username ?? "Trader"}</div>
-              <div className="text-[11px] text-slate-500">ID {user?.telegram_id ?? "—"}</div>
+              <div className="truncate text-sm font-medium text-slate-200">
+                {user?.username ?? user?.email ?? "Trader"}
+              </div>
+              <div className="truncate text-[11px] text-slate-500">{user?.email ?? "—"}</div>
             </div>
           </div>
           <button
-            onClick={logout}
+            onClick={handleLogout}
             title="Log out"
             className="rounded-lg p-2 text-slate-400 transition hover:bg-white/[0.06] hover:text-rose-300"
           >
@@ -107,7 +112,7 @@ export function Layout() {
                 Live
               </span>
               <button
-                onClick={logout}
+                onClick={handleLogout}
                 title="Log out"
                 className="rounded-lg p-2 text-slate-400 transition hover:bg-white/[0.06] hover:text-rose-300 lg:hidden"
               >

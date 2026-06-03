@@ -4,8 +4,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    # Supabase (production): postgresql+asyncpg://postgres.[ref]:...@....supabase.com:5432/postgres
     database_url: str = "postgresql+asyncpg://algodesk:algodesk@localhost:5432/algodesk"
+    # Set false when schema is managed in Supabase (SQL or one-off alembic upgrade)
+    run_db_migrations: bool = True
     redis_url: str = "redis://localhost:6379/0"
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
+    # Set true on VPS networks that MITM TLS (e.g. some CN cloud hosts)
+    database_ssl_insecure: bool = False
     telegram_bot_token: str = ""
     telegram_bot_username: str = ""
     secret_key: str = "change_me"

@@ -10,7 +10,9 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    auth_user_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    telegram_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, index=True, nullable=True)
     username: Mapped[str | None] = mapped_column(String(255), nullable=True)
     api_key_encrypted: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     api_secret_encrypted: Mapped[str | None] = mapped_column(String(1024), nullable=True)

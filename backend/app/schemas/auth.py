@@ -1,6 +1,12 @@
 from pydantic import BaseModel, Field
 
 
+class AuthConfigOut(BaseModel):
+    supabase_url: str
+    supabase_anon_key: str
+    telegram_bot_username: str = ""
+
+
 class TelegramAuthIn(BaseModel):
     id: int
     first_name: str | None = None
@@ -13,12 +19,3 @@ class TelegramAuthIn(BaseModel):
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
-
-
-class DevLoginIn(BaseModel):
-    username: str = Field(min_length=1, max_length=64)
-
-
-class AuthConfigOut(BaseModel):
-    telegram_bot_username: str
-    dev_auth: bool
