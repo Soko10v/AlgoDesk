@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.deps import get_current_user
 from app.models.subscription import Subscription
@@ -12,6 +13,7 @@ from app.schemas.payment import CheckoutIn, CheckoutOut, SubscriptionOut
 from app.services.cryptobot import create_invoice, new_expiration, verify_webhook_signature
 
 router = APIRouter()
+settings = get_settings()
 
 PLAN_PRICES = {"pro": 10.0}
 
@@ -21,6 +23,9 @@ async def get_subscription(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> SubscriptionOut:
+    # Launch promo: hand everyone full (pro) access without touching billing rows.
+    if settings.free_mode:
+        return SubscriptionOut(plan="pro", expires_at=None, free_mode=True)
     sub = (
         await db.execute(select(Subscription).where(Subscription.user_id == current_user.id))
     ).scalar_one_or_none()
@@ -34,6 +39,8 @@ async def checkout(
     payload: CheckoutIn,
     current_user: User = Depends(get_current_user),
 ) -> CheckoutOut:
+    if settings.free_mode:
+        raise HTTPException(status_code=400, detail="All plans are free during the launch promo.")
     price = PLAN_PRICES.get(payload.plan, 0.0)
     invoice = await create_invoice(price, current_user.id)
     return CheckoutOut(**invoice)

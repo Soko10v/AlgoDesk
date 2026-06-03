@@ -6,7 +6,7 @@ from app.core.deps import get_current_user
 from app.core.security import encrypt_secret
 from app.models.user import User
 from app.schemas.exchange import ExchangeConnectIn
-from app.services.bybit import test_user_credentials
+from app.services.exchange import test_user_credentials
 
 router = APIRouter()
 
@@ -17,6 +17,7 @@ async def connect_exchange(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
+    current_user.exchange = payload.exchange
     current_user.api_key_encrypted = encrypt_secret(payload.api_key)
     current_user.api_secret_encrypted = encrypt_secret(payload.api_secret)
     await db.commit()
@@ -36,7 +37,10 @@ async def test_exchange(
 
 @router.get("/status")
 async def exchange_status(current_user: User = Depends(get_current_user)) -> dict:
-    return {"connected": bool(current_user.api_key_encrypted and current_user.api_secret_encrypted)}
+    return {
+        "connected": bool(current_user.api_key_encrypted and current_user.api_secret_encrypted),
+        "exchange": current_user.exchange,
+    }
 
 
 @router.delete("/disconnect")

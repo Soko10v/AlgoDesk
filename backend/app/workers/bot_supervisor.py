@@ -14,7 +14,7 @@ from app.engine.strategy_evaluator import evaluate_signal
 from app.models.strategy import Strategy
 from app.models.trade import Trade
 from app.models.user import User
-from app.services.bybit import bybit_client
+from app.services.exchange import exchange_client
 from app.services.events import publish_user_event
 from app.services.telegram_alerts import send_telegram_alert
 
@@ -90,7 +90,7 @@ class BotSupervisor:
         symbol = config.get("symbol", "BTC/USDT")
         timeframe = config.get("timeframe", "1m")
         key = f"closes:{symbol.replace('/', '_')}"
-        client = bybit_client()
+        client = exchange_client()
         try:
             candles = await client.fetch_ohlcv(symbol=symbol, timeframe=timeframe, limit=SEED_CANDLES)
         except Exception as exc:  # noqa: BLE001 - seeding is best-effort

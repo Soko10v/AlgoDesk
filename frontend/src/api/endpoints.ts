@@ -30,7 +30,10 @@ export type AuthConfig = {
   supabase_anon_key: string;
   telegram_bot_username: string;
 };
-export type Subscription = { plan: string; expires_at: string | null };
+export type Subscription = { plan: string; expires_at: string | null; free_mode?: boolean };
+
+export type ExchangeId = "bybit" | "binance";
+export type ExchangeStatus = { connected: boolean; exchange: ExchangeId };
 
 export type Trade = {
   id: number;
@@ -111,14 +114,14 @@ export async function listTrades(strategy_id?: number) {
 }
 
 // ---- exchange ----
-export async function connectExchange(api_key: string, api_secret: string) {
-  const { data } = await api.post("/exchange/connect", { api_key, api_secret });
+export async function connectExchange(exchange: ExchangeId, api_key: string, api_secret: string) {
+  const { data } = await api.post("/exchange/connect", { exchange, api_key, api_secret });
   return data as { ok: boolean };
 }
 
 export async function exchangeStatus() {
   const { data } = await api.get("/exchange/status");
-  return data as { connected: boolean };
+  return data as ExchangeStatus;
 }
 
 export async function testExchange() {

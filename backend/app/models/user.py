@@ -14,6 +14,7 @@ class User(Base):
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     telegram_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, index=True, nullable=True)
     username: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    exchange: Mapped[str] = mapped_column(String(16), default="bybit", server_default="bybit", nullable=False)
     api_key_encrypted: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     api_secret_encrypted: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
