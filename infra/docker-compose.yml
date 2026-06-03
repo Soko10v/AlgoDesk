@@ -52,13 +52,15 @@ services:
       retries: 10
       start_period: 30s
 
+  # nginx serves the built SPA and reverse-proxies /api (+ WebSocket) to backend.
+  # Bound to loopback; the host nginx terminates TLS and proxies to this.
   frontend:
     build:
       context: ../frontend
       args:
         VITE_API_BASE: /api/v1
-        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
-        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-}
     restart: unless-stopped
     ports:
       - "127.0.0.1:8080:80"
