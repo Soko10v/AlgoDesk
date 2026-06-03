@@ -83,14 +83,20 @@ export function DashboardPage() {
           icon={Plug}
           label="Exchange"
           value={exchange.data?.connected ? "Connected" : "Not linked"}
-          sub="Bybit API"
+          sub={<span className="capitalize">{exchange.data?.connected ? `${exchange.data.exchange} API` : "Bybit or Binance"}</span>}
           valueClassName={exchange.data?.connected ? "text-brand-400" : "text-slate-400"}
         />
         <StatCard
           icon={Crown}
           label="Plan"
           value={<span className="capitalize">{subscription.data?.plan ?? "free"}</span>}
-          sub={subscription.data?.plan === "pro" ? "Pro features unlocked" : "Upgrade for more"}
+          sub={
+            subscription.data?.free_mode
+              ? "Free during launch 🎉"
+              : subscription.data?.plan === "pro"
+                ? "Pro features unlocked"
+                : "Upgrade for more"
+          }
           valueClassName={subscription.data?.plan === "pro" ? "text-amber-300" : undefined}
         />
       </div>

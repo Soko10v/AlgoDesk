@@ -1,13 +1,13 @@
 from typing import Any
 
 from app.engine.strategy_evaluator import evaluate_signal
-from app.services.bybit import bybit_client
+from app.services.exchange import exchange_client
 
 
 async def run_backtest(config: dict[str, Any], since_ms: int | None = None, limit: int = 500) -> dict[str, Any]:
     symbol = config.get("symbol", "BTC/USDT")
     timeframe = config.get("timeframe", "1h")
-    client = bybit_client()
+    client = exchange_client()
     try:
         candles = await client.fetch_ohlcv(symbol=symbol, timeframe=timeframe, since=since_ms, limit=limit)
     finally:

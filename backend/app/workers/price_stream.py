@@ -2,15 +2,15 @@ import asyncio
 import logging
 
 from app.core.redis import redis_client
-from app.services.bybit import bybit_client
+from app.services.exchange import exchange_client
 
 logger = logging.getLogger(__name__)
 
 
 async def stream_symbols(symbols: list[str], interval: float = 1.0) -> None:
-    """Poll Bybit tickers and publish last prices to Redis. Resilient to
+    """Poll public tickers and publish last prices to Redis. Resilient to
     transient errors so a single failed fetch does not kill the stream."""
-    client = bybit_client()
+    client = exchange_client()
     try:
         while True:
             for symbol in symbols:
