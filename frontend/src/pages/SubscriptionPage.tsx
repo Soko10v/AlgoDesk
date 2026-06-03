@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Check, Crown, Sparkles } from "lucide-react";
+import { Check, Crown, Gift, Sparkles } from "lucide-react";
 import { checkout, getSubscription } from "../api/endpoints";
 import { toast } from "../store/toast";
 import { Badge, Button, Card, PageHeader } from "../components/ui";
@@ -26,6 +26,7 @@ const plans = [
 export function SubscriptionPage() {
   const subscription = useQuery({ queryKey: ["subscription"], queryFn: getSubscription });
   const current = subscription.data?.plan ?? "free";
+  const freeMode = subscription.data?.free_mode ?? false;
 
   const upgrade = useMutation({
     mutationFn: () => checkout("pro"),
@@ -38,7 +39,25 @@ export function SubscriptionPage() {
 
   return (
     <div className="animate-fade-in">
-      <PageHeader title="Subscription" description="Upgrade to unlock live trading and more." />
+      <PageHeader
+        title="Subscription"
+        description={freeMode ? "Every feature is free during our launch." : "Upgrade to unlock live trading and more."}
+      />
+
+      {freeMode && (
+        <Card className="mb-6 flex animate-slide-up items-center gap-3 border-brand-500/30 p-5 shadow-glow">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-500/15 text-brand-300">
+            <Gift className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="font-semibold text-slate-100">Free during launch 🎉</div>
+            <div className="text-sm text-slate-400">
+              All Pro features — live trading, unlimited bots and Telegram alerts — are unlocked for everyone, no payment
+              required.
+            </div>
+          </div>
+        </Card>
+      )}
 
       <Card className="mb-6 flex animate-slide-up flex-wrap items-center justify-between gap-3 p-5">
         <div className="flex items-center gap-3">
@@ -78,8 +97,8 @@ export function SubscriptionPage() {
               )}
               <div className="text-sm font-semibold uppercase tracking-wider text-slate-400">{plan.name}</div>
               <div className="mt-2 flex items-baseline gap-1.5">
-                <span className="text-3xl font-bold text-white">{plan.price}</span>
-                <span className="text-sm text-slate-500">/ {plan.period}</span>
+                <span className="text-3xl font-bold text-white">{freeMode && isPro ? "Free" : plan.price}</span>
+                <span className="text-sm text-slate-500">/ {freeMode && isPro ? "during launch" : plan.period}</span>
               </div>
 
               <ul className="mt-5 space-y-2.5">
@@ -114,7 +133,9 @@ export function SubscriptionPage() {
       </div>
 
       <p className="mt-6 text-center text-xs text-slate-500">
-        Payments are processed in USDT via CryptoBot. Your Pro plan activates automatically after payment.
+        {freeMode
+          ? "Pro is on the house during our launch — no card or crypto needed. Enjoy!"
+          : "Payments are processed in USDT via CryptoBot. Your Pro plan activates automatically after payment."}
       </p>
     </div>
   );

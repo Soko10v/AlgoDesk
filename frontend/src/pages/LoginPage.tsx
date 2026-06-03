@@ -133,7 +133,7 @@ export function LoginPage() {
             Build, backtest and run <span className="text-brand-400">crypto trading bots</span> — without code.
           </h1>
           <p className="mt-4 text-slate-400">
-            Design strategies visually, validate them on real market data, then deploy to paper or live trading on Bybit.
+            Design strategies visually, validate them on real market data, then deploy to paper or live trading on Bybit or Binance.
           </p>
           <div className="mt-8 grid grid-cols-2 gap-4">
             {features.map((f) => (
