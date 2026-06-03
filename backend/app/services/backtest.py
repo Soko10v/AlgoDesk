@@ -3,13 +3,40 @@ from typing import Any
 from app.engine.strategy_evaluator import evaluate_signal
 from app.services.exchange import exchange_client
 
+# Most exchanges cap a single fetch_ohlcv call at ~1000 candles, so longer
+# backtests are stitched together from several paginated requests.
+MAX_CANDLES = 2000
+PER_REQUEST_LIMIT = 1000
 
-async def run_backtest(config: dict[str, Any], since_ms: int | None = None, limit: int = 500) -> dict[str, Any]:
+
+async def _fetch_candles(client, symbol: str, timeframe: str, since_ms: int | None, limit: int) -> list[list[float]]:
+    """Fetch up to `limit` OHLCV candles, paginating around the exchange's
+    per-request cap. With no `since`, returns the most recent `limit` candles."""
+    tf_ms = client.parse_timeframe(timeframe) * 1000
+    cursor = since_ms if since_ms is not None else client.milliseconds() - limit * tf_ms
+    candles: list[list[float]] = []
+    while len(candles) < limit:
+        want = min(PER_REQUEST_LIMIT, limit - len(candles))
+        batch = await client.fetch_ohlcv(symbol=symbol, timeframe=timeframe, since=cursor, limit=want)
+        if not batch:
+            break
+        if candles:  # drop any candle that overlaps the previous page
+            batch = [c for c in batch if c[0] > candles[-1][0]]
+            if not batch:
+                break
+        candles.extend(batch)
+        cursor = candles[-1][0] + tf_ms
+        if len(batch) < want:  # exchange returned everything it had
+            break
+    return candles[:limit]
+
+
+async def run_backtest(config: dict[str, Any], since_ms: int | None = None, limit: int = MAX_CANDLES) -> dict[str, Any]:
     symbol = config.get("symbol", "BTC/USDT")
     timeframe = config.get("timeframe", "1h")
     client = exchange_client()
     try:
-        candles = await client.fetch_ohlcv(symbol=symbol, timeframe=timeframe, since=since_ms, limit=limit)
+        candles = await _fetch_candles(client, symbol, timeframe, since_ms, limit)
     finally:
         await client.close()
 

@@ -6,7 +6,7 @@ import { signInWithGoogle, useAuthConfig } from "../hooks/useAuth";
 import { supabase, supabaseConfigured } from "../lib/supabase";
 import { useAuthStore } from "../store/auth";
 import { toast } from "../store/toast";
-import { Button, Card, Input } from "../components/ui";
+import { Button, Card, Input, Spinner } from "../components/ui";
 
 const features = [
   { icon: Boxes, title: "Visual builder", text: "Compose entry, exit, stop-loss and take-profit blocks — no code." },
@@ -27,6 +27,7 @@ function OAuthDivider() {
 
 export function LoginPage() {
   const token = useAuthStore((s) => s.token);
+  const ready = useAuthStore((s) => s.ready);
   const setToken = useAuthStore((s) => s.setToken);
   const navigate = useNavigate();
   const { data: config } = useAuthConfig();
@@ -62,6 +63,16 @@ export function LoginPage() {
     widgetRef.current.appendChild(script);
   }, [config?.telegram_bot_username, navigate, setToken]);
 
+  // While Supabase resolves the session (e.g. finishing an OAuth redirect),
+  // show a loader instead of the form so we don't flash it or let the user
+  // re-submit mid-exchange.
+  if (!ready) {
+    return (
+      <div className="grid min-h-screen place-items-center">
+        <Spinner className="h-6 w-6 text-brand-400" />
+      </div>
+    );
+  }
   if (token) return <Navigate to="/" replace />;
 
   async function handleSubmit(e: FormEvent) {
