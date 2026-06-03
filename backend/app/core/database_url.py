@@ -1,6 +1,11 @@
 """Helpers for PostgreSQL URLs (local, Docker, Supabase)."""
 
+import ssl
 from urllib.parse import urlparse
+
+import certifi
+
+from app.core.config import get_settings
 
 SUPABASE_HOST_MARKERS = (".supabase.co", ".supabase.com")
 
@@ -13,7 +18,14 @@ def is_supabase_host(database_url: str) -> bool:
 
 def sqlalchemy_async_connect_args(database_url: str) -> dict:
     if is_supabase_host(database_url):
-        return {"ssl": True}
+        settings = get_settings()
+        if settings.database_ssl_insecure:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+        else:
+            ctx = ssl.create_default_context(cafile=certifi.where())
+        return {"ssl": ctx}
     return {}
 
 

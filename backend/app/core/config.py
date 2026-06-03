@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     supabase_url: str = ""
     supabase_anon_key: str = ""
+    # Set true on VPS networks that MITM TLS (e.g. some CN cloud hosts)
+    database_ssl_insecure: bool = False
     telegram_bot_token: str = ""
     telegram_bot_username: str = ""
     secret_key: str = "change_me"

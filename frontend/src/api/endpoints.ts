@@ -25,6 +25,11 @@ export type Strategy = {
 };
 
 export type CurrentUser = { id: number; email: string | null; username: string | null; created_at: string };
+export type AuthConfig = {
+  supabase_url: string;
+  supabase_anon_key: string;
+  telegram_bot_username: string;
+};
 export type Subscription = { plan: string; expires_at: string | null };
 
 export type Trade = {
@@ -49,6 +54,16 @@ export type BacktestResult = {
 export async function me() {
   const { data } = await api.get("/auth/me");
   return data as CurrentUser;
+}
+
+export async function authConfig() {
+  const { data } = await api.get("/auth/config");
+  return data as AuthConfig;
+}
+
+export async function authTelegram(payload: Record<string, unknown>) {
+  const { data } = await api.post("/auth/telegram", payload);
+  return data as { access_token: string };
 }
 
 // ---- strategies ----

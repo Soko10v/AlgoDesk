@@ -13,8 +13,9 @@ The **VPS** runs only runtime services: FastAPI (bots + price stream + API), Red
 
 1. Dashboard → **Authentication** → **Providers**.
 2. Enable **Email**.
-3. For quick testing: **Authentication** → **Sign In / Providers** → disable **Confirm email** (optional).
-4. For production: enable email confirmation.
+3. Enable **Google** (Client ID / Secret from Google Cloud Console).
+4. **Authentication** → **URL Configuration** → add your site URL and `https://your-domain/login` to **Redirect URLs**.
+5. For quick testing: disable **Confirm email** (optional).
 
 ## 3. Apply schema
 
