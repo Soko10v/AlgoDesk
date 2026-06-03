@@ -1,5 +1,8 @@
+# Production VPS: Supabase Postgres (DATABASE_URL in .env) + Redis + backend + frontend.
+# Optional local Postgres: docker compose --profile local-db up
 services:
   postgres:
+    profiles: ["local-db"]
     image: postgres:16
     restart: unless-stopped
     environment:
@@ -25,7 +28,7 @@ services:
 
   # Bots and the live price stream run inside this single backend process and
   # are recovered on startup. Run a single backend replica (state is in-process).
-  # Not published externally — nginx (frontend) proxies /api to it.
+  # Durable data lives in Supabase; Redis holds ephemeral prices and WS events.
   backend:
     build:
       context: ../backend
@@ -33,15 +36,15 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://algodesk:algodesk@postgres:5432/algodesk
       REDIS_URL: redis://redis:6379/0
     expose:
       - "8000"
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
+        required: false
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
@@ -49,15 +52,12 @@ services:
       retries: 10
       start_period: 30s
 
-  # nginx serves the built SPA and reverse-proxies /api (+ WebSocket) to backend.
-  # The only externally published port.
   frontend:
     build:
       context: ../frontend
       args:
         VITE_API_BASE: /api/v1
     restart: unless-stopped
-    # Bound to loopback; the host nginx terminates TLS and proxies to this.
     ports:
       - "127.0.0.1:8080:80"
     depends_on:
