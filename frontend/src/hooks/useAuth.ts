@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { me } from "../api/endpoints";
+import { useQuery } from "@tanstack/react-query";
+import { authConfig, me } from "../api/endpoints";
 import { supabase, supabaseConfigured } from "../lib/supabase";
 import { useAuthStore } from "../store/auth";
 
@@ -16,21 +17,26 @@ export function useAuthBootstrap() {
 
     supabase.auth.getSession().then(({ data }) => {
       if (!active) return;
-      const accessToken = data.session?.access_token ?? null;
-      setToken(accessToken);
+      if (data.session?.access_token) {
+        setToken(data.session.access_token);
+      }
     });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setToken(session?.access_token ?? null);
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.access_token) {
+        setToken(session.access_token);
+      } else if (event === "SIGNED_OUT") {
+        logout();
+      }
     });
 
     return () => {
       active = false;
       subscription.unsubscribe();
     };
-  }, [setToken]);
+  }, [setToken, logout]);
 
   useEffect(() => {
     if (!token) {
@@ -43,9 +49,24 @@ export function useAuthBootstrap() {
   }, [token, setUser, logout]);
 }
 
+export function useAuthConfig() {
+  return useQuery({ queryKey: ["auth-config"], queryFn: authConfig, staleTime: Infinity });
+}
+
 export async function signOut() {
   if (supabaseConfigured) {
     await supabase.auth.signOut();
   }
   useAuthStore.getState().logout();
+}
+
+export async function signInWithGoogle() {
+  if (!supabaseConfigured) {
+    throw new Error("Supabase Auth is not configured");
+  }
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: `${window.location.origin}/login` },
+  });
+  if (error) throw error;
 }

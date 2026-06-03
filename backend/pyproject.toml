@@ -7,6 +7,7 @@ dependencies = [
   "alembic>=1.13.2",
   "asyncpg>=0.29.0",
   "ccxt>=4.4.0",
+  "certifi>=2024.8.30",
   "cryptography>=43.0.0",
   "fastapi>=0.115.0",
   "greenlet>=3.0.3",
