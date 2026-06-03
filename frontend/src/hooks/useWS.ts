@@ -34,7 +34,11 @@ export function useWsEvents() {
 
   useEffect(() => {
     if (!token) return;
-    const base = import.meta.env.VITE_WS_BASE ?? "ws://localhost:8000/api/v1/ws";
+    const envBase = import.meta.env.VITE_WS_BASE;
+    const base =
+      envBase && envBase.length > 0
+        ? envBase
+        : `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/api/v1/ws`;
     const ws = new WebSocket(`${base}?token=${encodeURIComponent(token)}`);
 
     ws.onmessage = (evt) => {

@@ -1,12 +1,14 @@
-from app.schemas.auth import TelegramAuthIn, TokenOut
+from app.schemas.auth import AuthConfigOut, DevLoginIn, TelegramAuthIn, TokenOut
 from app.schemas.backtest import BacktestIn, BacktestOut
 from app.schemas.exchange import ExchangeConnectIn
-from app.schemas.payment import CheckoutIn, CheckoutOut, CryptoBotWebhookIn
+from app.schemas.payment import CheckoutIn, CheckoutOut, SubscriptionOut
 from app.schemas.strategy import BotControlIn, StrategyCreateIn, StrategyOut, StrategyUpdateIn
 from app.schemas.trade import TradeOut
 from app.schemas.user import UserOut
 
 __all__ = [
+    "AuthConfigOut",
+    "DevLoginIn",
     "TelegramAuthIn",
     "TokenOut",
     "BacktestIn",
@@ -14,7 +16,7 @@ __all__ = [
     "ExchangeConnectIn",
     "CheckoutIn",
     "CheckoutOut",
-    "CryptoBotWebhookIn",
+    "SubscriptionOut",
     "BotControlIn",
     "StrategyCreateIn",
     "StrategyOut",
