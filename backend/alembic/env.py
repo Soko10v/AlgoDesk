@@ -1,9 +1,10 @@
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import create_engine, pool
 
 from app.core.config import get_settings
+from app.core.database_url import alembic_connect_args, alembic_sync_url
 from app.core.db import Base
 import app.models.subscription  # noqa: F401
 import app.models.strategy  # noqa: F401
@@ -12,7 +13,7 @@ import app.models.user  # noqa: F401
 
 config = context.config
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database_url.replace("+asyncpg", ""))
+config.set_main_option("sqlalchemy.url", alembic_sync_url(settings.database_url))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -28,10 +29,10 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section) or {},
-        prefix="sqlalchemy.",
+    connectable = create_engine(
+        config.get_main_option("sqlalchemy.url"),
         poolclass=pool.NullPool,
+        connect_args=alembic_connect_args(settings.database_url),
     )
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
