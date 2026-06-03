@@ -1,4 +1,4 @@
-from app.schemas.auth import AuthConfigOut
+from app.schemas.auth import AuthConfigOut, TelegramAuthIn, TokenOut
 from app.schemas.backtest import BacktestIn, BacktestOut
 from app.schemas.exchange import ExchangeConnectIn
 from app.schemas.payment import CheckoutIn, CheckoutOut, SubscriptionOut
@@ -8,6 +8,8 @@ from app.schemas.user import UserOut
 
 __all__ = [
     "AuthConfigOut",
+    "TelegramAuthIn",
+    "TokenOut",
     "BacktestIn",
     "BacktestOut",
     "ExchangeConnectIn",
