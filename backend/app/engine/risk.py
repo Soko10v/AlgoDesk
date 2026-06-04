@@ -16,13 +16,20 @@ DEFAULT_RELEASE_PCT = 1.5
 
 
 def pct_value(rule: Any) -> float | None:
-    """Absolute percent threshold for a ``{type: pct, value: n}`` rule, else None."""
+    """Absolute percent threshold for a ``{type: pct, value: n}`` rule, else None.
+    A value of 0 (or missing) means the rule is disabled."""
     if isinstance(rule, dict) and rule.get("type") == "pct" and rule.get("value") is not None:
         try:
-            return abs(float(rule["value"]))
+            out = abs(float(rule["value"]))
         except (TypeError, ValueError):
             return None
+        return out if out > 0 else None
     return None
+
+
+def trailing_pct(config: dict[str, Any]) -> float | None:
+    """Trailing-stop distance in percent, or None when disabled."""
+    return pct_value(config.get("trailing_stop"))
 
 
 def is_futures(config: dict[str, Any]) -> bool:

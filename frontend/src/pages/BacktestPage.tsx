@@ -1,11 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createChart, type IChartApi, type UTCTimestamp } from "lightweight-charts";
-import { Activity, Play, Percent, TrendingDown, Trophy } from "lucide-react";
-import { listStrategies, runBacktest } from "../api/endpoints";
+import { Activity, Play, Percent, Save, TrendingDown, Trophy, Wand2 } from "lucide-react";
+import {
+  createStrategy,
+  listStrategies,
+  optimizeStrategy,
+  runBacktest,
+  type OptimizeResult,
+} from "../api/endpoints";
 import { toast } from "../store/toast";
 import { Badge, Button, Card, EmptyState, Field, PageHeader, Select, Spinner, StatCard } from "../components/ui";
 import { pct, pnlTone, price, signedPct } from "../lib/formatters";
+import { describeEntry } from "../lib/strategy";
 
 export function BacktestPage() {
   const strategies = useQuery({ queryKey: ["strategies"], queryFn: listStrategies });
@@ -14,11 +21,26 @@ export function BacktestPage() {
   const [endDate, setEndDate] = useState("");
   const chartEl = useRef<HTMLDivElement | null>(null);
 
+  const qc = useQueryClient();
   const run = useMutation({
     mutationFn: () => runBacktest(strategyId as number, startDate || undefined, endDate || undefined),
     onError: () => toast.error("Backtest failed", "Try another symbol or timeframe."),
   });
   const result = run.data;
+
+  const optimize = useMutation({
+    mutationFn: () => optimizeStrategy(strategyId as number, startDate || undefined, endDate || undefined),
+    onError: () => toast.error("Optimization failed", "Try a shorter period."),
+  });
+  const stratName = strategies.data?.find((s) => s.id === strategyId)?.name ?? "Strategy";
+  const saveOptimized = useMutation({
+    mutationFn: (r: OptimizeResult) => createStrategy({ name: `${stratName} (optimized)`, config_json: r.config }),
+    onSuccess: (s) => {
+      toast.success("Saved strategy", s.name);
+      qc.invalidateQueries({ queryKey: ["strategies"] });
+    },
+    onError: () => toast.error("Could not save strategy"),
+  });
 
   useEffect(() => {
     if (!result || !chartEl.current) return;
@@ -76,11 +98,94 @@ export function BacktestPage() {
           <Field label="End date">
             <input type="date" className="input" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
           </Field>
-          <Button onClick={() => run.mutate()} loading={run.isPending} disabled={!strategyId}>
-            <Play className="h-4 w-4" /> Run backtest
-          </Button>
+          <div className="flex gap-2">
+            <Button className="flex-1" onClick={() => run.mutate()} loading={run.isPending} disabled={!strategyId}>
+              <Play className="h-4 w-4" /> Run
+            </Button>
+            <Button
+              className="flex-1"
+              variant="secondary"
+              onClick={() => optimize.mutate()}
+              loading={optimize.isPending}
+              disabled={!strategyId}
+              title="Sweep parameter combinations and rank the best"
+            >
+              <Wand2 className="h-4 w-4" /> Optimize
+            </Button>
+          </div>
         </div>
       </Card>
+
+      {optimize.isPending && (
+        <Card className="mt-6 flex items-center justify-center gap-3 p-12 text-slate-400">
+          <Spinner /> Sweeping parameter combinations…
+        </Card>
+      )}
+
+      {optimize.data && !optimize.isPending && (
+        <Card className="mt-6 overflow-hidden p-0">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.06] px-5 py-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-200">
+              <Wand2 className="h-4 w-4 text-brand-400" /> Optimizer — top results
+            </div>
+            <span className="text-xs text-slate-500">{optimize.data.tested} combos · ranked by return ÷ drawdown</span>
+          </div>
+          {optimize.data.results.length === 0 ? (
+            <div className="p-6 text-sm text-slate-500">No combination produced enough trades in this period.</div>
+          ) : (
+            <div className="max-h-[420px] overflow-auto">
+              <table className="min-w-full text-sm">
+                <thead className="sticky top-0 bg-ink-900/80 text-left text-xs uppercase tracking-wider text-slate-500 backdrop-blur">
+                  <tr>
+                    <th className="px-4 py-2.5 font-medium">#</th>
+                    <th className="px-4 py-2.5 font-medium">Entry</th>
+                    <th className="px-4 py-2.5 font-medium">SL / TP / Trail</th>
+                    <th className="px-4 py-2.5 text-right font-medium">Return</th>
+                    <th className="px-4 py-2.5 text-right font-medium">Drawdown</th>
+                    <th className="px-4 py-2.5 text-right font-medium">Win</th>
+                    <th className="px-4 py-2.5 text-right font-medium">Trades</th>
+                    <th className="px-4 py-2.5 text-right font-medium">Score</th>
+                    <th className="px-4 py-2.5" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.05]">
+                  {optimize.data.results.map((r, i) => (
+                    <tr key={i} className="hover:bg-white/[0.02]">
+                      <td className="px-4 py-2.5 text-slate-500">{i + 1}</td>
+                      <td className="px-4 py-2.5 text-slate-300">{describeEntry(r.config)}</td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-slate-400">
+                        {r.config.stop_loss.value}% / {r.config.take_profit.value || "—"}
+                        {r.config.take_profit.value ? "%" : ""} / {r.config.trailing_stop?.value || "—"}
+                        {r.config.trailing_stop?.value ? "%" : ""}
+                      </td>
+                      <td className={`px-4 py-2.5 text-right font-semibold ${pnlTone(r.total_return_pct)}`}>
+                        {signedPct(r.total_return_pct)}
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-rose-400">{pct(r.max_drawdown_pct)}</td>
+                      <td className="px-4 py-2.5 text-right text-slate-400">{pct(r.win_rate)}</td>
+                      <td className="px-4 py-2.5 text-right text-slate-400">{r.trades}</td>
+                      <td className="px-4 py-2.5 text-right font-semibold text-slate-200">{r.score.toFixed(2)}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => saveOptimized.mutate(r)}
+                          disabled={saveOptimized.isPending}
+                        >
+                          <Save className="h-3.5 w-3.5" /> Save
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="border-t border-white/[0.06] px-5 py-2.5 text-xs text-slate-500">
+            ⚠️ Ranked on past data — high scores can be overfit. Prefer many trades + low drawdown, and re-test on another period.
+          </div>
+        </Card>
+      )}
 
       {run.isPending && (
         <Card className="mt-6 flex items-center justify-center gap-3 p-12 text-slate-400">
