@@ -3,6 +3,7 @@ import { Layout } from "./components/Layout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { BacktestPage } from "./pages/BacktestPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { AuthCallbackPage } from "./pages/AuthCallbackPage";
 import { LandingPage } from "./pages/LandingPage";
 import { LegalPage } from "./pages/LegalPage";
 import { LoginPage } from "./pages/LoginPage";
@@ -14,6 +15,7 @@ import { TradesPage } from "./pages/TradesPage";
 export const router = createBrowserRouter([
   { path: "/", element: <LandingPage /> },
   { path: "/login", element: <LoginPage /> },
+  { path: "/auth/callback", element: <AuthCallbackPage /> },
   { path: "/privacy", element: <LegalPage /> },
   { path: "/terms", element: <LegalPage /> },
   {
