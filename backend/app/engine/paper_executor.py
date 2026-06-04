@@ -9,7 +9,14 @@ def paper_fill_price(price: float, side: str) -> float:
     return price * (1 + slippage if side == "buy" else 1 - slippage)
 
 
-def build_paper_trade(strategy: Strategy, side: str, price: float, amount: float, pnl: float | None = None) -> Trade:
+def build_paper_trade(
+    strategy: Strategy,
+    side: str,
+    price: float,
+    amount: float,
+    pnl: float | None = None,
+    leg: str = "main",
+) -> Trade:
     return Trade(
         strategy_id=strategy.id,
         symbol=strategy.config_json.get("symbol", "BTC/USDT"),
@@ -17,5 +24,6 @@ def build_paper_trade(strategy: Strategy, side: str, price: float, amount: float
         price=paper_fill_price(price, side),
         amount=amount,
         pnl=pnl,
+        leg=leg,
         timestamp=datetime.now(UTC),
     )

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
@@ -7,9 +7,49 @@ from app.core.deps import get_current_user
 from app.models.strategy import Strategy
 from app.models.trade import Trade
 from app.models.user import User
-from app.schemas.trade import TradeOut
+from app.schemas.trade import TradeOut, TradeStatsOut
 
 router = APIRouter()
+
+
+@router.get("/stats", response_model=TradeStatsOut)
+async def trade_stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TradeStatsOut:
+    """Aggregate performance across the user's trades. The strategy's own ("main")
+    trades drive win rate and PnL; hedge legs are reported separately so they do
+    not skew the headline numbers."""
+    user_strategies = select(Strategy.id).where(Strategy.user_id == current_user.id).scalar_subquery()
+    in_user = Trade.strategy_id.in_(user_strategies)
+    is_main = Trade.leg != "hedge"
+
+    row = (
+        await db.execute(
+            select(
+                func.count(Trade.id).filter(is_main),
+                func.count(Trade.pnl).filter(is_main),
+                func.coalesce(func.sum(case((Trade.pnl > 0, 1), else_=0)).filter(is_main), 0),
+                func.avg(Trade.pnl).filter(is_main),
+                func.sum(Trade.pnl).filter(is_main),
+                func.max(Trade.pnl).filter(is_main),
+                func.min(Trade.pnl).filter(is_main),
+                func.coalesce(func.sum(case((Trade.leg == "hedge", 1), else_=0)), 0),
+            ).where(in_user)
+        )
+    ).one()
+    total, closed, wins, avg_pnl, total_pnl, best, worst, hedge = row
+    return TradeStatsOut(
+        total_trades=int(total or 0),
+        closed_trades=int(closed or 0),
+        wins=int(wins or 0),
+        win_rate=(float(wins) / closed * 100) if closed else 0.0,
+        avg_pnl=float(avg_pnl or 0.0),
+        total_pnl=float(total_pnl or 0.0),
+        best_pnl=float(best or 0.0),
+        worst_pnl=float(worst or 0.0),
+        hedge_trades=int(hedge or 0),
+    )
 
 
 @router.get("", response_model=list[TradeOut])

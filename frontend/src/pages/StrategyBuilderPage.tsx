@@ -3,18 +3,33 @@ import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactFlow, { Background, Controls, MarkerType, type Edge, type Node } from "reactflow";
 import "reactflow/dist/style.css";
-import { Crosshair, LogIn, LogOut, Pencil, Plus, Save, Shield, Target, Trash2 } from "lucide-react";
+import { Crosshair, LogIn, LogOut, Pencil, Plus, Save, Shield, Target, Trash2, Umbrella, Zap } from "lucide-react";
 import {
   createStrategy,
   deleteStrategy,
   listStrategies,
   updateStrategy,
+  type HedgeConfig,
+  type HedgeMode,
+  type Market,
   type Strategy,
   type StrategyConfig,
 } from "../api/endpoints";
 import { toast } from "../store/toast";
 import { Badge, Button, Card, Field, Input, PageHeader, Select, Toggle } from "../components/ui";
-import { SYMBOLS, TIMEFRAMES, defaultConfig, describeEntry, describeExit } from "../lib/strategy";
+import { cn } from "../lib/cn";
+import {
+  MAX_LEVERAGE,
+  SYMBOLS,
+  TIMEFRAMES,
+  defaultConfig,
+  defaultHedge,
+  describeEntry,
+  describeExit,
+  describeHedge,
+  isFutures,
+  normalizeConfig,
+} from "../lib/strategy";
 
 const NODE_BASE = {
   color: "#e2e8f0",
@@ -57,6 +72,10 @@ export function StrategyBuilderPage() {
     setCfg((c) => ({ ...c, entry: [{ ...c.entry[0], ...patch }] }));
   const setExit = (patch: Partial<{ op: ">" | "<"; value: number }>) =>
     setCfg((c) => ({ ...c, exit: [{ ...c.exit[0], ...patch }] }));
+  const setHedge = (patch: Partial<HedgeConfig>) =>
+    setCfg((c) => ({ ...c, hedge: { ...defaultHedge(), ...c.hedge, ...patch } }));
+  const setMarket = (market: Market) =>
+    setCfg((c) => ({ ...c, market, leverage: c.leverage ?? 3, hedge: { ...defaultHedge(), ...c.hedge } }));
 
   const save = useMutation({
     mutationFn: () => {
@@ -90,7 +109,7 @@ export function StrategyBuilderPage() {
 
   function loadStrategy(s: Strategy) {
     setName(s.name);
-    setCfg({ ...defaultConfig(), ...s.config_json });
+    setCfg(normalizeConfig(s.config_json));
     setLiveEnabled(s.live_enabled);
     setEditingId(s.id);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -129,6 +148,27 @@ export function StrategyBuilderPage() {
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. BTC momentum" />
             </Field>
 
+            <Field label="Bot type">
+              <div className="grid grid-cols-2 gap-2">
+                {(["spot", "futures"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setMarket(m)}
+                    className={cn(
+                      "flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition",
+                      cfg.market === m
+                        ? "border-brand-500/60 bg-brand-500/10 text-brand-200"
+                        : "border-white/[0.06] bg-white/[0.02] text-slate-400 hover:text-slate-200"
+                    )}
+                  >
+                    {m === "futures" && <Zap className="h-3.5 w-3.5" />}
+                    {m === "spot" ? "Spot" : "Futures"}
+                  </button>
+                ))}
+              </div>
+            </Field>
+
             <div className="grid grid-cols-2 gap-3">
               <Field label="Symbol">
                 <Select value={cfg.symbol} onChange={(e) => setCfg((c) => ({ ...c, symbol: e.target.value }))}>
@@ -150,15 +190,33 @@ export function StrategyBuilderPage() {
               </Field>
             </div>
 
-            <Field label="Position size (% of balance)">
-              <Input
-                type="number"
-                min={1}
-                max={100}
-                value={cfg.position_size_pct}
-                onChange={(e) => setCfg((c) => ({ ...c, position_size_pct: Number(e.target.value) }))}
-              />
-            </Field>
+            <div className={cn("grid gap-3", isFutures(cfg) ? "grid-cols-2" : "grid-cols-1")}>
+              <Field label="Position size (% of balance)">
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={cfg.position_size_pct}
+                  onChange={(e) => setCfg((c) => ({ ...c, position_size_pct: Number(e.target.value) }))}
+                />
+              </Field>
+              {isFutures(cfg) && (
+                <Field label={`Leverage (max ${MAX_LEVERAGE}x)`}>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={MAX_LEVERAGE}
+                    value={cfg.leverage ?? 1}
+                    onChange={(e) =>
+                      setCfg((c) => ({
+                        ...c,
+                        leverage: Math.max(1, Math.min(MAX_LEVERAGE, Number(e.target.value))),
+                      }))
+                    }
+                  />
+                </Field>
+              )}
+            </div>
 
             <Block icon={LogIn} title="Entry — MA cross" tone="text-brand-300">
               <div className="grid grid-cols-2 gap-3">
@@ -228,6 +286,64 @@ export function StrategyBuilderPage() {
               </Block>
             </div>
 
+            {isFutures(cfg) && (
+              <Block icon={Umbrella} title="Hedge — squeeze protection" tone="text-indigo-300">
+                <div className="flex items-center justify-between">
+                  <p className="pr-3 text-xs text-slate-500">
+                    Opens a short leg to offset sudden adverse moves on the futures position.
+                  </p>
+                  <Toggle checked={cfg.hedge?.enabled ?? false} onChange={(v) => setHedge({ enabled: v })} />
+                </div>
+
+                {cfg.hedge?.enabled && (
+                  <div className="mt-4 space-y-3">
+                    <Field label="When to hedge">
+                      <Select
+                        value={cfg.hedge.mode}
+                        onChange={(e) => setHedge({ mode: e.target.value as HedgeMode })}
+                      >
+                        <option value="auto_squeeze">Auto on squeeze (open on a fast drop)</option>
+                        <option value="constant_partial">Constant partial (always hold a share)</option>
+                      </Select>
+                    </Field>
+
+                    {cfg.hedge.mode === "auto_squeeze" ? (
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="Trigger drop %" hint="Drop that opens the hedge">
+                          <Input
+                            type="number"
+                            min={0.1}
+                            step={0.1}
+                            value={cfg.hedge.trigger_pct}
+                            onChange={(e) => setHedge({ trigger_pct: Number(e.target.value) })}
+                          />
+                        </Field>
+                        <Field label="Release rebound %" hint="Recovery that closes it">
+                          <Input
+                            type="number"
+                            min={0.1}
+                            step={0.1}
+                            value={cfg.hedge.release_pct}
+                            onChange={(e) => setHedge({ release_pct: Number(e.target.value) })}
+                          />
+                        </Field>
+                      </div>
+                    ) : (
+                      <Field label="Hedge ratio (% of position)" hint="Share of the position held short at all times">
+                        <Input
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={Math.round((cfg.hedge.ratio ?? 0) * 100)}
+                          onChange={(e) => setHedge({ ratio: Math.max(0, Math.min(100, Number(e.target.value))) / 100 })}
+                        />
+                      </Field>
+                    )}
+                  </div>
+                )}
+              </Block>
+            )}
+
             <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5">
               <div>
                 <div className="text-sm font-medium text-slate-200">Enable live trading</div>
@@ -266,7 +382,19 @@ export function StrategyBuilderPage() {
             {strategies.data.map((s) => (
               <Card key={s.id} className="card-hover flex items-center justify-between gap-3 p-4">
                 <div className="min-w-0">
-                  <div className="truncate font-medium text-slate-100">{s.name}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="truncate font-medium text-slate-100">{s.name}</span>
+                    {isFutures(s.config_json) && (
+                      <Badge tone="violet">
+                        <Zap className="h-3 w-3" /> {s.config_json.leverage ?? 1}x
+                      </Badge>
+                    )}
+                    {isFutures(s.config_json) && s.config_json.hedge?.enabled && (
+                      <Badge tone="info">
+                        <Umbrella className="h-3 w-3" /> hedge
+                      </Badge>
+                    )}
+                  </div>
                   <div className="mt-1 truncate text-xs text-slate-500">
                     {s.config_json.symbol} · {describeEntry(s.config_json)} → {describeExit(s.config_json)}
                   </div>
@@ -323,7 +451,11 @@ function buildGraph(cfg: StrategyConfig): { nodes: Node[]; edges: Edge[] } {
     {
       id: "source",
       position: { x: 0, y: 170 },
-      data: { label: `${cfg.symbol} · ${cfg.timeframe} · ${cfg.position_size_pct}%` },
+      data: {
+        label: `${cfg.symbol} · ${cfg.timeframe} · ${cfg.position_size_pct}%${
+          isFutures(cfg) ? ` · ${cfg.leverage ?? 1}x futures` : ""
+        }`,
+      },
       style: accentNode("rgba(148,163,184,0.4)"),
       sourcePosition: "right" as never,
       targetPosition: "left" as never,
@@ -374,6 +506,17 @@ function buildGraph(cfg: StrategyConfig): { nodes: Node[]; edges: Edge[] } {
     edge("e2", "entry", "sl", "#f43f5e"),
     edge("e3", "entry", "tp", "#f59e0b"),
   ];
+
+  if (isFutures(cfg) && cfg.hedge?.enabled) {
+    nodes.push({
+      id: "hedge",
+      position: { x: 540, y: 430 },
+      data: { label: `Hedge · ${describeHedge(cfg)}` },
+      style: accentNode("rgba(129,140,248,0.6)"),
+      targetPosition: "left" as never,
+    });
+    edges.push(edge("e4", "entry", "hedge", "#818cf8"));
+  }
 
   return { nodes, edges };
 }

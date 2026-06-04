@@ -5,8 +5,8 @@ from app.core.db import get_db
 from app.core.deps import get_current_user
 from app.core.security import encrypt_secret
 from app.models.user import User
-from app.schemas.exchange import ExchangeConnectIn
-from app.services.exchange import test_user_credentials
+from app.schemas.exchange import BalanceOut, ExchangeConnectIn
+from app.services.exchange import fetch_account_balance, test_user_credentials
 
 router = APIRouter()
 
@@ -41,6 +41,12 @@ async def exchange_status(current_user: User = Depends(get_current_user)) -> dic
         "connected": bool(current_user.api_key_encrypted and current_user.api_secret_encrypted),
         "exchange": current_user.exchange,
     }
+
+
+@router.get("/balance", response_model=BalanceOut)
+async def exchange_balance(current_user: User = Depends(get_current_user)) -> BalanceOut:
+    data = await fetch_account_balance(current_user)
+    return BalanceOut(**data)
 
 
 @router.delete("/disconnect")

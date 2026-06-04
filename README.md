@@ -88,9 +88,23 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"                    
   `live`, so bots survive restarts.
 - When a bot starts it **seeds indicator history** from Bybit OHLCV, so MA/RSI
   signals are available immediately instead of accumulating from zero.
-- Stop-loss and take-profit (percent) are enforced in the engine loop.
+- Stop-loss and take-profit (percent) are enforced in the engine loop **and**, in
+  live mode, mirrored as a real reduce-only **exchange-side stop order** so the
+  position is protected even if this process dies or price gaps between ticks.
+  The backtester now applies the same stop-loss/take-profit (gap-aware fills),
+  so its drawdown reflects what the live engine would actually take.
+- Strategies are **spot** (long-only) by default, or **futures** (linear perp,
+  with leverage capped at 10x). Futures strategies can add a **hedge**: a short
+  leg that offsets sharp adverse moves. Two modes — `auto_squeeze` (opens on a
+  fast drop, releases on rebound) and `constant_partial` (always holds a share
+  of the position short). Hedge fills are recorded as trades with `leg="hedge"`.
 - Live trading only runs when a strategy has `live_enabled = true`.
 - API keys are **Fernet-encrypted** before being stored in Supabase.
+
+> ⚠️ **Live futures/hedge orders are exchange-specific and must be validated on a
+> testnet before trading real funds.** Holding a long and a short on the same
+> symbol at once requires the futures account to be in **hedge mode**. Paper mode
+> and the backtester simulate everything safely with no real orders.
 
 ## Local development (without Docker)
 

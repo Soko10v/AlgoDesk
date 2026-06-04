@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   Activity,
   Boxes,
@@ -8,6 +8,7 @@ import {
   LogOut,
   ScrollText,
   SlidersHorizontal,
+  UserCircle,
 } from "lucide-react";
 import { signOut } from "../hooks/useAuth";
 import { useAuthStore } from "../store/auth";
@@ -19,6 +20,7 @@ const nav = [
   { to: "/builder", label: "Strategy Builder", icon: Boxes, end: false },
   { to: "/backtest", label: "Backtest", icon: LineChart, end: false },
   { to: "/trades", label: "Trade Log", icon: ScrollText, end: false },
+  { to: "/profile", label: "Profile", icon: UserCircle, end: false },
   { to: "/settings", label: "Exchange", icon: SlidersHorizontal, end: false },
   { to: "/subscription", label: "Subscription", icon: CreditCard, end: false },
 ];
@@ -77,7 +79,7 @@ export function Layout() {
           ))}
         </nav>
         <div className="mt-2 flex items-center justify-between gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-2.5">
-          <div className="flex min-w-0 items-center gap-2.5">
+          <Link to="/profile" className="flex min-w-0 items-center gap-2.5 rounded-lg p-0.5 transition hover:opacity-80" title="View profile">
             <div className="grid h-8 w-8 place-items-center rounded-lg bg-white/[0.06] text-xs font-semibold text-slate-200">
               {(user?.username ?? "?").slice(0, 2).toUpperCase()}
             </div>
@@ -87,7 +89,7 @@ export function Layout() {
               </div>
               <div className="truncate text-[11px] text-slate-500">{user?.email ?? "—"}</div>
             </div>
-          </div>
+          </Link>
           <button
             onClick={handleLogout}
             title="Log out"
