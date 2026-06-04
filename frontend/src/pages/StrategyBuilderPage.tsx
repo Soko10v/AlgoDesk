@@ -3,13 +3,15 @@ import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactFlow, { Background, Controls, MarkerType, type Edge, type Node } from "reactflow";
 import "reactflow/dist/style.css";
-import { ArrowDownUp, Crosshair, LogIn, LogOut, Pencil, Plus, Save, Shield, Target, Trash2, Umbrella, Zap } from "lucide-react";
+import { Anchor, ArrowDownUp, Crosshair, LogIn, LogOut, Pencil, Plus, Save, Shield, Sparkles, Target, Trash2, Umbrella, Zap } from "lucide-react";
 import {
   createStrategy,
   deleteStrategy,
   listStrategies,
   updateStrategy,
   type Direction,
+  type EntryRule,
+  type EntryType,
   type HedgeConfig,
   type HedgeMode,
   type Market,
@@ -20,10 +22,12 @@ import { toast } from "../store/toast";
 import { Badge, Button, Card, Field, Input, PageHeader, Select, Toggle } from "../components/ui";
 import { cn } from "../lib/cn";
 import {
+  ENTRY_TYPES,
   MAX_LEVERAGE,
   SYMBOLS,
   TIMEFRAMES,
   defaultConfig,
+  defaultEntry,
   defaultHedge,
   describeEntry,
   describeExit,
@@ -31,6 +35,8 @@ import {
   isBidirectional,
   isFutures,
   normalizeConfig,
+  presets,
+  type Preset,
 } from "../lib/strategy";
 
 const NODE_BASE = {
@@ -70,8 +76,9 @@ export function StrategyBuilderPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, strategies.data]);
 
-  const setEntry = (patch: Partial<{ fast: number; slow: number }>) =>
+  const setEntry = (patch: Partial<EntryRule>) =>
     setCfg((c) => ({ ...c, entry: [{ ...c.entry[0], ...patch }] }));
+  const setEntryType = (type: EntryType) => setCfg((c) => ({ ...c, entry: [defaultEntry(type)] }));
   const setExit = (patch: Partial<{ op: ">" | "<"; value: number }>) =>
     setCfg((c) => ({ ...c, exit: [{ ...c.exit[0], ...patch }] }));
   const setHedge = (patch: Partial<HedgeConfig>) =>
@@ -118,6 +125,14 @@ export function StrategyBuilderPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  function loadPreset(p: Preset) {
+    setName(p.name);
+    setCfg(normalizeConfig(p.config));
+    setLiveEnabled(false);
+    setEditingId(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   const { nodes, edges } = useMemo(() => buildGraph(cfg), [cfg]);
   const canSave = name.trim().length >= 2;
 
@@ -134,6 +149,25 @@ export function StrategyBuilderPage() {
           ) : undefined
         }
       />
+
+      <Card className="mb-6 animate-slide-up p-4">
+        <div className="mb-2.5 flex items-center gap-2 text-sm font-semibold text-slate-300">
+          <Sparkles className="h-4 w-4 text-brand-400" /> Quick start — presets
+        </div>
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {presets().map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => loadPreset(p)}
+              className="w-48 shrink-0 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-2.5 text-left transition hover:border-brand-500/40 hover:bg-brand-500/5"
+            >
+              <div className="text-sm font-medium text-slate-200">{p.name}</div>
+              <div className="mt-0.5 text-xs text-slate-500">{p.blurb}</div>
+            </button>
+          ))}
+        </div>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-5">
         {/* Form */}
@@ -244,24 +278,18 @@ export function StrategyBuilderPage() {
               </Field>
             )}
 
-            <Block icon={LogIn} title="Entry — MA cross" tone="text-brand-300">
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Fast MA">
-                  <Input
-                    type="number"
-                    min={1}
-                    value={cfg.entry[0].fast}
-                    onChange={(e) => setEntry({ fast: Number(e.target.value) })}
-                  />
-                </Field>
-                <Field label="Slow MA">
-                  <Input
-                    type="number"
-                    min={1}
-                    value={cfg.entry[0].slow}
-                    onChange={(e) => setEntry({ slow: Number(e.target.value) })}
-                  />
-                </Field>
+            <Block icon={LogIn} title="Entry signal" tone="text-brand-300">
+              <Field label="Indicator">
+                <Select value={cfg.entry[0].type} onChange={(e) => setEntryType(e.target.value as EntryType)}>
+                  {ENTRY_TYPES.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <div className="mt-3">
+                <EntryParams rule={cfg.entry[0]} set={setEntry} />
               </div>
             </Block>
 
@@ -311,6 +339,20 @@ export function StrategyBuilderPage() {
                 </Field>
               </Block>
             </div>
+
+            <Block icon={Anchor} title="Trailing stop" tone="text-emerald-300">
+              <Field label="Percent" hint="Locks in profit by trailing the peak. 0 = off.">
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={cfg.trailing_stop?.value ?? 0}
+                  onChange={(e) =>
+                    setCfg((c) => ({ ...c, trailing_stop: { type: "pct", value: Number(e.target.value) } }))
+                  }
+                />
+              </Field>
+            </Block>
 
             {isFutures(cfg) && (
               <Block icon={Umbrella} title="Hedge — squeeze protection" tone="text-indigo-300">
@@ -475,6 +517,44 @@ function Block({
       {children}
     </div>
   );
+}
+
+function EntryParams({ rule, set }: { rule: EntryRule; set: (patch: Partial<EntryRule>) => void }) {
+  const num = (label: string, key: keyof EntryRule, min = 1) => (
+    <Field label={label}>
+      <Input
+        type="number"
+        min={min}
+        value={(rule[key] as number) ?? 0}
+        onChange={(e) => set({ [key]: Number(e.target.value) } as Partial<EntryRule>)}
+      />
+    </Field>
+  );
+  switch (rule.type) {
+    case "ma_cross":
+    case "ema_cross":
+      return <div className="grid grid-cols-2 gap-3">{num("Fast", "fast")}{num("Slow", "slow")}</div>;
+    case "rsi":
+      return (
+        <div className="grid grid-cols-3 gap-3">
+          {num("Period", "period")}
+          {num("Oversold <", "low", 0)}
+          {num("Overbought >", "high", 0)}
+        </div>
+      );
+    case "breakout":
+      return num("Lookback bars", "period");
+    case "macd":
+      return (
+        <div className="grid grid-cols-3 gap-3">
+          {num("Fast", "fast")}
+          {num("Slow", "slow")}
+          {num("Signal", "signal")}
+        </div>
+      );
+    default:
+      return null;
+  }
 }
 
 function buildGraph(cfg: StrategyConfig): { nodes: Node[]; edges: Edge[] } {

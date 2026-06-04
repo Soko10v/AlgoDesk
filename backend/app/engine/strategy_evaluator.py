@@ -1,20 +1,48 @@
 from typing import Any
 
 from app.engine.risk import allow_short
-from app.services.indicators import rsi, sma
+from app.services.indicators import ema, macd, rsi, sma
 
 
-def _ma_trend(config: dict[str, Any], closes: list[float]) -> tuple[bool, bool]:
-    """Return (bullish, bearish) from the MA-cross entry rule."""
-    bullish = bearish = False
-    for rule in config.get("entry", []):
-        if rule.get("type") == "ma_cross":
-            fast = sma(closes, int(rule.get("fast", 9)))
-            slow = sma(closes, int(rule.get("slow", 21)))
-            if fast is not None and slow is not None:
-                bullish = fast > slow
-                bearish = fast < slow
-    return bullish, bearish
+def _entry_trend(config: dict[str, Any], closes: list[float]) -> tuple[bool, bool]:
+    """Return (bullish, bearish) from the entry rule. Supports several block
+    types so users have more building blocks to find an edge with."""
+    rule = (config.get("entry") or [{}])[0]
+    rtype = rule.get("type", "ma_cross")
+
+    if rtype in ("ma_cross", "ema_cross"):
+        fn = sma if rtype == "ma_cross" else ema
+        fast = fn(closes, int(rule.get("fast", 9)))
+        slow = fn(closes, int(rule.get("slow", 21)))
+        if fast is None or slow is None:
+            return False, False
+        return fast > slow, fast < slow
+
+    if rtype == "rsi":
+        value = rsi(closes, int(rule.get("period", 14)))
+        if value is None:
+            return False, False
+        low = float(rule.get("low", 30))
+        high = float(rule.get("high", 70))
+        # Mean reversion: oversold is bullish, overbought is bearish.
+        return value < low, value > high
+
+    if rtype == "breakout":
+        period = int(rule.get("period", 20))
+        if len(closes) < period + 1:
+            return False, False
+        window = closes[-period - 1 : -1]
+        last = closes[-1]
+        return last > max(window), last < min(window)
+
+    if rtype == "macd":
+        out = macd(closes, int(rule.get("fast", 12)), int(rule.get("slow", 26)), int(rule.get("signal", 9)))
+        if out is None:
+            return False, False
+        line, sig = out
+        return line > sig, line < sig
+
+    return False, False
 
 
 def _rsi_exit(config: dict[str, Any], closes: list[float]) -> bool:
@@ -39,13 +67,13 @@ def evaluate_signal(config: dict[str, Any], closes: list[float], position_side: 
       "close" — close the current position to flat
       None    — hold
 
-    Long-only strategies (spot, or futures with direction != "both") keep the
-    original behaviour: enter long on a bullish MA cross, exit on the RSI rule.
-    Futures bots with direction "both" follow the trend and flip on the opposite
-    cross (RSI is not used — the MA cross drives the side, SL/TP still protect)."""
+    Long-only strategies (spot, or futures with direction != "both") enter long
+    on a bullish entry signal and exit on the RSI rule. Futures bots with
+    direction "both" follow the trend and flip on the opposite signal (RSI is
+    not used — the entry block drives the side, SL/TP/trailing still protect)."""
     if not closes:
         return None
-    bullish, bearish = _ma_trend(config, closes)
+    bullish, bearish = _entry_trend(config, closes)
 
     if allow_short(config):
         # Flip model: always sit on the trend side.

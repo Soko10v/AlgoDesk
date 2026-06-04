@@ -1,5 +1,16 @@
 import { api } from "./client";
 
+export type EntryType = "ma_cross" | "ema_cross" | "rsi" | "breakout" | "macd";
+// Loose shape so the builder can edit any block type without union narrowing.
+export type EntryRule = {
+  type: EntryType;
+  fast?: number;
+  slow?: number;
+  signal?: number;
+  period?: number;
+  low?: number;
+  high?: number;
+};
 export type MaCrossRule = { type: "ma_cross"; fast: number; slow: number };
 export type RsiRule = { type: "rsi"; op: ">" | "<"; value: number };
 export type PctRule = { type: "pct"; value: number };
@@ -20,10 +31,11 @@ export type StrategyConfig = {
   symbol: string;
   timeframe: string;
   position_size_pct: number;
-  entry: MaCrossRule[];
+  entry: EntryRule[];
   exit: RsiRule[];
   stop_loss: PctRule;
   take_profit: PctRule;
+  trailing_stop?: PctRule; // 0 = off; trails the high/low-water mark
   // Futures-only fields; spot strategies omit them and the backend defaults market to "spot".
   market?: Market;
   direction?: Direction; // "long" (default) or "both" — futures can trade both ways
@@ -148,6 +160,21 @@ export async function stopBot(id: number) {
 export async function runBacktest(strategy_id: number, start_date?: string, end_date?: string) {
   const { data } = await api.post("/backtest", { strategy_id, start_date, end_date });
   return data as BacktestResult;
+}
+
+export type OptimizeResult = {
+  config: StrategyConfig;
+  total_return_pct: number;
+  max_drawdown_pct: number;
+  win_rate: number;
+  trades: number;
+  score: number;
+};
+export type OptimizeResponse = { results: OptimizeResult[]; tested: number; candles: number };
+
+export async function optimizeStrategy(strategy_id: number, start_date?: string, end_date?: string) {
+  const { data } = await api.post("/backtest/optimize", { strategy_id, start_date, end_date });
+  return data as OptimizeResponse;
 }
 
 // ---- trades ----

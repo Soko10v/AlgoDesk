@@ -1,6 +1,8 @@
+import asyncio
+import copy
 from typing import Any
 
-from app.engine.risk import hedge_params, leverage, pct_value
+from app.engine.risk import hedge_params, leverage, pct_value, trailing_pct
 from app.engine.strategy_evaluator import evaluate_signal
 from app.services.exchange import exchange_client
 
@@ -63,17 +65,24 @@ async def run_backtest(
         candles = await _fetch_candles(client, symbol, timeframe, since_ms, until_ms)
     finally:
         await client.close()
+    return _simulate(config, candles)
 
+
+def _simulate(config: dict[str, Any], candles: list[list[float]]) -> dict[str, Any]:
+    """Run the strategy over already-fetched candles. Pure/CPU-only so the
+    optimizer can reuse one candle set across many parameter combinations."""
     closes = [c[4] for c in candles]
     lev = leverage(config)
     sl_val = pct_value(config.get("stop_loss"))
     tp_val = pct_value(config.get("take_profit"))
+    trail_val = trailing_pct(config)
     hedge = hedge_params(config)  # None unless this is a futures strategy with hedging on
 
     equity = 1000.0
     peak = equity
     side: str | None = None          # None | "long" | "short"
     entry: float | None = None
+    extreme: float | None = None     # best price since entry, for the trailing stop
     hedge_side: str | None = None
     hedge_entry: float | None = None
     hedge_extreme: float | None = None
@@ -100,6 +109,7 @@ async def run_backtest(
             if sig in ("long", "short"):
                 side = sig
                 entry = close
+                extreme = close
                 trades.append({"side": sig, "price": close, "index": idx, "leg": "main"})
                 if hedge and hedge["mode"] == "constant_partial":
                     hedge_side = _opposite(sig)
@@ -125,20 +135,31 @@ async def run_backtest(
                     })
                     hedge_side = hedge_entry = hedge_extreme = None
 
-            # 2. Exit the main position: stop-loss (gap-aware) first, then take-profit, then signal/flip.
+            # 2. Exit the main position: stop-loss, then trailing stop, then take-profit, then signal/flip.
+            #    (gap-aware fills; the trailing extreme is updated with this candle first.)
             exit_price: float | None = None
             reason: str | None = None
             if side == "long":
+                extreme = max(extreme if extreme is not None else high, high)
                 if sl_val is not None and low <= entry * (1 - sl_val / 100):
                     exit_price = min(entry * (1 - sl_val / 100), open_)  # gap-down fills at the open
                     reason = "stop_loss"
+                elif trail_val is not None and low <= extreme * (1 - trail_val / 100):
+                    # Trail level is set intrabar (after the open), so fill at the level,
+                    # bounded by the candle high (covers a gap-down through the level).
+                    exit_price = min(extreme * (1 - trail_val / 100), high)
+                    reason = "trailing_stop"
                 elif tp_val is not None and high >= entry * (1 + tp_val / 100):
                     exit_price = entry * (1 + tp_val / 100)
                     reason = "take_profit"
             else:  # short
+                extreme = min(extreme if extreme is not None else low, low)
                 if sl_val is not None and high >= entry * (1 + sl_val / 100):
                     exit_price = max(entry * (1 + sl_val / 100), open_)  # gap-up fills at the open
                     reason = "stop_loss"
+                elif trail_val is not None and high >= extreme * (1 + trail_val / 100):
+                    exit_price = max(extreme * (1 + trail_val / 100), low)
+                    reason = "trailing_stop"
                 elif tp_val is not None and low <= entry * (1 - tp_val / 100):
                     exit_price = entry * (1 - tp_val / 100)
                     reason = "take_profit"
@@ -166,7 +187,7 @@ async def run_backtest(
                         "index": idx, "leg": "hedge", "pnl_pct": hret * 100, "reason": "position_closed",
                     })
                     hedge_side = hedge_entry = hedge_extreme = None
-                side = entry = None
+                side = entry = extreme = None
             elif hedge and hedge["mode"] == "auto_squeeze" and hedge_entry is None and high > 0 and low > 0:
                 # Still holding: open a hedge if this candle shows a fast adverse intrabar move.
                 if side == "long" and (high - low) / high * 100 >= hedge["trigger_pct"]:
@@ -188,3 +209,96 @@ async def run_backtest(
         "trades": trades,
         "equity_curve": [{"x": p["x"], "y": p["y"]} for p in curve],
     }
+
+
+# ---- optimizer (parameter sweep) -------------------------------------------
+
+OPTIMIZE_CANDLES = 800
+OPTIMIZE_MIN_TRADES = 5
+OPTIMIZE_TOP_N = 12
+
+# Curated risk profiles: (stop_loss, take_profit, trailing_stop) in percent; 0 = off.
+_RISK_PROFILES = [
+    (2.0, 5.0, 0.0),   # fixed take-profit
+    (2.0, 0.0, 4.0),   # let it run on a trailing stop
+    (1.5, 3.0, 0.0),   # tight scalp
+]
+
+
+def _entry_variations(entry_type: str) -> list[dict[str, Any]]:
+    if entry_type in ("ma_cross", "ema_cross"):
+        return [
+            {"type": entry_type, "fast": f, "slow": s}
+            for f in (5, 9, 20) for s in (21, 50) if f < s
+        ]
+    if entry_type == "rsi":
+        return [
+            {"type": "rsi", "period": 14, "low": lo, "high": hi}
+            for lo in (20, 25, 30) for hi in (70, 75, 80)
+        ]
+    if entry_type == "breakout":
+        return [{"type": "breakout", "period": p} for p in (10, 20, 30, 55)]
+    if entry_type == "macd":
+        return [{"type": "macd", "fast": f, "slow": s, "signal": 9} for f, s in ((12, 26), (8, 21), (5, 35))]
+    return [{"type": entry_type}]
+
+
+def _param_grid(base: dict[str, Any]) -> list[dict[str, Any]]:
+    entry_type = (base.get("entry") or [{}])[0].get("type", "ma_cross")
+    grid: list[dict[str, Any]] = []
+    for entry in _entry_variations(entry_type):
+        for sl, tp, trail in _RISK_PROFILES:
+            cfg = copy.deepcopy(base)
+            cfg["entry"] = [entry]
+            cfg["stop_loss"] = {"type": "pct", "value": sl}
+            cfg["take_profit"] = {"type": "pct", "value": tp}
+            cfg["trailing_stop"] = {"type": "pct", "value": trail}
+            grid.append(cfg)
+    return grid
+
+
+def _closed_trades(result: dict[str, Any]) -> int:
+    return sum(1 for t in result["trades"] if t.get("leg") == "main" and "pnl_pct" in t)
+
+
+def _score(result: dict[str, Any], n_trades: int) -> float:
+    """Risk-adjusted: return per unit of drawdown. Configs with too few trades
+    are pushed to the bottom so a single lucky trade can't top the board."""
+    if n_trades < OPTIMIZE_MIN_TRADES:
+        return float("-inf")
+    return result["total_return_pct"] / max(result["max_drawdown_pct"], 1.0)
+
+
+def _run_grid(config: dict[str, Any], candles: list[list[float]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for cfg in _param_grid(config):
+        res = _simulate(cfg, candles)
+        n = _closed_trades(res)
+        out.append({
+            "config": cfg,
+            "total_return_pct": res["total_return_pct"],
+            "max_drawdown_pct": res["max_drawdown_pct"],
+            "win_rate": res["win_rate"],
+            "trades": n,
+            "score": _score(res, n),
+        })
+    out.sort(key=lambda r: r["score"], reverse=True)
+    return out
+
+
+async def run_optimization(
+    config: dict[str, Any], since_ms: int | None = None, until_ms: int | None = None
+) -> dict[str, Any]:
+    """Sweep parameter combinations over one candle set and rank by a
+    risk-adjusted score. CPU work runs in a thread so the event loop stays free."""
+    symbol = config.get("symbol", "BTC/USDT")
+    timeframe = config.get("timeframe", "1h")
+    client = exchange_client()
+    try:
+        candles = await _fetch_candles(client, symbol, timeframe, since_ms, until_ms, limit=OPTIMIZE_CANDLES)
+    finally:
+        await client.close()
+
+    results = await asyncio.to_thread(_run_grid, config, candles)
+    ranked = [r for r in results if r["score"] != float("-inf")] or results
+    return {"results": ranked[:OPTIMIZE_TOP_N], "tested": len(results), "candles": len(candles)}

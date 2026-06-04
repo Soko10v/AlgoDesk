@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.redis import redis_client
 from app.engine.live_executor import cancel_order, place_live_order, place_stop_order
 from app.engine.paper_executor import build_paper_trade, paper_fill_price
-from app.engine.risk import adverse_excursion_pct, hedge_params, is_futures, pct_value
+from app.engine.risk import adverse_excursion_pct, hedge_params, is_futures, pct_value, trailing_pct
 from app.engine.strategy_evaluator import evaluate_signal
 from app.models.strategy import Strategy
 from app.models.trade import Trade
@@ -41,6 +41,8 @@ class BotState:
     # None (flat), "long" or "short". Shorts only happen on futures + direction "both".
     position_side: str | None = None
     entry_price: float | None = None
+    # Best price reached since entry (high-water for long, low-water for short) — trailing stop.
+    extreme_price: float | None = None
     # Exchange-side protective stop for the main position (live only).
     stop_order_id: str | None = None
     # Protective leg opposite the main position (futures + hedge enabled).
@@ -160,6 +162,13 @@ class BotSupervisor:
         amount = float(strategy.config_json.get("position_size_pct", 10)) / 100
         signal = evaluate_signal(strategy.config_json, closes, state.position_side)
 
+        # Track the best price since entry for the trailing stop.
+        if state.has_position and state.extreme_price is not None:
+            if state.position_side == "long":
+                state.extreme_price = max(state.extreme_price, current_price)
+            else:
+                state.extreme_price = min(state.extreme_price, current_price)
+
         if not state.has_position:
             if signal in ("long", "short"):
                 await self._open_position(db, user, strategy, state, signal, current_price, amount)
@@ -191,6 +200,12 @@ class BotSupervisor:
             return "stop_loss"
         if tp_val is not None and pnl_now >= tp_val:
             return "take_profit"
+        trail = trailing_pct(config)
+        if trail is not None and state.extreme_price:
+            if state.position_side == "long" and current_price <= state.extreme_price * (1 - trail / 100):
+                return "trailing_stop"
+            if state.position_side == "short" and current_price >= state.extreme_price * (1 + trail / 100):
+                return "trailing_stop"
         return None
 
     async def _open_position(
@@ -224,6 +239,7 @@ class BotSupervisor:
         db.add(trade)
         state.position_side = side
         state.entry_price = trade.price
+        state.extreme_price = trade.price  # seed the trailing-stop high/low-water mark
         state.recent_prices = []  # fresh window so a stale extreme cannot trigger a hedge
         await db.commit()
 
@@ -308,6 +324,7 @@ class BotSupervisor:
         db.add(trade)
         state.position_side = None
         state.entry_price = None
+        state.extreme_price = None
         await db.commit()
         await publish_user_event(
             user.id,

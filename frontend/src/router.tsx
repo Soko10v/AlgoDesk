@@ -2,6 +2,7 @@ import { createBrowserRouter } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { BacktestPage } from "./pages/BacktestPage";
+import { ComparePage } from "./pages/ComparePage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { AuthCallbackPage } from "./pages/AuthCallbackPage";
 import { LandingPage } from "./pages/LandingPage";
@@ -28,6 +29,7 @@ export const router = createBrowserRouter([
           { path: "/dashboard", element: <DashboardPage /> },
           { path: "/builder", element: <StrategyBuilderPage /> },
           { path: "/backtest", element: <BacktestPage /> },
+          { path: "/compare", element: <ComparePage /> },
           { path: "/trades", element: <TradesPage /> },
           { path: "/profile", element: <ProfilePage /> },
           { path: "/settings", element: <SettingsPage /> },

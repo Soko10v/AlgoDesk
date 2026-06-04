@@ -9,6 +9,7 @@ ALLOWED_TIMEFRAMES = frozenset({"5m", "15m", "1h", "4h", "1d"})
 ALLOWED_MARKETS = frozenset({"spot", "futures"})
 ALLOWED_HEDGE_MODES = frozenset({"auto_squeeze", "constant_partial"})
 ALLOWED_DIRECTIONS = frozenset({"long", "both"})
+ALLOWED_ENTRY_TYPES = frozenset({"ma_cross", "ema_cross", "rsi", "breakout", "macd"})
 
 
 def validate_strategy_config(value: dict[str, Any]) -> dict[str, Any]:
@@ -19,6 +20,12 @@ def validate_strategy_config(value: dict[str, Any]) -> dict[str, Any]:
     tf = value.get("timeframe")
     if tf not in ALLOWED_TIMEFRAMES:
         raise ValueError(f"Unsupported timeframe: {tf}")
+
+    entry = value.get("entry") or []
+    if entry:
+        etype = entry[0].get("type") if isinstance(entry[0], dict) else None
+        if etype is not None and etype not in ALLOWED_ENTRY_TYPES:
+            raise ValueError(f"Unsupported entry type: {etype}")
 
     # market defaults to spot so strategies saved before futures support stay valid.
     market = value.get("market", "spot")

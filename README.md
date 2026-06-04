@@ -16,6 +16,19 @@ No-code algorithmic trading bot constructor for crypto traders.
 - `infra`: Docker Compose and environment template
 - `supabase`: SQL migrations and setup guide for hosted Postgres
 
+## Strategy toolkit
+
+- **Entry blocks**: MA cross, EMA cross, RSI (mean reversion), breakout (Donchian), MACD.
+- **Exits**: RSI rule, percent stop-loss / take-profit (0 = off), and a **trailing stop**
+  that follows the high/low-water mark (direction-aware).
+- **Presets**: one-click starting strategies (Trend Rider, Scalper, Breakout Hunter,
+  Mean Reversion, MACD Momentum) in the builder.
+- **Optimizer**: `POST /backtest/optimize` sweeps parameter combinations over one candle
+  set and ranks them by a risk-adjusted score (return ÷ drawdown), filtering out configs
+  with too few trades. Surfaced as the "Optimize" button on the Backtest page.
+- **Compare**: backtest several saved strategies over the same period, ranked side by side.
+- All of the above live in `config_json` (JSON) — **no DB migration needed** to ship them.
+
 ## Data split (Supabase vs VPS)
 
 | Supabase (durable) | VPS (runtime) |
