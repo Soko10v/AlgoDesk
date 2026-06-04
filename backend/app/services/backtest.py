@@ -5,38 +5,54 @@ from app.services.exchange import exchange_client
 
 # Most exchanges cap a single fetch_ohlcv call at ~1000 candles, so longer
 # backtests are stitched together from several paginated requests.
-MAX_CANDLES = 2000
 PER_REQUEST_LIMIT = 1000
 
 
-async def _fetch_candles(client, symbol: str, timeframe: str, since_ms: int | None, limit: int) -> list[list[float]]:
-    """Fetch up to `limit` OHLCV candles, paginating around the exchange's
-    per-request cap. With no `since`, returns the most recent `limit` candles."""
+async def _fetch_candles(
+    client,
+    symbol: str,
+    timeframe: str,
+    since_ms: int | None = None,
+    until_ms: int | None = None,
+) -> list[list[float]]:
+    """Fetch OHLCV candles for [since_ms, until_ms], paginating around the
+    exchange per-request cap. With no bounds, loads from earliest available."""
     tf_ms = client.parse_timeframe(timeframe) * 1000
-    cursor = since_ms if since_ms is not None else client.milliseconds() - limit * tf_ms
+    end = until_ms if until_ms is not None else client.milliseconds()
+    cursor = since_ms if since_ms is not None else 0
     candles: list[list[float]] = []
-    while len(candles) < limit:
-        want = min(PER_REQUEST_LIMIT, limit - len(candles))
-        batch = await client.fetch_ohlcv(symbol=symbol, timeframe=timeframe, since=cursor, limit=want)
+    while True:
+        batch = await client.fetch_ohlcv(
+            symbol=symbol, timeframe=timeframe, since=cursor, limit=PER_REQUEST_LIMIT
+        )
         if not batch:
             break
-        if candles:  # drop any candle that overlaps the previous page
+        if candles:
             batch = [c for c in batch if c[0] > candles[-1][0]]
             if not batch:
                 break
-        candles.extend(batch)
-        cursor = candles[-1][0] + tf_ms
-        if len(batch) < want:  # exchange returned everything it had
+        batch = [c for c in batch if c[0] <= end]
+        if not batch:
             break
-    return candles[:limit]
+        candles.extend(batch)
+        if candles[-1][0] >= end - tf_ms:
+            break
+        cursor = candles[-1][0] + tf_ms
+        if len(batch) < PER_REQUEST_LIMIT:
+            break
+    return candles
 
 
-async def run_backtest(config: dict[str, Any], since_ms: int | None = None, limit: int = MAX_CANDLES) -> dict[str, Any]:
+async def run_backtest(
+    config: dict[str, Any],
+    since_ms: int | None = None,
+    until_ms: int | None = None,
+) -> dict[str, Any]:
     symbol = config.get("symbol", "BTC/USDT")
     timeframe = config.get("timeframe", "1h")
     client = exchange_client()
     try:
-        candles = await _fetch_candles(client, symbol, timeframe, since_ms, limit)
+        candles = await _fetch_candles(client, symbol, timeframe, since_ms, until_ms)
     finally:
         await client.close()
 

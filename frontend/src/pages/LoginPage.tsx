@@ -32,11 +32,23 @@ export function LoginPage() {
   const navigate = useNavigate();
   const { data: config } = useAuthConfig();
   const widgetRef = useRef<HTMLDivElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [tgScaleX, setTgScaleX] = useState(1);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [oauthBusy, setOauthBusy] = useState(false);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const obs = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (w > 0) setTgScaleX(w / 240);
+    });
+    obs.observe(containerRef.current);
+    return () => obs.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!config?.telegram_bot_username || !widgetRef.current) return;
@@ -264,11 +276,16 @@ export function LoginPage() {
               )}
 
               {showTelegram && (
-                <div>
-                  <div className="label mb-2 flex items-center gap-2">
-                    <Send className="h-3.5 w-3.5" /> Telegram
+                <div ref={containerRef} className="relative h-10 w-full overflow-hidden rounded-xl">
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 bg-indigo-500 text-sm font-semibold text-white">
+                    <Send className="h-4 w-4" />
+                    Continue with Telegram
                   </div>
-                  <div ref={widgetRef} className="flex min-h-[48px] items-center justify-center" />
+                  <div
+                    ref={widgetRef}
+                    className="absolute left-0 top-0 opacity-0"
+                    style={{ transform: `scaleX(${tgScaleX})`, transformOrigin: "left top" }}
+                  />
                 </div>
               )}
             </div>
