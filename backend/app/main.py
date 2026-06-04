@@ -20,7 +20,12 @@ price_stream_task: asyncio.Task | None = None
 async def lifespan(_: FastAPI):
     global price_stream_task
     price_stream_task = asyncio.create_task(stream_symbols(["BTC/USDT", "ETH/USDT"]))
-    await bot_supervisor.recover(SessionLocal)
+    try:
+        await bot_supervisor.recover(SessionLocal)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Bot recovery failed on startup; API will run but bots may need a manual restart"
+        )
     yield
     await bot_supervisor.shutdown()
     if price_stream_task:

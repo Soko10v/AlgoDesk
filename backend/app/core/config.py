@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     fernet_key: str = ""
     cryptobot_token: str = ""
     cryptobot_webhook_secret: str = ""
+    google_client_id: str = ""
+    google_client_secret: str = ""
     # Temporary launch promo: when true every user gets full (pro) access for free
     # and the upgrade/paywall UI is hidden. Set FREE_MODE=false to re-enable billing.
     free_mode: bool = True

@@ -15,7 +15,7 @@ import { Toaster } from "./Toaster";
 import { cn } from "../lib/cn";
 
 const nav = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/builder", label: "Strategy Builder", icon: Boxes, end: false },
   { to: "/backtest", label: "Backtest", icon: LineChart, end: false },
   { to: "/trades", label: "Trade Log", icon: ScrollText, end: false },
@@ -45,6 +45,7 @@ export function Layout() {
   const location = useLocation();
   const current =
     nav.find((n) => (n.end ? location.pathname === n.to : location.pathname.startsWith(n.to))) ?? nav[0];
+
 
   return (
     <div className="flex min-h-screen">
