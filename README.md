@@ -94,10 +94,14 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"                    
   The backtester now applies the same stop-loss/take-profit (gap-aware fills),
   so its drawdown reflects what the live engine would actually take.
 - Strategies are **spot** (long-only) by default, or **futures** (linear perp,
-  with leverage capped at 10x). Futures strategies can add a **hedge**: a short
-  leg that offsets sharp adverse moves. Two modes — `auto_squeeze` (opens on a
-  fast drop, releases on rebound) and `constant_partial` (always holds a share
-  of the position short). Hedge fills are recorded as trades with `leg="hedge"`.
+  with leverage capped at 10x). Futures bots can set `direction="both"` to trade
+  **both ways**: long while the fast MA is above the slow MA, short while below,
+  flipping on the opposite cross (SL/TP protect either side). `direction="long"`
+  (the default, and the only option on spot) keeps the original long-only flow.
+- Futures strategies can add a **hedge**: a leg opposite the open position that
+  offsets sharp adverse moves. Two modes — `auto_squeeze` (opens on a fast
+  adverse move, releases on rebound) and `constant_partial` (always holds a share
+  of the position hedged). Hedge fills are recorded as trades with `leg="hedge"`.
 - Live trading only runs when a strategy has `live_enabled = true`.
 - API keys are **Fernet-encrypted** before being stored in Supabase.
 

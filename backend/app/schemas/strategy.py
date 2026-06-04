@@ -8,6 +8,7 @@ from app.engine.risk import MAX_LEVERAGE
 ALLOWED_TIMEFRAMES = frozenset({"5m", "15m", "1h", "4h", "1d"})
 ALLOWED_MARKETS = frozenset({"spot", "futures"})
 ALLOWED_HEDGE_MODES = frozenset({"auto_squeeze", "constant_partial"})
+ALLOWED_DIRECTIONS = frozenset({"long", "both"})
 
 
 def validate_strategy_config(value: dict[str, Any]) -> dict[str, Any]:
@@ -36,6 +37,10 @@ def _validate_futures(value: dict[str, Any]) -> None:
         raise ValueError("leverage must be an integer") from None
     if not 1 <= lev <= MAX_LEVERAGE:
         raise ValueError(f"leverage must be between 1 and {MAX_LEVERAGE}")
+
+    direction = value.get("direction", "long")
+    if direction not in ALLOWED_DIRECTIONS:
+        raise ValueError("direction must be 'long' or 'both'")
 
     hedge = value.get("hedge")
     if hedge is None:

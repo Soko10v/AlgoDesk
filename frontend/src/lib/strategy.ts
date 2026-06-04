@@ -16,6 +16,7 @@ export function normalizeConfig(config: Partial<StrategyConfig>): StrategyConfig
   if (merged.market !== "futures") {
     merged.market = "spot";
   }
+  merged.direction = merged.direction === "both" ? "both" : "long";
   merged.leverage = merged.leverage ?? 3;
   merged.hedge = { ...defaultHedge(), ...(merged.hedge ?? {}) };
   return merged;
@@ -31,6 +32,7 @@ export function defaultConfig(): StrategyConfig {
     stop_loss: { type: "pct", value: 2 },
     take_profit: { type: "pct", value: 5 },
     market: "spot",
+    direction: "long",
     leverage: 3,
     hedge: defaultHedge(),
   };
@@ -48,6 +50,10 @@ export function describeExit(config: StrategyConfig): string {
 
 export function isFutures(config: StrategyConfig): boolean {
   return config.market === "futures";
+}
+
+export function isBidirectional(config: StrategyConfig): boolean {
+  return isFutures(config) && config.direction === "both";
 }
 
 export function describeHedge(config: StrategyConfig): string {

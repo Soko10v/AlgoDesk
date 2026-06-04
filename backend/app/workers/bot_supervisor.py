@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.redis import redis_client
 from app.engine.live_executor import cancel_order, place_live_order, place_stop_order
 from app.engine.paper_executor import build_paper_trade, paper_fill_price
-from app.engine.risk import hedge_params, is_futures, pct_value, squeeze_drop_pct
+from app.engine.risk import adverse_excursion_pct, hedge_params, is_futures, pct_value
 from app.engine.strategy_evaluator import evaluate_signal
 from app.models.strategy import Strategy
 from app.models.trade import Trade
@@ -26,19 +26,34 @@ SEED_CANDLES = 200
 LOOP_INTERVAL = 2.0
 
 
+def _opposite(side: str) -> str:
+    return "short" if side == "long" else "long"
+
+
+def _order_side(action: str) -> str:
+    """Exchange order side that opens the given position side ('long'->buy)."""
+    return "buy" if action == "long" else "sell"
+
+
 @dataclass
 class BotState:
     mode: str
-    has_position: bool = False
+    # None (flat), "long" or "short". Shorts only happen on futures + direction "both".
+    position_side: str | None = None
     entry_price: float | None = None
     # Exchange-side protective stop for the main position (live only).
     stop_order_id: str | None = None
-    # Protective short leg (futures + hedge enabled).
+    # Protective leg opposite the main position (futures + hedge enabled).
     hedge_open: bool = False
+    hedge_side: str | None = None
     hedge_entry_price: float | None = None
-    hedge_low: float | None = None
+    hedge_extreme: float | None = None  # most adverse price for the main side since the hedge opened
     # Rolling price window for squeeze detection (auto_squeeze hedge mode).
     recent_prices: list[float] = field(default_factory=list)
+
+    @property
+    def has_position(self) -> bool:
+        return self.position_side is not None
 
 
 class BotSupervisor:
@@ -143,14 +158,21 @@ class BotSupervisor:
         closes = [float(v) for v in await redis_client.lrange(history_key, 0, -1)]
 
         amount = float(strategy.config_json.get("position_size_pct", 10)) / 100
-        signal = evaluate_signal(strategy.config_json, closes, state.has_position)
+        signal = evaluate_signal(strategy.config_json, closes, state.position_side)
 
-        if signal == "buy" and not state.has_position:
-            await self._open_position(db, user, strategy, state, current_price, amount)
+        if not state.has_position:
+            if signal in ("long", "short"):
+                await self._open_position(db, user, strategy, state, signal, current_price, amount)
         else:
+            # In a position: SL/TP take priority, then a signal can close or flip.
+            # A flip closes now and the opposite side opens on the next tick.
             exit_reason = self._exit_reason(strategy.config_json, state, current_price)
-            if (signal == "sell" or exit_reason) and state.has_position and state.entry_price is not None:
-                await self._close_position(db, user, strategy, state, current_price, amount, exit_reason or "signal")
+            if exit_reason:
+                await self._close_position(db, user, strategy, state, current_price, amount, exit_reason)
+            elif signal == "close":
+                await self._close_position(db, user, strategy, state, current_price, amount, "signal")
+            elif signal in ("long", "short") and signal != state.position_side:
+                await self._close_position(db, user, strategy, state, current_price, amount, "flip")
 
         # The hedge leg is managed every tick so it can open mid-trade on a squeeze
         # and unwind once the main position is closed.
@@ -159,7 +181,10 @@ class BotSupervisor:
     def _exit_reason(self, config: dict[str, Any], state: BotState, current_price: float) -> str | None:
         if not state.has_position or not state.entry_price:
             return None
-        pnl_now = ((current_price - state.entry_price) / state.entry_price) * 100
+        if state.position_side == "short":
+            pnl_now = ((state.entry_price - current_price) / state.entry_price) * 100
+        else:
+            pnl_now = ((current_price - state.entry_price) / state.entry_price) * 100
         sl_val = pct_value(config.get("stop_loss"))
         tp_val = pct_value(config.get("take_profit"))
         if sl_val is not None and pnl_now <= -sl_val:
@@ -169,17 +194,25 @@ class BotSupervisor:
         return None
 
     async def _open_position(
-        self, db: AsyncSession, user: User, strategy: Strategy, state: BotState, current_price: float, amount: float
+        self,
+        db: AsyncSession,
+        user: User,
+        strategy: Strategy,
+        state: BotState,
+        side: str,
+        current_price: float,
+        amount: float,
     ) -> None:
         futures = is_futures(strategy.config_json)
+        order_side = _order_side(side)
         if state.mode == "live":
             price = await place_live_order(
-                user, strategy, "buy", amount, position_side="long" if futures else None
+                user, strategy, order_side, amount, position_side=side if futures else None
             )
             trade = Trade(
                 strategy_id=strategy.id,
                 symbol=strategy.config_json.get("symbol", "BTC/USDT"),
-                side="buy",
+                side=order_side,
                 price=price,
                 amount=amount,
                 pnl=None,
@@ -187,18 +220,17 @@ class BotSupervisor:
                 timestamp=datetime.now(UTC),
             )
         else:
-            trade = build_paper_trade(strategy, "buy", current_price, amount)
+            trade = build_paper_trade(strategy, order_side, current_price, amount)
         db.add(trade)
-        state.has_position = True
+        state.position_side = side
         state.entry_price = trade.price
-        state.recent_prices = []  # fresh window so a stale high cannot trigger a hedge
+        state.recent_prices = []  # fresh window so a stale extreme cannot trigger a hedge
         await db.commit()
 
-        # Place a real exchange-side stop so the position is protected even if this
-        # process dies or price gaps between engine ticks. Engine-side _exit_reason
-        # remains the primary close path; this is the safety net.
+        # Real exchange-side stop so the position is protected even if this process
+        # dies or price gaps between ticks. Engine-side _exit_reason stays primary.
         if state.mode == "live":
-            await self._place_protective_stop(user, strategy, state, trade.price, amount, futures)
+            await self._place_protective_stop(user, strategy, state, side, trade.price, amount, futures)
 
         await publish_user_event(
             user.id,
@@ -206,22 +238,37 @@ class BotSupervisor:
                 "type": "trade_opened",
                 "strategy_id": strategy.id,
                 "strategy": strategy.name,
-                "side": "buy",
+                "side": order_side,
+                "position": side,
                 "price": trade.price,
                 "mode": state.mode,
             },
         )
-        await send_telegram_alert(user.telegram_id, f"Strategy {strategy.name}: BUY at {trade.price:.4f}")
+        await send_telegram_alert(
+            user.telegram_id, f"Strategy {strategy.name}: {side.upper()} at {trade.price:.4f}"
+        )
 
     async def _place_protective_stop(
-        self, user: User, strategy: Strategy, state: BotState, entry_price: float, amount: float, futures: bool
+        self,
+        user: User,
+        strategy: Strategy,
+        state: BotState,
+        side: str,
+        entry_price: float,
+        amount: float,
+        futures: bool,
     ) -> None:
         sl_val = pct_value(strategy.config_json.get("stop_loss"))
         if sl_val is None or entry_price <= 0:
             return
-        stop_price = entry_price * (1 - sl_val / 100)
+        if side == "short":
+            stop_price = entry_price * (1 + sl_val / 100)
+            stop_side = "buy"
+        else:
+            stop_price = entry_price * (1 - sl_val / 100)
+            stop_side = "sell"
         state.stop_order_id = await place_stop_order(
-            user, strategy, "sell", amount, stop_price, position_side="long" if futures else None
+            user, strategy, stop_side, amount, stop_price, position_side=side if futures else None
         )
 
     async def _close_position(
@@ -234,33 +281,32 @@ class BotSupervisor:
         amount: float,
         reason: str,
     ) -> None:
+        side = state.position_side or "long"
         entry_price = state.entry_price or current_price
         futures = is_futures(strategy.config_json)
+        order_side = "sell" if side == "long" else "buy"
         if state.mode == "live":
-            # Cancel the resting protective stop before closing manually so it is
-            # not left orphaned on the exchange.
             if state.stop_order_id:
                 await cancel_order(user, strategy, state.stop_order_id)
                 state.stop_order_id = None
             price = await place_live_order(
-                user, strategy, "sell", amount, reduce_only=futures, position_side="long" if futures else None
-            )
-            pnl = ((price - entry_price) / entry_price) * 100
-            trade = Trade(
-                strategy_id=strategy.id,
-                symbol=strategy.config_json.get("symbol", "BTC/USDT"),
-                side="sell",
-                price=price,
-                amount=amount,
-                pnl=pnl,
-                leg="main",
-                timestamp=datetime.now(UTC),
+                user, strategy, order_side, amount, reduce_only=futures, position_side=side if futures else None
             )
         else:
-            pnl = ((current_price - entry_price) / entry_price) * 100
-            trade = build_paper_trade(strategy, "sell", current_price, amount, pnl=pnl)
+            price = paper_fill_price(current_price, order_side)
+        pnl = ((price - entry_price) / entry_price * 100) if side == "long" else ((entry_price - price) / entry_price * 100)
+        trade = Trade(
+            strategy_id=strategy.id,
+            symbol=strategy.config_json.get("symbol", "BTC/USDT"),
+            side=order_side,
+            price=price,
+            amount=amount,
+            pnl=pnl,
+            leg="main",
+            timestamp=datetime.now(UTC),
+        )
         db.add(trade)
-        state.has_position = False
+        state.position_side = None
         state.entry_price = None
         await db.commit()
         await publish_user_event(
@@ -269,7 +315,8 @@ class BotSupervisor:
                 "type": "trade_closed",
                 "strategy_id": strategy.id,
                 "strategy": strategy.name,
-                "side": "sell",
+                "side": order_side,
+                "position": side,
                 "price": trade.price,
                 "pnl_pct": pnl,
                 "reason": reason,
@@ -278,7 +325,7 @@ class BotSupervisor:
         )
         await send_telegram_alert(
             user.telegram_id,
-            f"Strategy {strategy.name}: SELL at {trade.price:.4f}, PnL {pnl:.2f}% ({reason})",
+            f"Strategy {strategy.name}: close {side.upper()} at {trade.price:.4f}, PnL {pnl:.2f}% ({reason})",
         )
 
     # ---- hedge leg -------------------------------------------------------
@@ -293,39 +340,56 @@ class BotSupervisor:
         if hedge_amount <= 0:
             return
 
+        # The hedge is always the leg opposite the main position.
+        main_side = state.position_side
+        want_hedge_side = _opposite(main_side) if main_side else None
+
         if params["mode"] == "constant_partial":
-            # Hold the short for as long as the main position is open.
             if state.has_position and not state.hedge_open:
-                await self._open_hedge(db, user, strategy, state, current_price, hedge_amount)
+                await self._open_hedge(db, user, strategy, state, want_hedge_side, current_price, hedge_amount)
             elif not state.has_position and state.hedge_open:
                 await self._close_hedge(db, user, strategy, state, current_price, hedge_amount, "position_closed")
             return
 
-        # auto_squeeze: open on a fast drop, release once price recovers.
+        # auto_squeeze: open on a fast adverse move, release once price recovers.
         window = max(2, int(params["window_sec"] / LOOP_INTERVAL))
         state.recent_prices.append(current_price)
         if len(state.recent_prices) > window:
             state.recent_prices = state.recent_prices[-window:]
 
         if state.hedge_open:
-            state.hedge_low = min(state.hedge_low or current_price, current_price)
-            recovered = state.hedge_low and current_price >= state.hedge_low * (1 + params["release_pct"] / 100)
             if not state.has_position:
                 await self._close_hedge(db, user, strategy, state, current_price, hedge_amount, "position_closed")
-            elif recovered:
+                return
+            # Track the most adverse price for the main side, release on recovery.
+            if main_side == "long":
+                state.hedge_extreme = min(state.hedge_extreme or current_price, current_price)
+                recovered = current_price >= state.hedge_extreme * (1 + params["release_pct"] / 100)
+            else:
+                state.hedge_extreme = max(state.hedge_extreme or current_price, current_price)
+                recovered = current_price <= state.hedge_extreme * (1 - params["release_pct"] / 100)
+            if recovered:
                 await self._close_hedge(db, user, strategy, state, current_price, hedge_amount, "recovered")
-        elif state.has_position and squeeze_drop_pct(state.recent_prices) >= params["trigger_pct"]:
-            await self._open_hedge(db, user, strategy, state, current_price, hedge_amount)
+        elif state.has_position and adverse_excursion_pct(state.recent_prices, main_side) >= params["trigger_pct"]:
+            await self._open_hedge(db, user, strategy, state, want_hedge_side, current_price, hedge_amount)
 
     async def _open_hedge(
-        self, db: AsyncSession, user: User, strategy: Strategy, state: BotState, current_price: float, amount: float
+        self,
+        db: AsyncSession,
+        user: User,
+        strategy: Strategy,
+        state: BotState,
+        hedge_side: str,
+        current_price: float,
+        amount: float,
     ) -> None:
+        order_side = _order_side(hedge_side)
         if state.mode == "live":
-            price = await place_live_order(user, strategy, "sell", amount, position_side="short")
+            price = await place_live_order(user, strategy, order_side, amount, position_side=hedge_side)
             trade = Trade(
                 strategy_id=strategy.id,
                 symbol=strategy.config_json.get("symbol", "BTC/USDT"),
-                side="sell",
+                side=order_side,
                 price=price,
                 amount=amount,
                 pnl=None,
@@ -333,11 +397,12 @@ class BotSupervisor:
                 timestamp=datetime.now(UTC),
             )
         else:
-            trade = build_paper_trade(strategy, "sell", current_price, amount, leg="hedge")
+            trade = build_paper_trade(strategy, order_side, current_price, amount, leg="hedge")
         db.add(trade)
         state.hedge_open = True
+        state.hedge_side = hedge_side
         state.hedge_entry_price = trade.price
-        state.hedge_low = current_price
+        state.hedge_extreme = current_price
         await db.commit()
         await publish_user_event(
             user.id,
@@ -345,11 +410,14 @@ class BotSupervisor:
                 "type": "hedge_opened",
                 "strategy_id": strategy.id,
                 "strategy": strategy.name,
+                "side": hedge_side,
                 "price": trade.price,
                 "mode": state.mode,
             },
         )
-        await send_telegram_alert(user.telegram_id, f"Strategy {strategy.name}: HEDGE short at {trade.price:.4f}")
+        await send_telegram_alert(
+            user.telegram_id, f"Strategy {strategy.name}: HEDGE {hedge_side} at {trade.price:.4f}"
+        )
 
     async def _close_hedge(
         self,
@@ -361,17 +429,19 @@ class BotSupervisor:
         amount: float,
         reason: str,
     ) -> None:
+        hedge_side = state.hedge_side or "short"
         entry = state.hedge_entry_price or current_price
+        order_side = "buy" if hedge_side == "short" else "sell"
         if state.mode == "live":
-            price = await place_live_order(user, strategy, "buy", amount, reduce_only=True, position_side="short")
+            price = await place_live_order(user, strategy, order_side, amount, reduce_only=True, position_side=hedge_side)
         else:
-            price = paper_fill_price(current_price, "buy")
-        # A short profits when price falls below its entry.
-        pnl = ((entry - price) / entry) * 100
+            price = paper_fill_price(current_price, order_side)
+        # A short leg profits when price falls below entry; a long leg when it rises.
+        pnl = ((entry - price) / entry * 100) if hedge_side == "short" else ((price - entry) / entry * 100)
         trade = Trade(
             strategy_id=strategy.id,
             symbol=strategy.config_json.get("symbol", "BTC/USDT"),
-            side="buy",
+            side=order_side,
             price=price,
             amount=amount,
             pnl=pnl,
@@ -380,8 +450,9 @@ class BotSupervisor:
         )
         db.add(trade)
         state.hedge_open = False
+        state.hedge_side = None
         state.hedge_entry_price = None
-        state.hedge_low = None
+        state.hedge_extreme = None
         await db.commit()
         await publish_user_event(
             user.id,
