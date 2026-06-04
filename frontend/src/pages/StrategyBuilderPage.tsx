@@ -3,12 +3,13 @@ import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactFlow, { Background, Controls, MarkerType, type Edge, type Node } from "reactflow";
 import "reactflow/dist/style.css";
-import { Crosshair, LogIn, LogOut, Pencil, Plus, Save, Shield, Target, Trash2, Umbrella, Zap } from "lucide-react";
+import { ArrowDownUp, Crosshair, LogIn, LogOut, Pencil, Plus, Save, Shield, Target, Trash2, Umbrella, Zap } from "lucide-react";
 import {
   createStrategy,
   deleteStrategy,
   listStrategies,
   updateStrategy,
+  type Direction,
   type HedgeConfig,
   type HedgeMode,
   type Market,
@@ -27,6 +28,7 @@ import {
   describeEntry,
   describeExit,
   describeHedge,
+  isBidirectional,
   isFutures,
   normalizeConfig,
 } from "../lib/strategy";
@@ -76,6 +78,7 @@ export function StrategyBuilderPage() {
     setCfg((c) => ({ ...c, hedge: { ...defaultHedge(), ...c.hedge, ...patch } }));
   const setMarket = (market: Market) =>
     setCfg((c) => ({ ...c, market, leverage: c.leverage ?? 3, hedge: { ...defaultHedge(), ...c.hedge } }));
+  const setDirection = (direction: Direction) => setCfg((c) => ({ ...c, direction }));
 
   const save = useMutation({
     mutationFn: () => {
@@ -217,6 +220,29 @@ export function StrategyBuilderPage() {
                 </Field>
               )}
             </div>
+
+            {isFutures(cfg) && (
+              <Field label="Trade direction" hint="Long & Short flips on the MA cross — long above, short below the slow MA.">
+                <div className="grid grid-cols-2 gap-2">
+                  {([["long", "Long only"], ["both", "Long & Short"]] as const).map(([val, label]) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setDirection(val)}
+                      className={cn(
+                        "flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition",
+                        (cfg.direction ?? "long") === val
+                          ? "border-brand-500/60 bg-brand-500/10 text-brand-200"
+                          : "border-white/[0.06] bg-white/[0.02] text-slate-400 hover:text-slate-200"
+                      )}
+                    >
+                      {val === "both" && <ArrowDownUp className="h-3.5 w-3.5" />}
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+            )}
 
             <Block icon={LogIn} title="Entry — MA cross" tone="text-brand-300">
               <div className="grid grid-cols-2 gap-3">
@@ -389,6 +415,11 @@ export function StrategyBuilderPage() {
                         <Zap className="h-3 w-3" /> {s.config_json.leverage ?? 1}x
                       </Badge>
                     )}
+                    {isBidirectional(s.config_json) && (
+                      <Badge tone="success">
+                        <ArrowDownUp className="h-3 w-3" /> L/S
+                      </Badge>
+                    )}
                     {isFutures(s.config_json) && s.config_json.hedge?.enabled && (
                       <Badge tone="info">
                         <Umbrella className="h-3 w-3" /> hedge
@@ -454,7 +485,7 @@ function buildGraph(cfg: StrategyConfig): { nodes: Node[]; edges: Edge[] } {
       data: {
         label: `${cfg.symbol} · ${cfg.timeframe} · ${cfg.position_size_pct}%${
           isFutures(cfg) ? ` · ${cfg.leverage ?? 1}x futures` : ""
-        }`,
+        }${isBidirectional(cfg) ? " · long & short" : ""}`,
       },
       style: accentNode("rgba(148,163,184,0.4)"),
       sourcePosition: "right" as never,
@@ -463,7 +494,7 @@ function buildGraph(cfg: StrategyConfig): { nodes: Node[]; edges: Edge[] } {
     {
       id: "entry",
       position: { x: 260, y: 170 },
-      data: { label: `Entry · ${describeEntry(cfg)}` },
+      data: { label: `Entry · ${describeEntry(cfg)}${isBidirectional(cfg) ? " · flip L/S" : ""}` },
       style: accentNode("rgba(16,185,129,0.6)"),
       sourcePosition: "right" as never,
       targetPosition: "left" as never,

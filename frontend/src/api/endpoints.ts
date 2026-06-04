@@ -5,6 +5,7 @@ export type RsiRule = { type: "rsi"; op: ">" | "<"; value: number };
 export type PctRule = { type: "pct"; value: number };
 
 export type Market = "spot" | "futures";
+export type Direction = "long" | "both";
 export type HedgeMode = "auto_squeeze" | "constant_partial";
 export type HedgeConfig = {
   enabled: boolean;
@@ -25,6 +26,7 @@ export type StrategyConfig = {
   take_profit: PctRule;
   // Futures-only fields; spot strategies omit them and the backend defaults market to "spot".
   market?: Market;
+  direction?: Direction; // "long" (default) or "both" — futures can trade both ways
   leverage?: number;
   hedge?: HedgeConfig;
 };

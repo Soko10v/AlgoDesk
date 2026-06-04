@@ -29,6 +29,12 @@ def is_futures(config: dict[str, Any]) -> bool:
     return config.get("market") == "futures"
 
 
+def allow_short(config: dict[str, Any]) -> bool:
+    """True when the strategy may open short positions: futures bots whose
+    direction is set to "both". Spot and long-only futures stay long-only."""
+    return is_futures(config) and config.get("direction") == "both"
+
+
 def leverage(config: dict[str, Any]) -> int:
     if not is_futures(config):
         return 1
@@ -60,11 +66,17 @@ def hedge_params(config: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def squeeze_drop_pct(prices: list[float]) -> float:
-    """Percent drop from the highest price in the window to the latest one.
-    A large positive value means a fast adverse move (a squeeze)."""
+def adverse_excursion_pct(prices: list[float], side: str = "long") -> float:
+    """Percent of the fast move *against* the position within the window — the
+    squeeze size. For a long that is a drop from the window peak; for a short it
+    is a rise from the window trough. A large value means a fast adverse move."""
     if not prices:
         return 0.0
+    if side == "short":
+        trough = min(prices)
+        if trough <= 0:
+            return 0.0
+        return (prices[-1] - trough) / trough * 100
     peak = max(prices)
     if peak <= 0:
         return 0.0
