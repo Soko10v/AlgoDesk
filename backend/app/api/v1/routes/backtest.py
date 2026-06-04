@@ -23,7 +23,10 @@ async def backtest_strategy(
     if strategy is None or strategy.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Strategy not found")
     since_ms = None
+    until_ms = None
     if payload.start_date:
         since_ms = int(datetime.combine(payload.start_date, time.min).timestamp() * 1000)
-    data = await run_backtest(strategy.config_json, since_ms=since_ms)
+    if payload.end_date:
+        until_ms = int(datetime.combine(payload.end_date, time.max).timestamp() * 1000)
+    data = await run_backtest(strategy.config_json, since_ms=since_ms, until_ms=until_ms)
     return BacktestOut(**data)
