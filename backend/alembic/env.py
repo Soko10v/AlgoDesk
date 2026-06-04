@@ -13,7 +13,9 @@ import app.models.user  # noqa: F401
 
 config = context.config
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", alembic_sync_url(settings.database_url))
+# ConfigParser treats "%" as interpolation; escape for URL-encoded passwords.
+_db_url = alembic_sync_url(settings.database_url).replace("%", "%%")
+config.set_main_option("sqlalchemy.url", _db_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
