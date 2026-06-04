@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Activity,
   Boxes,
   Crown,
+  Pencil,
   Play,
   Plug,
   Plus,
@@ -55,6 +56,7 @@ export function DashboardPage() {
   });
 
   const pending = start.isPending || stop.isPending;
+  const navigate = useNavigate();
 
   return (
     <div className="animate-fade-in">
@@ -126,6 +128,7 @@ export function DashboardPage() {
                   pending={pending}
                   onStart={(mode) => start.mutate({ id: s.id, mode })}
                   onStop={() => stop.mutate(s.id)}
+                  onEdit={() => navigate(`/builder?edit=${s.id}`)}
                 />
               ))}
             </div>
@@ -146,11 +149,13 @@ function StrategyRow({
   pending,
   onStart,
   onStop,
+  onEdit,
 }: {
   strategy: Strategy;
   pending: boolean;
   onStart: (mode: "paper" | "live") => void;
   onStop: () => void;
+  onEdit: () => void;
 }) {
   const running = isRunning(strategy.status);
   const cfg = strategy.config_json;
@@ -181,6 +186,9 @@ function StrategyRow({
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
+          <Button size="sm" variant="ghost" onClick={onEdit} disabled={pending} title="Edit strategy">
+            <Pencil className="h-3.5 w-3.5" /> Edit
+          </Button>
           {running ? (
             <Button size="sm" variant="danger" onClick={onStop} disabled={pending}>
               <Square className="h-3.5 w-3.5" /> Stop

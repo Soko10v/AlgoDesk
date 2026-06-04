@@ -14,6 +14,7 @@ export const supabase: SupabaseClient = createClient(
       autoRefreshToken: true,
       detectSessionInUrl: true,
       storageKey: "algodesk_supabase_auth",
+      flowType: "pkce",
     },
   }
 );
