@@ -27,7 +27,14 @@
       "Bash(scp -o StrictHostKeyChecking=no '\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\atralin\\\\AlgoDesk\\\\backend\\\\app\\\\api\\\\v1\\\\routes\\\\auth.py' root@8.222.130.45:/root/AlgoDesk/backend/app/api/v1/routes/auth.py)",
       "Bash(scp -o StrictHostKeyChecking=no '\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\atralin\\\\AlgoDesk\\\\backend\\\\app\\\\schemas\\\\auth.py' root@8.222.130.45:/root/AlgoDesk/backend/app/schemas/auth.py)",
       "Bash(scp -o StrictHostKeyChecking=no '\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\atralin\\\\AlgoDesk\\\\frontend\\\\src\\\\hooks\\\\useAuth.ts' root@8.222.130.45:/root/AlgoDesk/frontend/src/hooks/useAuth.ts)",
-      "Bash(scp -o StrictHostKeyChecking=no '\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\atralin\\\\AlgoDesk\\\\frontend\\\\src\\\\pages\\\\AuthCallbackPage.tsx' root@8.222.130.45:/root/AlgoDesk/frontend/src/pages/AuthCallbackPage.tsx)"
+      "Bash(scp -o StrictHostKeyChecking=no '\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\atralin\\\\AlgoDesk\\\\frontend\\\\src\\\\pages\\\\AuthCallbackPage.tsx' root@8.222.130.45:/root/AlgoDesk/frontend/src/pages/AuthCallbackPage.tsx)",
+      "Bash(ls /home/atralin/)",
+      "Bash(python3 -m py_compile app/engine/risk.py app/engine/live_executor.py app/engine/paper_executor.py app/workers/bot_supervisor.py app/services/backtest.py app/services/exchange.py app/schemas/strategy.py app/schemas/trade.py app/models/trade.py alembic/versions/0004_trade_leg.py)",
+      "Bash(wsl.exe python3 *)",
+      "Bash(WSL_UTF8=1 wsl.exe --cd /home/atralin/AlgoDesk/backend -e bash -lc 'python3 -V; python3 -m py_compile app/engine/risk.py app/engine/live_executor.py app/engine/paper_executor.py app/workers/bot_supervisor.py app/services/backtest.py app/services/exchange.py app/schemas/strategy.py app/schemas/trade.py app/models/trade.py alembic/versions/0004_trade_leg.py && echo PY_COMPILE_OK')",
+      "PowerShell(Set-Location C:\\\\; $env:WSL_UTF8=1; wsl.exe -l -v; Write-Output \"--- which python ---\"; wsl.exe -d Ubuntu -- bash -lc \"which python3; python3 -V\")",
+      "Bash(rm -f _tmp_check.py _tmp_bt.py)",
+      "Bash(ls _tmp*)"
     ]
   }
 }

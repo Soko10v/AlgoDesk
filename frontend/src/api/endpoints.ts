@@ -4,6 +4,17 @@ export type MaCrossRule = { type: "ma_cross"; fast: number; slow: number };
 export type RsiRule = { type: "rsi"; op: ">" | "<"; value: number };
 export type PctRule = { type: "pct"; value: number };
 
+export type Market = "spot" | "futures";
+export type HedgeMode = "auto_squeeze" | "constant_partial";
+export type HedgeConfig = {
+  enabled: boolean;
+  mode: HedgeMode;
+  ratio: number;
+  trigger_pct: number;
+  window_sec: number;
+  release_pct: number;
+};
+
 export type StrategyConfig = {
   symbol: string;
   timeframe: string;
@@ -12,6 +23,10 @@ export type StrategyConfig = {
   exit: RsiRule[];
   stop_loss: PctRule;
   take_profit: PctRule;
+  // Futures-only fields; spot strategies omit them and the backend defaults market to "spot".
+  market?: Market;
+  leverage?: number;
+  hedge?: HedgeConfig;
 };
 
 export type Strategy = {
@@ -30,10 +45,35 @@ export type AuthConfig = {
   supabase_anon_key: string;
   telegram_bot_username: string;
 };
-export type Subscription = { plan: string; expires_at: string | null; free_mode?: boolean };
+export type Subscription = {
+  plan: string;
+  expires_at: string | null;
+  free_mode?: boolean;
+  paid_in_usdt?: number;
+};
 
 export type ExchangeId = "bybit" | "binance";
 export type ExchangeStatus = { connected: boolean; exchange: ExchangeId };
+export type BalanceItem = { asset: string; free: number; used: number; total: number };
+export type ExchangeBalance = {
+  connected: boolean;
+  exchange: ExchangeId;
+  usdt: number;
+  balances: BalanceItem[];
+  error?: string | null;
+};
+
+export type TradeStats = {
+  total_trades: number;
+  closed_trades: number;
+  wins: number;
+  win_rate: number;
+  avg_pnl: number;
+  total_pnl: number;
+  best_pnl: number;
+  worst_pnl: number;
+  hedge_trades: number;
+};
 
 export type Trade = {
   id: number;
@@ -43,6 +83,7 @@ export type Trade = {
   price: number;
   amount: number;
   pnl: number | null;
+  leg?: string; // "main" | "hedge"
   timestamp: string;
 };
 
@@ -113,6 +154,11 @@ export async function listTrades(strategy_id?: number) {
   return data as Trade[];
 }
 
+export async function getTradeStats() {
+  const { data } = await api.get("/trades/stats");
+  return data as TradeStats;
+}
+
 // ---- exchange ----
 export async function connectExchange(exchange: ExchangeId, api_key: string, api_secret: string) {
   const { data } = await api.post("/exchange/connect", { exchange, api_key, api_secret });
@@ -122,6 +168,11 @@ export async function connectExchange(exchange: ExchangeId, api_key: string, api
 export async function exchangeStatus() {
   const { data } = await api.get("/exchange/status");
   return data as ExchangeStatus;
+}
+
+export async function exchangeBalance() {
+  const { data } = await api.get("/exchange/balance");
+  return data as ExchangeBalance;
 }
 
 export async function testExchange() {

@@ -7,6 +7,7 @@ import { AuthCallbackPage } from "./pages/AuthCallbackPage";
 import { LandingPage } from "./pages/LandingPage";
 import { LegalPage } from "./pages/LegalPage";
 import { LoginPage } from "./pages/LoginPage";
+import { ProfilePage } from "./pages/ProfilePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { StrategyBuilderPage } from "./pages/StrategyBuilderPage";
 import { SubscriptionPage } from "./pages/SubscriptionPage";
@@ -28,6 +29,7 @@ export const router = createBrowserRouter([
           { path: "/builder", element: <StrategyBuilderPage /> },
           { path: "/backtest", element: <BacktestPage /> },
           { path: "/trades", element: <TradesPage /> },
+          { path: "/profile", element: <ProfilePage /> },
           { path: "/settings", element: <SettingsPage /> },
           { path: "/subscription", element: <SubscriptionPage /> },
         ],

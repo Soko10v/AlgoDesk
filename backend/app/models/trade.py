@@ -16,6 +16,8 @@ class Trade(Base):
     price: Mapped[float] = mapped_column(Float)
     amount: Mapped[float] = mapped_column(Float)
     pnl: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # "main" for the strategy's own position, "hedge" for a protective short leg.
+    leg: Mapped[str] = mapped_column(String(10), default="main", server_default="main")
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     strategy = relationship("Strategy", back_populates="trades")

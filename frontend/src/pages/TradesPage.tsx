@@ -86,7 +86,10 @@ export function TradesPage() {
                     <td className="whitespace-nowrap px-5 py-3 text-slate-400">{dateTime(t.timestamp)}</td>
                     <td className="px-5 py-3 font-mono text-slate-200">{t.symbol}</td>
                     <td className="px-5 py-3">
-                      <Badge tone={t.side === "buy" ? "success" : "info"}>{t.side.toUpperCase()}</Badge>
+                      <div className="flex items-center gap-1.5">
+                        <Badge tone={t.side === "buy" ? "success" : "info"}>{t.side.toUpperCase()}</Badge>
+                        {t.leg === "hedge" && <Badge tone="violet">HEDGE</Badge>}
+                      </div>
                     </td>
                     <td className="px-5 py-3 text-right font-mono text-slate-300">{price(t.price)}</td>
                     <td className="px-5 py-3 text-right text-slate-400">{num(t.amount, 4)}</td>
