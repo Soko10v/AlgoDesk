@@ -34,7 +34,8 @@
       "Bash(WSL_UTF8=1 wsl.exe --cd /home/atralin/AlgoDesk/backend -e bash -lc 'python3 -V; python3 -m py_compile app/engine/risk.py app/engine/live_executor.py app/engine/paper_executor.py app/workers/bot_supervisor.py app/services/backtest.py app/services/exchange.py app/schemas/strategy.py app/schemas/trade.py app/models/trade.py alembic/versions/0004_trade_leg.py && echo PY_COMPILE_OK')",
       "PowerShell(Set-Location C:\\\\; $env:WSL_UTF8=1; wsl.exe -l -v; Write-Output \"--- which python ---\"; wsl.exe -d Ubuntu -- bash -lc \"which python3; python3 -V\")",
       "Bash(rm -f _tmp_check.py _tmp_bt.py)",
-      "Bash(ls _tmp*)"
+      "Bash(ls _tmp*)",
+      "Bash(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@8.222.130.45 \"echo OK && whoami && cd /root/AlgoDesk && git log --oneline -3\")"
     ]
   }
 }
