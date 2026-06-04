@@ -11,7 +11,9 @@ ARG VITE_SUPABASE_ANON_KEY=
 ENV VITE_API_BASE=$VITE_API_BASE
 ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
 ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
-RUN npm run build
+# vite build only (esbuild transpiles TS) — type-checking runs locally/CI via
+# `npm run typecheck`, not on the small VPS where tsc thrashes RAM into swap.
+RUN npm run build:docker
 
 # --- serve stage ---
 FROM nginx:alpine
