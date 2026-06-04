@@ -57,7 +57,7 @@ export function LoginPage() {
       try {
         const { access_token } = await authTelegram(user);
         setToken(access_token);
-        navigate("/");
+        navigate("/dashboard");
       } catch {
         toast.error("Telegram login failed", "Check the bot domain configuration.");
       }
@@ -85,7 +85,7 @@ export function LoginPage() {
       </div>
     );
   }
-  if (token) return <Navigate to="/" replace />;
+  if (token) return <Navigate to="/dashboard" replace />;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -110,7 +110,7 @@ export function LoginPage() {
         if (!data.session?.access_token) {
           throw new Error("No session returned");
         }
-        navigate("/");
+        navigate("/dashboard");
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Authentication failed";

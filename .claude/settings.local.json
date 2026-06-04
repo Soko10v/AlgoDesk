@@ -8,7 +8,26 @@
       "Bash(wsl -d Ubuntu -- bash -lc \"cd /home/atralin/AlgoDesk/frontend && \\(test -d node_modules && echo HAVE_MODULES || echo NO_MODULES\\) && cat package.json | grep -A6 '\\\\\"scripts\\\\\"'\")",
       "Bash(npx tsc *)",
       "PowerShell(Get-Command node -ErrorAction SilentlyContinue)",
-      "Bash(ssh -o StrictHostKeyChecking=no root@8.222.130.45 \"docker compose -f /opt/algodesk/docker-compose.yml ps\")"
+      "Bash(ssh -o StrictHostKeyChecking=no root@8.222.130.45 \"docker compose -f /opt/algodesk/docker-compose.yml ps\")",
+      "WebFetch(domain:transparencyreport.google.com)",
+      "WebFetch(domain:www.virustotal.com)",
+      "WebFetch(domain:sitecheck.sucuri.net)",
+      "WebFetch(domain:www.google.com)",
+      "WebSearch",
+      "Bash(nslookup -type=NS algodesk.pro)",
+      "Bash(dig NS algodesk.pro +short)",
+      "Bash(scp -o StrictHostKeyChecking=no \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\atralin\\\\AlgoDesk\\\\frontend\\\\src\\\\pages\\\\LandingPage.tsx\" root@8.222.130.45:/root/AlgoDesk/frontend/src/pages/LandingPage.tsx)",
+      "Bash(scp -o StrictHostKeyChecking=no \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\atralin\\\\AlgoDesk\\\\frontend\\\\src\\\\pages\\\\LegalPage.tsx\" root@8.222.130.45:/root/AlgoDesk/frontend/src/pages/LegalPage.tsx)",
+      "Bash(scp -o StrictHostKeyChecking=no \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\atralin\\\\AlgoDesk\\\\frontend\\\\src\\\\router.tsx\" root@8.222.130.45:/root/AlgoDesk/frontend/src/router.tsx)",
+      "Bash(scp -o StrictHostKeyChecking=no \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\atralin\\\\AlgoDesk\\\\frontend\\\\src\\\\components\\\\Layout.tsx\" root@8.222.130.45:/root/AlgoDesk/frontend/src/components/Layout.tsx)",
+      "Bash(scp -o StrictHostKeyChecking=no \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\atralin\\\\AlgoDesk\\\\frontend\\\\src\\\\pages\\\\LoginPage.tsx\" root@8.222.130.45:/root/AlgoDesk/frontend/src/pages/LoginPage.tsx)",
+      "Bash(scp -o StrictHostKeyChecking=no '\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\atralin\\\\AlgoDesk\\\\frontend\\\\src\\\\pages\\\\DashboardPage.tsx' root@8.222.130.45:/root/AlgoDesk/frontend/src/pages/DashboardPage.tsx)",
+      "Bash(scp -o StrictHostKeyChecking=no '\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\atralin\\\\AlgoDesk\\\\frontend\\\\src\\\\pages\\\\StrategyBuilderPage.tsx' root@8.222.130.45:/root/AlgoDesk/frontend/src/pages/StrategyBuilderPage.tsx)",
+      "Bash(scp -o StrictHostKeyChecking=no '\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\atralin\\\\AlgoDesk\\\\backend\\\\app\\\\core\\\\config.py' root@8.222.130.45:/root/AlgoDesk/backend/app/core/config.py)",
+      "Bash(scp -o StrictHostKeyChecking=no '\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\atralin\\\\AlgoDesk\\\\backend\\\\app\\\\api\\\\v1\\\\routes\\\\auth.py' root@8.222.130.45:/root/AlgoDesk/backend/app/api/v1/routes/auth.py)",
+      "Bash(scp -o StrictHostKeyChecking=no '\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\atralin\\\\AlgoDesk\\\\backend\\\\app\\\\schemas\\\\auth.py' root@8.222.130.45:/root/AlgoDesk/backend/app/schemas/auth.py)",
+      "Bash(scp -o StrictHostKeyChecking=no '\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\atralin\\\\AlgoDesk\\\\frontend\\\\src\\\\hooks\\\\useAuth.ts' root@8.222.130.45:/root/AlgoDesk/frontend/src/hooks/useAuth.ts)",
+      "Bash(scp -o StrictHostKeyChecking=no '\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\atralin\\\\AlgoDesk\\\\frontend\\\\src\\\\pages\\\\AuthCallbackPage.tsx' root@8.222.130.45:/root/AlgoDesk/frontend/src/pages/AuthCallbackPage.tsx)"
     ]
   }
 }

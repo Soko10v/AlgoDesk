@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactFlow, { Background, Controls, MarkerType, type Edge, type Node } from "reactflow";
 import "reactflow/dist/style.css";
@@ -33,11 +34,24 @@ function accentNode(border: string): React.CSSProperties {
 export function StrategyBuilderPage() {
   const qc = useQueryClient();
   const strategies = useQuery({ queryKey: ["strategies"], queryFn: listStrategies });
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [name, setName] = useState("My Strategy");
   const [cfg, setCfg] = useState<StrategyConfig>(defaultConfig());
   const [liveEnabled, setLiveEnabled] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+
+  // Auto-load strategy when navigated here with ?edit=ID (e.g. from Dashboard)
+  useEffect(() => {
+    const editId = Number(searchParams.get("edit"));
+    if (!editId || !strategies.data) return;
+    const target = strategies.data.find((s) => s.id === editId);
+    if (target) {
+      loadStrategy(target);
+      setSearchParams({}, { replace: true }); // clean up URL
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, strategies.data]);
 
   const setEntry = (patch: Partial<{ fast: number; slow: number }>) =>
     setCfg((c) => ({ ...c, entry: [{ ...c.entry[0], ...patch }] }));
