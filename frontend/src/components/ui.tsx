@@ -57,7 +57,17 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 Button.displayName = "Button";
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
-  ({ className, ...props }, ref) => <input ref={ref} className={cn("input", className)} {...props} />
+  ({ className, onFocus, ...props }, ref) => (
+    <input
+      ref={ref}
+      className={cn("input", className)}
+      onFocus={(e) => {
+        if (props.type === "number") e.target.select();
+        onFocus?.(e);
+      }}
+      {...props}
+    />
+  )
 );
 Input.displayName = "Input";
 
