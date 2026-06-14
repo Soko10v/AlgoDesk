@@ -8,6 +8,7 @@ import {
   Crown,
   Gift,
   Plug,
+  RefreshCw,
   SlidersHorizontal,
   TrendingDown,
   TrendingUp,
@@ -38,6 +39,7 @@ export function ProfilePage() {
     queryFn: exchangeBalance,
     enabled: status.data?.connected === true,
     staleTime: 30_000,
+    refetchInterval: 60_000,
   });
 
   const user = profile.data;
@@ -121,7 +123,19 @@ export function ProfilePage() {
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-200">
               <Coins className="h-4 w-4 text-brand-400" /> Exchange account
             </div>
-            {connected && <Badge tone="neutral" className="capitalize">{status.data?.exchange}</Badge>}
+            <div className="flex items-center gap-2">
+              {connected && <Badge tone="neutral" className="capitalize">{status.data?.exchange}</Badge>}
+              {connected && (
+                <button
+                  onClick={() => balance.refetch()}
+                  disabled={balance.isFetching}
+                  className="rounded-lg p-1.5 text-slate-500 transition hover:bg-white/[0.06] hover:text-slate-300 disabled:opacity-40"
+                  title="Refresh balance"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${balance.isFetching ? "animate-spin" : ""}`} />
+                </button>
+              )}
+            </div>
           </div>
 
           {!connected ? (
