@@ -146,8 +146,10 @@ export async function deleteStrategy(id: number) {
 }
 
 // ---- bots ----
-export async function startBot(id: number, mode: "paper" | "live") {
-  const { data } = await api.post(`/bots/${id}/start`, { mode });
+export async function startBot(id: number, mode: "paper" | "live", position_size_usdt?: number) {
+  const body: Record<string, unknown> = { mode };
+  if (mode === "live" && position_size_usdt !== undefined) body.position_size_usdt = position_size_usdt;
+  const { data } = await api.post(`/bots/${id}/start`, body);
   return data as { ok: boolean };
 }
 
