@@ -15,6 +15,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import {
+  exchangeBalance,
   exchangeStatus,
   getSubscription,
   listStrategies,
@@ -34,6 +35,13 @@ export function DashboardPage() {
   const strategies = useQuery({ queryKey: ["strategies"], queryFn: listStrategies });
   const exchange = useQuery({ queryKey: ["exchange-status"], queryFn: exchangeStatus });
   const subscription = useQuery({ queryKey: ["subscription"], queryFn: getSubscription });
+  const balanceQuery = useQuery({
+    queryKey: ["exchange-balance"],
+    queryFn: exchangeBalance,
+    enabled: exchange.data?.connected === true,
+    staleTime: 30_000,
+  });
+  const availableUsdt = balanceQuery.data?.usdt ?? null;
   // Drives the live feed. useWsEvents invalidates ["trades"] on every bot event,
   // so this refetches and the feed updates in near real time — while still being
   // backfilled with history so the panel is never empty on load.
@@ -137,6 +145,7 @@ export function DashboardPage() {
                   key={s.id}
                   strategy={s}
                   pending={pending}
+                  availableUsdt={availableUsdt}
                   onStart={(mode, usdt) => start.mutate({ id: s.id, mode, usdt })}
                   onStop={() => stop.mutate(s.id)}
                   onEdit={() => navigate(`/builder?edit=${s.id}`)}
@@ -158,12 +167,14 @@ export function DashboardPage() {
 function StrategyRow({
   strategy,
   pending,
+  availableUsdt,
   onStart,
   onStop,
   onEdit,
 }: {
   strategy: Strategy;
   pending: boolean;
+  availableUsdt: number | null;
   onStart: (mode: "paper" | "live", usdt?: number) => void;
   onStop: () => void;
   onEdit: () => void;
@@ -173,10 +184,15 @@ function StrategyRow({
   const [liveUsdt, setLiveUsdt] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const parsedUsdt = parseFloat(liveUsdt ?? "");
+  const insufficient =
+    availableUsdt !== null &&
+    Number.isFinite(parsedUsdt) &&
+    parsedUsdt > availableUsdt;
+
   const confirmLive = () => {
-    const val = parseFloat(liveUsdt ?? "");
-    if (!Number.isFinite(val) || val <= 0) return;
-    onStart("live", val);
+    if (!Number.isFinite(parsedUsdt) || parsedUsdt <= 0 || insufficient) return;
+    onStart("live", parsedUsdt);
     setLiveUsdt(null);
   };
 
@@ -208,30 +224,42 @@ function StrategyRow({
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           {liveUsdt !== null ? (
             // Inline USDT amount picker shown when Live is clicked
-            <>
-              <Input
-                ref={inputRef}
-                type="number"
-                min={1}
-                step={10}
-                placeholder="USDT"
-                value={liveUsdt}
-                onChange={(e) => setLiveUsdt(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") confirmLive(); if (e.key === "Escape") setLiveUsdt(null); }}
-                className="w-24 text-sm"
-                autoFocus
-              />
+            <div className="flex flex-wrap items-center gap-2">
+              <div>
+                <Input
+                  ref={inputRef}
+                  type="number"
+                  min={1}
+                  step={10}
+                  placeholder="USDT"
+                  value={liveUsdt}
+                  onChange={(e) => setLiveUsdt(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") confirmLive(); if (e.key === "Escape") setLiveUsdt(null); }}
+                  className={`w-28 text-sm ${insufficient ? "border-rose-500/60 focus:ring-rose-500/40" : ""}`}
+                  autoFocus
+                />
+                {insufficient && availableUsdt !== null && (
+                  <p className="mt-1 text-xs text-rose-400">
+                    Max available: ${availableUsdt.toFixed(2)}
+                  </p>
+                )}
+                {!insufficient && availableUsdt !== null && (
+                  <p className="mt-1 text-xs text-slate-500">
+                    Available: ${availableUsdt.toFixed(2)}
+                  </p>
+                )}
+              </div>
               <Button
                 size="sm"
                 onClick={confirmLive}
-                disabled={!liveUsdt || parseFloat(liveUsdt) <= 0 || pending}
+                disabled={!liveUsdt || parsedUsdt <= 0 || insufficient || pending}
               >
                 <Play className="h-3.5 w-3.5" /> Start
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setLiveUsdt(null)}>
                 Cancel
               </Button>
-            </>
+            </div>
           ) : (
             <>
               <Button size="sm" variant="ghost" onClick={onEdit} disabled={pending} title="Edit strategy">
