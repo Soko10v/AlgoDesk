@@ -23,7 +23,7 @@ async def start_bot(
         raise HTTPException(status_code=404, detail="Strategy not found")
     if payload.mode == "live" and not strategy.live_enabled:
         raise HTTPException(status_code=400, detail="Live mode disabled for this strategy")
-    await bot_supervisor.start(SessionLocal, strategy.id, payload.mode)
+    await bot_supervisor.start(SessionLocal, strategy.id, payload.mode, position_size_usdt=payload.position_size_usdt)
     strategy.status = payload.mode
     await db.commit()
     return {"ok": True}

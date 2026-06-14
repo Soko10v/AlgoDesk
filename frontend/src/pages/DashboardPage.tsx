@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -25,7 +25,7 @@ import {
   type Trade,
 } from "../api/endpoints";
 import { toast } from "../store/toast";
-import { Badge, Button, Card, EmptyState, PageHeader, Spinner, StatCard } from "../components/ui";
+import { Badge, Button, Card, EmptyState, Input, PageHeader, Spinner, StatCard } from "../components/ui";
 import { describeEntry, describeExit, isRunning } from "../lib/strategy";
 import { pnlTone, price, signedPct, timeAgo } from "../lib/formatters";
 
@@ -48,7 +48,8 @@ export function DashboardPage() {
   const nameById = useMemo(() => new Map(items.map((s) => [s.id, s.name])), [items]);
 
   const start = useMutation({
-    mutationFn: ({ id, mode }: { id: number; mode: "paper" | "live" }) => startBot(id, mode),
+    mutationFn: ({ id, mode, usdt }: { id: number; mode: "paper" | "live"; usdt?: number }) =>
+      startBot(id, mode, usdt),
     onSuccess: (_d, v) => {
       toast.success("Bot started", `${v.mode} mode`);
       qc.invalidateQueries({ queryKey: ["strategies"] });
@@ -136,7 +137,7 @@ export function DashboardPage() {
                   key={s.id}
                   strategy={s}
                   pending={pending}
-                  onStart={(mode) => start.mutate({ id: s.id, mode })}
+                  onStart={(mode, usdt) => start.mutate({ id: s.id, mode, usdt })}
                   onStop={() => stop.mutate(s.id)}
                   onEdit={() => navigate(`/builder?edit=${s.id}`)}
                 />
@@ -163,12 +164,21 @@ function StrategyRow({
 }: {
   strategy: Strategy;
   pending: boolean;
-  onStart: (mode: "paper" | "live") => void;
+  onStart: (mode: "paper" | "live", usdt?: number) => void;
   onStop: () => void;
   onEdit: () => void;
 }) {
   const running = isRunning(strategy.status);
   const cfg = strategy.config_json;
+  const [liveUsdt, setLiveUsdt] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const confirmLive = () => {
+    const val = parseFloat(liveUsdt ?? "");
+    if (!Number.isFinite(val) || val <= 0) return;
+    onStart("live", val);
+    setLiveUsdt(null);
+  };
 
   return (
     <Card className="card-hover animate-slide-up p-4">
@@ -195,28 +205,58 @@ function StrategyRow({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          <Button size="sm" variant="ghost" onClick={onEdit} disabled={pending} title="Edit strategy">
-            <Pencil className="h-3.5 w-3.5" /> Edit
-          </Button>
-          {running ? (
-            <Button size="sm" variant="danger" onClick={onStop} disabled={pending}>
-              <Square className="h-3.5 w-3.5" /> Stop
-            </Button>
-          ) : (
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {liveUsdt !== null ? (
+            // Inline USDT amount picker shown when Live is clicked
             <>
-              <Button size="sm" variant="ghost" onClick={() => onStart("paper")} disabled={pending}>
-                <Play className="h-3.5 w-3.5" /> Paper
-              </Button>
+              <Input
+                ref={inputRef}
+                type="number"
+                min={1}
+                step={10}
+                placeholder="USDT"
+                value={liveUsdt}
+                onChange={(e) => setLiveUsdt(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") confirmLive(); if (e.key === "Escape") setLiveUsdt(null); }}
+                className="w-24 text-sm"
+                autoFocus
+              />
               <Button
                 size="sm"
-                variant="secondary"
-                onClick={() => onStart("live")}
-                disabled={pending || !strategy.live_enabled}
-                title={strategy.live_enabled ? "Start live trading" : "Enable live in the builder first"}
+                onClick={confirmLive}
+                disabled={!liveUsdt || parseFloat(liveUsdt) <= 0 || pending}
               >
-                <Play className="h-3.5 w-3.5" /> Live
+                <Play className="h-3.5 w-3.5" /> Start
               </Button>
+              <Button size="sm" variant="ghost" onClick={() => setLiveUsdt(null)}>
+                Cancel
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button size="sm" variant="ghost" onClick={onEdit} disabled={pending} title="Edit strategy">
+                <Pencil className="h-3.5 w-3.5" /> Edit
+              </Button>
+              {running ? (
+                <Button size="sm" variant="danger" onClick={onStop} disabled={pending}>
+                  <Square className="h-3.5 w-3.5" /> Stop
+                </Button>
+              ) : (
+                <>
+                  <Button size="sm" variant="ghost" onClick={() => onStart("paper")} disabled={pending}>
+                    <Play className="h-3.5 w-3.5" /> Paper
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setLiveUsdt("")}
+                    disabled={pending || !strategy.live_enabled}
+                    title={strategy.live_enabled ? "Enter position size to start live trading" : "Enable live in the builder first"}
+                  >
+                    <Play className="h-3.5 w-3.5" /> Live
+                  </Button>
+                </>
+              )}
             </>
           )}
         </div>

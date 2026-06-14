@@ -43,6 +43,7 @@ def _order_side(action: str) -> str:
 @dataclass
 class BotState:
     mode: str
+    position_size_usdt: float | None = None  # override set at start; None → use config's position_size_pct
     # None (flat), "long" or "short". Shorts only happen on futures + direction "both".
     position_side: str | None = None
     entry_price: float | None = None
@@ -75,10 +76,16 @@ class BotSupervisor:
         task = self.tasks.get(strategy_id)
         return task is not None and not task.done()
 
-    async def start(self, session_factory, strategy_id: int, mode: str) -> None:
+    async def start(
+        self,
+        session_factory,
+        strategy_id: int,
+        mode: str,
+        position_size_usdt: float | None = None,
+    ) -> None:
         if self.is_running(strategy_id):
             raise ValueError("Bot already running for this strategy.")
-        self.states[strategy_id] = BotState(mode=mode)
+        self.states[strategy_id] = BotState(mode=mode, position_size_usdt=position_size_usdt)
         self.tasks[strategy_id] = asyncio.create_task(self._run_loop(session_factory, strategy_id))
 
     async def stop(self, strategy_id: int) -> None:
@@ -175,7 +182,10 @@ class BotSupervisor:
         if not closes:
             return
 
-        amount = float(strategy.config_json.get("position_size_pct", 10)) / 100
+        if state.position_size_usdt is not None and current_price > 0:
+            amount = state.position_size_usdt / current_price
+        else:
+            amount = float(strategy.config_json.get("position_size_pct", 10)) / 100
         signal = evaluate_signal(strategy.config_json, closes, state.position_side)
 
         # Track the best price since entry for the trailing stop.

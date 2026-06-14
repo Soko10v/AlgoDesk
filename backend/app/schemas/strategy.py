@@ -101,3 +101,4 @@ class StrategyOut(BaseModel):
 
 class BotControlIn(BaseModel):
     mode: str = Field(pattern="^(paper|live)$")
+    position_size_usdt: float | None = Field(default=None, gt=0)
