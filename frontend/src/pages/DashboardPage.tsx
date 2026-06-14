@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -17,13 +18,14 @@ import {
   exchangeStatus,
   getSubscription,
   listStrategies,
+  listTrades,
   startBot,
   stopBot,
   type Strategy,
+  type Trade,
 } from "../api/endpoints";
-import { useWsStore } from "../store/ws";
 import { toast } from "../store/toast";
-import { Badge, Button, Card, EmptyState, PageHeader, StatCard } from "../components/ui";
+import { Badge, Button, Card, EmptyState, PageHeader, Spinner, StatCard } from "../components/ui";
 import { describeEntry, describeExit, isRunning } from "../lib/strategy";
 import { pnlTone, price, signedPct, timeAgo } from "../lib/formatters";
 
@@ -32,10 +34,18 @@ export function DashboardPage() {
   const strategies = useQuery({ queryKey: ["strategies"], queryFn: listStrategies });
   const exchange = useQuery({ queryKey: ["exchange-status"], queryFn: exchangeStatus });
   const subscription = useQuery({ queryKey: ["subscription"], queryFn: getSubscription });
-  const events = useWsStore((s) => s.events);
+  // Drives the live feed. useWsEvents invalidates ["trades"] on every bot event,
+  // so this refetches and the feed updates in near real time — while still being
+  // backfilled with history so the panel is never empty on load.
+  const trades = useQuery({
+    queryKey: ["trades", null],
+    queryFn: () => listTrades(),
+    refetchInterval: 15000,
+  });
 
   const items = strategies.data ?? [];
   const running = items.filter((s) => isRunning(s.status)).length;
+  const nameById = useMemo(() => new Map(items.map((s) => [s.id, s.name])), [items]);
 
   const start = useMutation({
     mutationFn: ({ id, mode }: { id: number; mode: "paper" | "live" }) => startBot(id, mode),
@@ -137,7 +147,7 @@ export function DashboardPage() {
 
         <div>
           <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-400">Live activity</h3>
-          <ActivityFeed events={events} />
+          <ActivityFeed trades={trades.data ?? []} nameById={nameById} loading={trades.isLoading} />
         </div>
       </div>
     </div>
@@ -215,12 +225,26 @@ function StrategyRow({
   );
 }
 
-type FeedEvent = { type: string; side?: string; price?: number; pnl_pct?: number; strategy?: string; _ts?: number };
+function ActivityFeed({
+  trades,
+  nameById,
+  loading,
+}: {
+  trades: Trade[];
+  nameById: Map<number, string>;
+  loading: boolean;
+}) {
+  const rows = trades.slice(0, 10);
 
-function ActivityFeed({ events }: { events: Array<Record<string, unknown>> }) {
-  const trades = (events as FeedEvent[]).filter((e) => e.type === "trade_opened" || e.type === "trade_closed").slice(0, 10);
+  if (loading && rows.length === 0) {
+    return (
+      <Card className="flex h-full min-h-[200px] items-center justify-center gap-2 p-6 text-slate-500">
+        <Spinner /> <span className="text-sm">Loading activity…</span>
+      </Card>
+    );
+  }
 
-  if (trades.length === 0) {
+  if (rows.length === 0) {
     return (
       <Card className="flex h-full min-h-[200px] flex-col items-center justify-center gap-2 p-6 text-center">
         <Activity className="h-6 w-6 text-slate-600" />
@@ -231,11 +255,12 @@ function ActivityFeed({ events }: { events: Array<Record<string, unknown>> }) {
 
   return (
     <Card className="divide-y divide-white/[0.05] p-0">
-      {trades.map((e, i) => {
-        const opened = e.type === "trade_opened";
+      {rows.map((t) => {
+        // An open position is stored with pnl=null; a close carries the realized %.
+        const opened = t.pnl === null || t.pnl === undefined;
         const Icon = opened ? TrendingUp : TrendingDown;
         return (
-          <div key={i} className="flex items-center gap-3 p-3.5">
+          <div key={t.id} className="flex items-center gap-3 p-3.5">
             <div
               className={
                 opened
@@ -247,14 +272,15 @@ function ActivityFeed({ events }: { events: Array<Record<string, unknown>> }) {
             </div>
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium text-slate-200">
-                {opened ? "Opened" : "Closed"} · {e.strategy ?? "Strategy"}
+                {opened ? "Opened" : "Closed"} · {nameById.get(t.strategy_id) ?? t.symbol}
+                {t.leg === "hedge" && <span className="ml-1 text-xs text-indigo-300">(hedge)</span>}
               </div>
               <div className="text-xs text-slate-500">
-                @ {price(e.price)} {e._ts ? `· ${timeAgo(e._ts)}` : ""}
+                {t.side.toUpperCase()} @ {price(t.price)} · {timeAgo(t.timestamp)}
               </div>
             </div>
-            {!opened && typeof e.pnl_pct === "number" && (
-              <span className={`text-sm font-semibold ${pnlTone(e.pnl_pct)}`}>{signedPct(e.pnl_pct)}</span>
+            {!opened && (
+              <span className={`text-sm font-semibold ${pnlTone(t.pnl)}`}>{signedPct(t.pnl)}</span>
             )}
           </div>
         );
