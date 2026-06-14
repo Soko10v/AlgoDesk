@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy import case, func, select
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import case, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
@@ -73,3 +73,27 @@ async def list_trades(
         )
     ).scalars()
     return [TradeOut.model_validate(row) for row in rows]
+
+
+@router.delete("", status_code=200)
+async def reset_trades(
+    strategy_id: int | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, int]:
+    if strategy_id is not None:
+        owned = await db.scalar(
+            select(Strategy.id).where(Strategy.id == strategy_id, Strategy.user_id == current_user.id)
+        )
+        if owned is None:
+            raise HTTPException(status_code=404, detail="Strategy not found")
+        ids = [strategy_id]
+    else:
+        ids = list(
+            (await db.scalars(select(Strategy.id).where(Strategy.user_id == current_user.id))).all()
+        )
+    if not ids:
+        return {"deleted": 0}
+    result = await db.execute(delete(Trade).where(Trade.strategy_id.in_(ids)))
+    await db.commit()
+    return {"deleted": result.rowcount}
