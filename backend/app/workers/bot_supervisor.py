@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -21,9 +22,13 @@ from app.services.telegram_alerts import send_telegram_alert
 
 logger = logging.getLogger(__name__)
 
-HISTORY_LIMIT = 500
 SEED_CANDLES = 200
 LOOP_INTERVAL = 2.0
+# Signals run on real OHLCV candles for the strategy's timeframe, not the 2s
+# price ticks. Candles are cached in Redis and refreshed at most this often
+# (shared across bots), which is frequent enough to spot a freshly closed candle
+# while keeping exchange calls bounded.
+CANDLE_REFRESH_SEC = 60.0
 
 
 def _opposite(side: str) -> str:
@@ -101,30 +106,41 @@ class BotSupervisor:
         for strategy_id in list(self.tasks):
             await self.stop(strategy_id)
 
-    async def _seed_history(self, config: dict[str, Any]) -> None:
-        """Preload historical closes so indicators produce signals immediately."""
+    async def _candle_closes(self, config: dict[str, Any]) -> list[float]:
+        """Return recent OHLCV closes for the strategy's symbol/timeframe.
+
+        Indicators must run on real candles, so the bot pulls OHLCV and caches it
+        in Redis — refreshed at most once per ``CANDLE_REFRESH_SEC`` and shared
+        across bots — instead of feeding raw 2s price ticks into the indicator
+        history (which collapsed the series into near-identical values and made
+        every signal whipsaw)."""
         symbol = config.get("symbol", "BTC/USDT")
         timeframe = config.get("timeframe", "1h")
-        key = f"closes:{symbol.replace('/', '_')}"
-        client = exchange_client()
-        try:
-            candles = await client.fetch_ohlcv(symbol=symbol, timeframe=timeframe, limit=SEED_CANDLES)
-        except Exception as exc:  # noqa: BLE001 - seeding is best-effort
-            logger.warning("could not seed history for %s: %s", symbol, exc)
-            return
-        finally:
-            await client.close()
-        closes = [str(c[4]) for c in candles if c and c[4] is not None]
-        if not closes:
-            return
-        async with redis_client.pipeline(transaction=True) as pipe:
-            pipe.delete(key)
-            pipe.rpush(key, *closes)
-            pipe.ltrim(key, -HISTORY_LIMIT, -1)
-            await pipe.execute()
+        skey = symbol.replace("/", "_")
+        closes_key = f"closes:{skey}:{timeframe}"
+        stamp_key = f"closes_at:{skey}:{timeframe}"
+
+        last = await redis_client.get(stamp_key)
+        if last is None or (time.time() - float(last)) >= CANDLE_REFRESH_SEC:
+            client = exchange_client()
+            try:
+                candles = await client.fetch_ohlcv(symbol=symbol, timeframe=timeframe, limit=SEED_CANDLES)
+            except Exception as exc:  # noqa: BLE001 - refresh is best-effort; keep the cache
+                logger.warning("could not refresh candles for %s %s: %s", symbol, timeframe, exc)
+                candles = None
+            finally:
+                await client.close()
+            closes = [str(c[4]) for c in (candles or []) if c and c[4] is not None]
+            if closes:
+                async with redis_client.pipeline(transaction=True) as pipe:
+                    pipe.delete(closes_key)
+                    pipe.rpush(closes_key, *closes)
+                    pipe.set(stamp_key, time.time())
+                    await pipe.execute()
+
+        return [float(v) for v in await redis_client.lrange(closes_key, 0, -1)]
 
     async def _run_loop(self, session_factory, strategy_id: int) -> None:
-        seeded = False
         while True:
             async with session_factory() as db:
                 strategy = await db.get(Strategy, strategy_id)
@@ -133,9 +149,6 @@ class BotSupervisor:
                 user = await db.get(User, strategy.user_id)
                 if not user:
                     break
-                if not seeded:
-                    await self._seed_history(strategy.config_json)
-                    seeded = True
                 state = self.states.get(strategy_id)
                 if state is None:
                     break
@@ -154,10 +167,13 @@ class BotSupervisor:
             return
         current_price = float(current)
 
-        history_key = f"closes:{symbol}"
-        await redis_client.rpush(history_key, current_price)
-        await redis_client.ltrim(history_key, -HISTORY_LIMIT, -1)
-        closes = [float(v) for v in await redis_client.lrange(history_key, 0, -1)]
+        # Signals run on real timeframe candles; the live tick only drives SL/TP,
+        # trailing and fills. Evaluate on closed candles (drop the forming last
+        # one) so a signal flips when a candle closes, not on intra-candle noise.
+        candles = await self._candle_closes(strategy.config_json)
+        closes = candles[:-1] if len(candles) > 1 else candles
+        if not closes:
+            return
 
         amount = float(strategy.config_json.get("position_size_pct", 10)) / 100
         signal = evaluate_signal(strategy.config_json, closes, state.position_side)
