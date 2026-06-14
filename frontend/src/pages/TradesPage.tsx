@@ -1,16 +1,27 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { ScrollText } from "lucide-react";
-import { listStrategies, listTrades } from "../api/endpoints";
-import { Badge, Card, EmptyState, Field, PageHeader, Select, Spinner, StatCard } from "../components/ui";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ScrollText, Trash2 } from "lucide-react";
+import { listStrategies, listTrades, resetTrades } from "../api/endpoints";
+import { Badge, Button, Card, EmptyState, Field, PageHeader, Select, Spinner, StatCard } from "../components/ui";
 import { dateTime, num, pct, pnlTone, price, signedPct } from "../lib/formatters";
 
 export function TradesPage() {
+  const qc = useQueryClient();
   const strategies = useQuery({ queryKey: ["strategies"], queryFn: listStrategies });
   const [strategyId, setStrategyId] = useState<number | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
   const trades = useQuery({
     queryKey: ["trades", strategyId],
     queryFn: () => listTrades(strategyId ?? undefined),
+  });
+
+  const clearMutation = useMutation({
+    mutationFn: () => resetTrades(strategyId ?? undefined),
+    onSuccess: () => {
+      setConfirmClear(false);
+      qc.invalidateQueries({ queryKey: ["trades"] });
+      qc.invalidateQueries({ queryKey: ["tradeStats"] });
+    },
   });
 
   const rows = trades.data ?? [];
@@ -28,7 +39,37 @@ export function TradesPage() {
 
   return (
     <div className="animate-fade-in">
-      <PageHeader title="Trade Log" description="Every order placed by your bots, paper and live." />
+      <PageHeader
+        title="Trade Log"
+        description="Every order placed by your bots, paper and live."
+        actions={
+          rows.length > 0 && (
+            confirmClear ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400">
+                  Delete {strategyId ? "strategy" : "all"} trades?
+                </span>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  loading={clearMutation.isPending}
+                  onClick={() => clearMutation.mutate()}
+                >
+                  Confirm
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setConfirmClear(false)}>
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <Button variant="ghost" size="sm" onClick={() => setConfirmClear(true)}>
+                <Trash2 className="h-3.5 w-3.5" />
+                Clear history
+              </Button>
+            )
+          )
+        }
+      />
 
       <Card className="animate-slide-up p-5">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

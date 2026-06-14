@@ -188,6 +188,11 @@ export async function getTradeStats() {
   return data as TradeStats;
 }
 
+export async function resetTrades(strategy_id?: number) {
+  const { data } = await api.delete("/trades", { params: strategy_id ? { strategy_id } : {} });
+  return data as { deleted: number };
+}
+
 // ---- exchange ----
 export async function connectExchange(exchange: ExchangeId, api_key: string, api_secret: string) {
   const { data } = await api.post("/exchange/connect", { exchange, api_key, api_secret });
