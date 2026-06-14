@@ -25,5 +25,6 @@ def build_paper_trade(
         amount=amount,
         pnl=pnl,
         leg=leg,
+        mode="paper",
         timestamp=datetime.now(UTC),
     )

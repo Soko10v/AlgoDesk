@@ -98,6 +98,7 @@ export type Trade = {
   amount: number;
   pnl: number | null;
   leg?: string; // "main" | "hedge"
+  mode: string; // "paper" | "live"
   timestamp: string;
 };
 
@@ -180,13 +181,16 @@ export async function optimizeStrategy(strategy_id: number, start_date?: string,
 }
 
 // ---- trades ----
-export async function listTrades(strategy_id?: number) {
-  const { data } = await api.get("/trades", { params: strategy_id ? { strategy_id } : {} });
+export async function listTrades(strategy_id?: number, mode?: "paper" | "live") {
+  const params: Record<string, unknown> = {};
+  if (strategy_id) params.strategy_id = strategy_id;
+  if (mode) params.mode = mode;
+  const { data } = await api.get("/trades", { params });
   return data as Trade[];
 }
 
-export async function getTradeStats() {
-  const { data } = await api.get("/trades/stats");
+export async function getTradeStats(mode?: "paper" | "live") {
+  const { data } = await api.get("/trades/stats", { params: mode ? { mode } : {} });
   return data as TradeStats;
 }
 

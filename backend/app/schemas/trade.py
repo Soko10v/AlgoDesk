@@ -12,6 +12,7 @@ class TradeOut(BaseModel):
     amount: float
     pnl: float | None
     leg: str = "main"
+    mode: str = "paper"
     timestamp: datetime
 
     model_config = {"from_attributes": True}

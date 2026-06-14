@@ -5,14 +5,22 @@ import { listStrategies, listTrades, resetTrades } from "../api/endpoints";
 import { Badge, Button, Card, EmptyState, Field, PageHeader, Select, Spinner, StatCard } from "../components/ui";
 import { dateTime, num, pct, pnlTone, price, signedPct } from "../lib/formatters";
 
+type ModeFilter = "all" | "paper" | "live";
+
 export function TradesPage() {
   const qc = useQueryClient();
   const strategies = useQuery({ queryKey: ["strategies"], queryFn: listStrategies });
   const [strategyId, setStrategyId] = useState<number | null>(null);
+  const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
   const [confirmClear, setConfirmClear] = useState(false);
+
   const trades = useQuery({
-    queryKey: ["trades", strategyId],
-    queryFn: () => listTrades(strategyId ?? undefined),
+    queryKey: ["trades", strategyId, modeFilter],
+    queryFn: () =>
+      listTrades(
+        strategyId ?? undefined,
+        modeFilter === "all" ? undefined : modeFilter,
+      ),
   });
 
   const clearMutation = useMutation({
@@ -72,7 +80,7 @@ export function TradesPage() {
       />
 
       <Card className="animate-slide-up p-5">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="flex flex-wrap gap-3">
           <Field label="Filter by strategy">
             <Select value={strategyId ?? ""} onChange={(e) => setStrategyId(Number(e.target.value) || null)}>
               <option value="">All strategies</option>
@@ -82,6 +90,28 @@ export function TradesPage() {
                 </option>
               ))}
             </Select>
+          </Field>
+
+          <Field label="Mode">
+            <div className="flex rounded-lg border border-white/[0.08] bg-white/[0.03] p-0.5">
+              {(["all", "paper", "live"] as ModeFilter[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setModeFilter(m)}
+                  className={`rounded-md px-3 py-1.5 text-xs font-medium capitalize transition ${
+                    modeFilter === m
+                      ? m === "live"
+                        ? "bg-brand-500/20 text-brand-300"
+                        : m === "paper"
+                          ? "bg-sky-500/20 text-sky-300"
+                          : "bg-white/[0.08] text-slate-200"
+                      : "text-slate-500 hover:text-slate-300"
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
           </Field>
         </div>
       </Card>
@@ -130,6 +160,9 @@ export function TradesPage() {
                       <div className="flex items-center gap-1.5">
                         <Badge tone={t.side === "buy" ? "success" : "info"}>{t.side.toUpperCase()}</Badge>
                         {t.leg === "hedge" && <Badge tone="violet">HEDGE</Badge>}
+                        <Badge tone={t.mode === "live" ? "success" : "info"}>
+                          {t.mode === "live" ? "LIVE" : "PAPER"}
+                        </Badge>
                       </div>
                     </td>
                     <td className="px-5 py-3 text-right font-mono text-slate-300">{price(t.price)}</td>
