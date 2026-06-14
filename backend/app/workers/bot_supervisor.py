@@ -258,6 +258,7 @@ class BotSupervisor:
                 amount=amount,
                 pnl=None,
                 leg="main",
+                mode=state.mode,
                 timestamp=datetime.now(UTC),
             )
         else:
@@ -345,6 +346,7 @@ class BotSupervisor:
             amount=amount,
             pnl=pnl,
             leg="main",
+            mode=state.mode,
             timestamp=datetime.now(UTC),
         )
         db.add(trade)
@@ -437,6 +439,7 @@ class BotSupervisor:
                 amount=amount,
                 pnl=None,
                 leg="hedge",
+                mode=state.mode,
                 timestamp=datetime.now(UTC),
             )
         else:
@@ -489,6 +492,7 @@ class BotSupervisor:
             amount=amount,
             pnl=pnl,
             leg="hedge",
+            mode=state.mode,
             timestamp=datetime.now(UTC),
         )
         db.add(trade)

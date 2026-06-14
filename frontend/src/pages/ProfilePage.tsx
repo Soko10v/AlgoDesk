@@ -23,6 +23,7 @@ import {
   getTradeStats,
   listStrategies,
   me,
+  type TradeStats,
 } from "../api/endpoints";
 import { Badge, Button, Card, EmptyState, PageHeader, Spinner, StatCard } from "../components/ui";
 import { dateTime, num, pct, pnlTone, signedPct, usd } from "../lib/formatters";
@@ -33,7 +34,8 @@ export function ProfilePage() {
   const subscription = useQuery({ queryKey: ["subscription"], queryFn: getSubscription });
   const status = useQuery({ queryKey: ["exchange-status"], queryFn: exchangeStatus });
   const strategies = useQuery({ queryKey: ["strategies"], queryFn: listStrategies });
-  const stats = useQuery({ queryKey: ["trade-stats"], queryFn: getTradeStats });
+  const paperStats = useQuery({ queryKey: ["trade-stats", "paper"], queryFn: () => getTradeStats("paper") });
+  const liveStats = useQuery({ queryKey: ["trade-stats", "live"], queryFn: () => getTradeStats("live") });
   const balance = useQuery({
     queryKey: ["exchange-balance"],
     queryFn: exchangeBalance,
@@ -49,7 +51,7 @@ export function ProfilePage() {
   const plan = subscription.data?.plan ?? "free";
   const freeMode = subscription.data?.free_mode ?? false;
   const connected = status.data?.connected ?? false;
-  const st = stats.data;
+  const st = liveStats.data?.total_trades ? liveStats.data : paperStats.data;
 
   const initials = (user?.username ?? user?.email ?? "T").slice(0, 2).toUpperCase();
 
@@ -193,43 +195,18 @@ export function ProfilePage() {
           )}
         </Card>
 
-        {/* Trading results */}
-        <Card className="animate-slide-up p-5">
-          <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-200">
-            <BarChart3 className="h-4 w-4 text-brand-400" /> Trading results
-          </div>
-          {st && st.total_trades > 0 ? (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-              <Metric label="Total orders" value={num(st.total_trades, 0)} />
-              <Metric label="Closed trades" value={num(st.closed_trades, 0)} />
-              <Metric label="Win rate" value={pct(st.win_rate)} />
-              <Metric label="Wins" value={`${st.wins} / ${st.closed_trades}`} />
-              <Metric label="Avg PnL / trade" value={signedPct(st.avg_pnl)} tone={pnlTone(st.avg_pnl)} />
-              <Metric label="Total PnL" value={signedPct(st.total_pnl)} tone={pnlTone(st.total_pnl)} />
-              <Metric
-                label="Best trade"
-                value={signedPct(st.best_pnl)}
-                tone="text-brand-400"
-                icon={TrendingUp}
-              />
-              <Metric
-                label="Worst trade"
-                value={signedPct(st.worst_pnl)}
-                tone="text-rose-400"
-                icon={TrendingDown}
-              />
-              {st.hedge_trades > 0 && (
-                <Metric label="Hedge fills" value={num(st.hedge_trades, 0)} icon={Umbrella} />
-              )}
-            </div>
-          ) : (
-            <EmptyState
-              icon={BarChart3}
-              title="No trades yet"
-              description="Run a bot in paper or live mode and your performance will be summarised here."
-            />
-          )}
-        </Card>
+        <div className="space-y-4">
+          <StatsCard
+            title="Paper results"
+            tone="sky"
+            stats={paperStats.data}
+          />
+          <StatsCard
+            title="Live results"
+            tone="brand"
+            stats={liveStats.data}
+          />
+        </div>
       </div>
 
       {/* Subscription & wallet */}
@@ -263,6 +240,42 @@ export function ProfilePage() {
         </div>
       </Card>
     </div>
+  );
+}
+
+function StatsCard({
+  title,
+  tone,
+  stats,
+}: {
+  title: string;
+  tone: "sky" | "brand";
+  stats: TradeStats | undefined;
+}) {
+  const accentColor = tone === "sky" ? "text-sky-400" : "text-brand-400";
+  return (
+    <Card className="animate-slide-up p-5">
+      <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-200">
+        <BarChart3 className={`h-4 w-4 ${accentColor}`} /> {title}
+      </div>
+      {stats && stats.total_trades > 0 ? (
+        <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+          <Metric label="Total orders" value={num(stats.total_trades, 0)} />
+          <Metric label="Closed trades" value={num(stats.closed_trades, 0)} />
+          <Metric label="Win rate" value={pct(stats.win_rate)} />
+          <Metric label="Wins" value={`${stats.wins} / ${stats.closed_trades}`} />
+          <Metric label="Avg PnL / trade" value={signedPct(stats.avg_pnl)} tone={pnlTone(stats.avg_pnl)} />
+          <Metric label="Total PnL" value={signedPct(stats.total_pnl)} tone={pnlTone(stats.total_pnl)} />
+          <Metric label="Best trade" value={signedPct(stats.best_pnl)} tone="text-brand-400" icon={TrendingUp} />
+          <Metric label="Worst trade" value={signedPct(stats.worst_pnl)} tone="text-rose-400" icon={TrendingDown} />
+          {stats.hedge_trades > 0 && (
+            <Metric label="Hedge fills" value={num(stats.hedge_trades, 0)} icon={Umbrella} />
+          )}
+        </div>
+      ) : (
+        <p className="text-sm text-slate-500">No {title.toLowerCase().replace(" results", "")} trades yet.</p>
+      )}
+    </Card>
   );
 }
 
