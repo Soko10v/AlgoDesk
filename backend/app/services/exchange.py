@@ -52,6 +52,47 @@ async def test_user_credentials(user: User) -> bool:
         await client.close()
 
 
+async def fetch_min_order(exchange: str, symbol: str, futures: bool) -> dict[str, Any]:
+    """Minimum order size for a symbol: the base-unit minimum and its USD value at
+    the current price. Public market data — no API keys needed. Never raises; on
+    failure returns zeros so callers can degrade gracefully."""
+    market_type = "futures" if futures else "spot"
+    trade_symbol = perp_symbol(symbol) if futures else symbol
+    client = exchange_client(exchange, market_type=market_type)
+    try:
+        await client.load_markets()
+        m = client.market(trade_symbol)
+        limits = m.get("limits") or {}
+        min_amount = ((limits.get("amount") or {}).get("min"))
+        min_cost = ((limits.get("cost") or {}).get("min"))
+        min_amount = float(min_amount) if min_amount is not None else 0.0
+        price = 0.0
+        try:
+            ticker = await client.fetch_ticker(trade_symbol)
+            price = float(ticker.get("last") or 0.0)
+        except Exception:  # noqa: BLE001 - price is best-effort
+            pass
+        # Minimum tradable notional = the larger of the quantity floor (×price) and
+        # any exchange-imposed cost floor.
+        min_notional = min_amount * price if (min_amount and price) else 0.0
+        if min_cost is not None:
+            min_notional = max(min_notional, float(min_cost))
+        return {
+            "symbol": symbol,
+            "market": market_type,
+            "min_amount": min_amount,
+            "price": price,
+            "min_notional": round(min_notional, 2),
+        }
+    except Exception as exc:  # noqa: BLE001 - degrade gracefully
+        return {
+            "symbol": symbol, "market": market_type, "min_amount": 0.0,
+            "price": 0.0, "min_notional": 0.0, "error": str(exc)[:200],
+        }
+    finally:
+        await client.close()
+
+
 async def fetch_account_balance(user: User) -> dict[str, Any]:
     """Fetch the user's spot wallet balances from their exchange. Returns the
     non-zero holdings and the USDT total. Best-effort: never raises — on failure

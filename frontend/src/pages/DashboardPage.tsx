@@ -22,6 +22,7 @@ import {
   closePosition,
   exchangeBalance,
   exchangeStatus,
+  getMinOrder,
   getSubscription,
   listStrategies,
   listTrades,
@@ -281,14 +282,26 @@ function StrategyRow({
   );
   const openCount = myTrades.filter((t) => t.pnl === null || t.pnl === undefined).length;
 
+  // Minimum order size for this symbol on the exchange — fetched only while the
+  // live size picker is open so we can block sizes the exchange would reject.
+  const minOrder = useQuery({
+    queryKey: ["min-order", cfg.symbol, futures],
+    queryFn: () => getMinOrder(cfg.symbol, futures),
+    enabled: liveUsdt !== null,
+    staleTime: 60_000,
+  });
+  const minNotional = minOrder.data?.min_notional ?? 0;
+
   const parsedUsdt = parseFloat(liveUsdt ?? "");
   const insufficient =
     availableUsdt !== null &&
     Number.isFinite(parsedUsdt) &&
     parsedUsdt > availableUsdt;
+  const belowMin =
+    minNotional > 0 && Number.isFinite(parsedUsdt) && parsedUsdt > 0 && parsedUsdt < minNotional;
 
   const confirmLive = () => {
-    if (!Number.isFinite(parsedUsdt) || parsedUsdt <= 0 || insufficient) return;
+    if (!Number.isFinite(parsedUsdt) || parsedUsdt <= 0 || insufficient || belowMin) return;
     onStart("live", parsedUsdt);
     setLiveUsdt(null);
   };
@@ -357,21 +370,30 @@ function StrategyRow({
                   className={`w-28 text-sm ${insufficient ? "border-rose-500/60 focus:ring-rose-500/40" : ""}`}
                   autoFocus
                 />
-                {insufficient && availableUsdt !== null && (
+                {belowMin ? (
+                  <p className="mt-1 text-xs text-rose-400">
+                    Min for {cfg.symbol}: ${minNotional.toFixed(2)} (exchange minimum)
+                  </p>
+                ) : insufficient && availableUsdt !== null ? (
                   <p className="mt-1 text-xs text-rose-400">
                     Max available: ${availableUsdt.toFixed(2)}
                   </p>
-                )}
-                {!insufficient && availableUsdt !== null && (
+                ) : (
                   <p className="mt-1 text-xs text-slate-500">
-                    Available: ${availableUsdt.toFixed(2)}
+                    {minOrder.isLoading
+                      ? "Checking minimum…"
+                      : minNotional > 0
+                        ? `Min $${minNotional.toFixed(2)}${availableUsdt !== null ? ` · avail $${availableUsdt.toFixed(2)}` : ""}`
+                        : availableUsdt !== null
+                          ? `Available: $${availableUsdt.toFixed(2)}`
+                          : ""}
                   </p>
                 )}
               </div>
               <Button
                 size="sm"
                 onClick={confirmLive}
-                disabled={!liveUsdt || parsedUsdt <= 0 || insufficient || pending}
+                disabled={!liveUsdt || parsedUsdt <= 0 || insufficient || belowMin || pending}
               >
                 <Play className="h-3.5 w-3.5" /> Start
               </Button>

@@ -7,6 +7,7 @@ import { Anchor, ArrowDownUp, Crosshair, LogIn, LogOut, Pencil, Plus, Save, Shie
 import {
   createStrategy,
   deleteStrategy,
+  getMinOrder,
   listStrategies,
   updateStrategy,
   type Direction,
@@ -65,6 +66,16 @@ export function StrategyBuilderPage() {
   const [cfg, setCfg] = useState<StrategyConfig>(defaultConfig());
   const [liveEnabled, setLiveEnabled] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+
+  // Minimum order size on the exchange for the chosen symbol/market, so the size
+  // field can warn when it's set below what the exchange will actually accept.
+  const minOrder = useQuery({
+    queryKey: ["min-order", cfg.symbol, isFutures(cfg)],
+    queryFn: () => getMinOrder(cfg.symbol, isFutures(cfg)),
+    staleTime: 60_000,
+  });
+  const minNotional = minOrder.data?.min_notional ?? 0;
+  const sizeBelowMin = minNotional > 0 && positionUsdt(cfg) < minNotional;
 
   // Auto-load strategy when navigated here with ?edit=ID (e.g. from Dashboard)
   useEffect(() => {
@@ -235,7 +246,15 @@ export function StrategyBuilderPage() {
                   min={1}
                   value={positionUsdt(cfg)}
                   onValueChange={(v) => setCfg((c) => ({ ...c, position_size_usdt: v, position_size_pct: undefined }))}
+                  className={sizeBelowMin ? "border-rose-500/60 focus:ring-rose-500/40" : ""}
                 />
+                {sizeBelowMin ? (
+                  <p className="mt-1 text-xs text-rose-400">
+                    Below {cfg.symbol} minimum (${minNotional.toFixed(2)}) — live orders will be rejected. Raise the size.
+                  </p>
+                ) : minNotional > 0 ? (
+                  <p className="mt-1 text-xs text-slate-500">Exchange minimum for {cfg.symbol}: ${minNotional.toFixed(2)}</p>
+                ) : null}
               </Field>
               {isFutures(cfg) && (
                 <Field label={`Leverage (max ${MAX_LEVERAGE}x)`}>

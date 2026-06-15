@@ -232,6 +232,20 @@ export async function exchangeBalance() {
   return data as ExchangeBalance;
 }
 
+export type MinOrder = {
+  symbol: string;
+  market: string;
+  min_amount: number;
+  price: number;
+  min_notional: number;
+  error?: string | null;
+};
+
+export async function getMinOrder(symbol: string, futures: boolean) {
+  const { data } = await api.get("/exchange/min-order", { params: { symbol, futures } });
+  return data as MinOrder;
+}
+
 export async function testExchange() {
   const { data } = await api.post("/exchange/test");
   return data as { ok: boolean };
