@@ -6,7 +6,7 @@ from app.core.deps import get_current_user
 from app.core.security import encrypt_secret
 from app.models.user import User
 from app.schemas.exchange import BalanceOut, ExchangeConnectIn
-from app.services.exchange import fetch_account_balance, test_user_credentials
+from app.services.exchange import fetch_account_balance, fetch_min_order, test_user_credentials
 
 router = APIRouter()
 
@@ -47,6 +47,16 @@ async def exchange_status(current_user: User = Depends(get_current_user)) -> dic
 async def exchange_balance(current_user: User = Depends(get_current_user)) -> BalanceOut:
     data = await fetch_account_balance(current_user)
     return BalanceOut(**data)
+
+
+@router.get("/min-order")
+async def min_order(
+    symbol: str,
+    futures: bool = False,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Minimum order size for a symbol on the user's exchange (base units + USD)."""
+    return await fetch_min_order(current_user.exchange, symbol, futures)
 
 
 @router.delete("/disconnect")
