@@ -83,6 +83,53 @@ async def _ensure_leverage(client, symbol: str, strategy: Strategy) -> None:
         logger.warning("could not set leverage %sx on %s: %s", lev, symbol, exc)
 
 
+async def live_order_amount(
+    user: User,
+    strategy: Strategy,
+    price: float,
+    override_usdt: float | None,
+) -> float | None:
+    """Resolve the order size (in base units) for a live entry, sized from the
+    real account so it's actually affordable.
+
+    - With an explicit USDT amount (set when starting the bot), that's the target
+      position notional.
+    - Otherwise "position size %" is treated as a share of the free USDT balance,
+      scaled by leverage, as the position notional.
+
+    Returns None when the resulting size is below the exchange minimum (caller
+    should skip and warn) — this is what prevents the old behaviour of trying a
+    fixed 0.1 BTC (~$6.5k) regardless of balance and spamming InsufficientFunds.
+    """
+    if price <= 0:
+        return None
+    symbol, market = _order_symbol(strategy)
+    client = exchange_client(user.exchange, user, market_type=market)
+    try:
+        await client.load_markets()
+        m = client.market(symbol)
+        if override_usdt and override_usdt > 0:
+            notional = float(override_usdt)
+        else:
+            bal = await client.fetch_balance()
+            free_usdt = float((bal.get("free") or {}).get("USDT") or 0.0)
+            pct = float(strategy.config_json.get("position_size_pct", 10)) / 100
+            notional = free_usdt * pct * leverage(strategy.config_json)
+        if notional <= 0:
+            return None
+        amount = notional / price
+        try:
+            amount = float(client.amount_to_precision(symbol, amount))
+        except Exception:  # noqa: BLE001 - precision is best-effort
+            pass
+        min_amt = ((m.get("limits") or {}).get("amount") or {}).get("min")
+        if amount <= 0 or (min_amt is not None and amount < float(min_amt)):
+            return None
+        return amount
+    finally:
+        await client.close()
+
+
 async def place_live_order(
     user: User,
     strategy: Strategy,
