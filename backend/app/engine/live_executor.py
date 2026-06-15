@@ -83,6 +83,31 @@ async def _ensure_leverage(client, symbol: str, strategy: Strategy) -> None:
         logger.warning("could not set leverage %sx on %s: %s", lev, symbol, exc)
 
 
+async def _fill_price(client, symbol: str, order: dict) -> float:
+    """Resolve a market order's fill price. Bybit (and others) often return no
+    average price on the immediate create_order response, so fall back to
+    re-fetching the order, then to the current ticker. A non-zero price is
+    critical: it's the entry used for PnL and stop-loss/take-profit."""
+    price = float(order.get("average") or order.get("price") or 0.0)
+    if price > 0:
+        return price
+    oid = order.get("id")
+    if oid:
+        try:
+            fetched = await client.fetch_order(oid, symbol)
+            price = float(fetched.get("average") or fetched.get("price") or 0.0)
+            if price > 0:
+                return price
+        except Exception as exc:  # noqa: BLE001 - best-effort, fall through to ticker
+            logger.warning("could not fetch order %s for fill price: %s", oid, exc)
+    try:
+        ticker = await client.fetch_ticker(symbol)
+        return float(ticker.get("last") or 0.0)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not fetch ticker for %s fill price: %s", symbol, exc)
+        return 0.0
+
+
 async def live_order_amount(
     user: User,
     strategy: Strategy,
@@ -147,7 +172,7 @@ async def place_live_order(
     try:
         if market != "futures":
             order = await client.create_order(symbol=symbol, type="market", side=side, amount=amount, params={})
-            return float(order.get("average") or order.get("price") or 0.0)
+            return await _fill_price(client, symbol, order)
 
         await _ensure_leverage(client, symbol, strategy)
         # Try the cached position mode first; on a position-mode mismatch flip and
@@ -160,7 +185,7 @@ async def place_live_order(
             try:
                 order = await client.create_order(symbol=symbol, type="market", side=side, amount=amount, params=params)
                 await _store_posmode(user, hedged)
-                return float(order.get("average") or order.get("price") or 0.0)
+                return await _fill_price(client, symbol, order)
             except Exception as exc:  # noqa: BLE001 - only swallow position-mode mismatches
                 if _is_posmode_error(exc):
                     last_exc = exc
