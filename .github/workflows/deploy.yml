@@ -21,5 +21,12 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             cd infra
-            docker compose up --build -d --remove-orphans
+            docker compose build
+            # Apply migrations explicitly via a one-off container so they ALWAYS
+            # run (regardless of RUN_DB_MIGRATIONS in the VPS .env) and fail the
+            # deploy loudly if a migration errors — the entrypoint's migration
+            # output is otherwise hidden inside container logs.
+            echo "[deploy] Applying database migrations..."
+            docker compose run --rm -T backend alembic upgrade head
+            docker compose up -d --remove-orphans
             docker compose ps
