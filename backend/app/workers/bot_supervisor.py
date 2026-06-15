@@ -51,7 +51,7 @@ def _order_side(action: str) -> str:
 @dataclass
 class BotState:
     mode: str
-    position_size_usdt: float | None = None  # override set at start; None → use config's position_size_pct
+    position_size_usdt: float | None = None  # per-launch USD override; None → use the strategy config's size
     # None (flat), "long" or "short". Shorts only happen on futures + direction "both".
     position_side: str | None = None
     # Base size of the open main position, so closes/hedges reuse the exact amount.
@@ -347,9 +347,17 @@ class BotSupervisor:
 
     def _fallback_amount(self, strategy: Strategy, state: BotState, price: float) -> float:
         """Sizing used for paper trades and as a close fallback. Live entries size
-        from the real balance via _entry_amount instead."""
-        if state.position_size_usdt is not None and price > 0:
-            return state.position_size_usdt / price
+        from the real balance via _entry_amount instead.
+
+        Order of preference: the per-launch USD override, then the strategy's
+        configured USD notional, then the legacy percent-of-balance for strategies
+        saved before the switch to dollars."""
+        if price > 0:
+            if state.position_size_usdt is not None:
+                return state.position_size_usdt / price
+            cfg_usdt = strategy.config_json.get("position_size_usdt")
+            if cfg_usdt:
+                return float(cfg_usdt) / price
         return float(strategy.config_json.get("position_size_pct", 10)) / 100
 
     async def _entry_amount(

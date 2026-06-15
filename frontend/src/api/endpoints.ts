@@ -30,7 +30,8 @@ export type HedgeConfig = {
 export type StrategyConfig = {
   symbol: string;
   timeframe: string;
-  position_size_pct: number;
+  position_size_usdt?: number; // position notional in USD (preferred)
+  position_size_pct?: number; // legacy: percent of balance (strategies saved before USD)
   entry: EntryRule[];
   exit: RsiRule[];
   stop_loss: PctRule;

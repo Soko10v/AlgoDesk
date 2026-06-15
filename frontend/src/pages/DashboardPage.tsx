@@ -32,7 +32,7 @@ import {
 } from "../api/endpoints";
 import { toast } from "../store/toast";
 import { Badge, Button, Card, EmptyState, Field, Input, NumberField, PageHeader, Spinner, StatCard } from "../components/ui";
-import { describeEntry, describeExit, describeHedge, isBidirectional, isFutures, isRunning } from "../lib/strategy";
+import { describeEntry, describeExit, describeHedge, describeSize, isBidirectional, isFutures, isRunning, positionUsdt } from "../lib/strategy";
 import { num, pnlTone, price, signedPct, timeAgo, usd } from "../lib/formatters";
 import { cn } from "../lib/cn";
 
@@ -282,7 +282,7 @@ function StrategyRow({
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 pl-6 text-xs text-slate-400">
             <span className="font-mono text-slate-300">{cfg.symbol}</span>
             <span>· {cfg.timeframe}</span>
-            <span>· Size {cfg.position_size_pct}%</span>
+            <span>· Size {describeSize(cfg)}</span>
             <span>· In: {describeEntry(cfg)}</span>
             <span>· Out: {describeExit(cfg)}</span>
             <span>· SL {cfg.stop_loss?.value}% / TP {cfg.take_profit?.value}%</span>
@@ -345,7 +345,7 @@ function StrategyRow({
                   <Button
                     size="sm"
                     variant="secondary"
-                    onClick={() => setLiveUsdt("")}
+                    onClick={() => setLiveUsdt(String(positionUsdt(cfg)))}
                     disabled={pending || !strategy.live_enabled}
                     title={strategy.live_enabled ? "Enter position size to start live trading" : "Enable live in the builder first"}
                   >
@@ -397,12 +397,11 @@ function StrategyRow({
               </Field>
             </div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Field label="Position size %">
+              <Field label="Position size ($)">
                 <NumberField
-                  value={draft.position_size_pct}
-                  onValueChange={(v) => patch({ position_size_pct: v })}
-                  min={0}
-                  max={100}
+                  value={positionUsdt(draft)}
+                  onValueChange={(v) => patch({ position_size_usdt: v, position_size_pct: undefined })}
+                  min={1}
                 />
               </Field>
               <Field label="Stop loss %">

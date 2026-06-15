@@ -3,6 +3,21 @@ import type { EntryRule, EntryType, HedgeConfig, StrategyConfig } from "../api/e
 export const SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT"];
 export const TIMEFRAMES = ["5m", "15m", "1h", "4h", "1d"];
 export const MAX_LEVERAGE = 10; // mirrors backend app/engine/risk.py
+export const DEFAULT_POSITION_USDT = 50; // default position notional in USD
+
+/** Effective position size in USD. Falls back to the default for legacy
+ *  strategies that only stored a percent (so the dollar input has a value). */
+export function positionUsdt(config: StrategyConfig): number {
+  return config.position_size_usdt ?? DEFAULT_POSITION_USDT;
+}
+
+/** Human-readable position size: "$50" for USD strategies, "10%" for legacy
+ *  percent strategies — shown honestly so an un-migrated strategy isn't mislabeled. */
+export function describeSize(config: StrategyConfig): string {
+  if (config.position_size_usdt != null) return `$${config.position_size_usdt}`;
+  if (config.position_size_pct != null) return `${config.position_size_pct}%`;
+  return `$${DEFAULT_POSITION_USDT}`;
+}
 
 export const ENTRY_TYPES: { id: EntryType; label: string }[] = [
   { id: "ma_cross", label: "MA cross" },
@@ -52,7 +67,7 @@ export function defaultConfig(): StrategyConfig {
   return {
     symbol: "BTC/USDT",
     timeframe: "1h",
-    position_size_pct: 10,
+    position_size_usdt: DEFAULT_POSITION_USDT,
     entry: [{ type: "ma_cross", fast: 9, slow: 21 }],
     exit: [{ type: "rsi", op: ">", value: 70 }],
     stop_loss: { type: "pct", value: 2 },
