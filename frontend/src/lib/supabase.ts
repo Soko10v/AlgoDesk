@@ -12,7 +12,12 @@ export const supabase: SupabaseClient = createClient(
     auth: {
       persistSession: true,
       autoRefreshToken: true,
-      detectSessionInUrl: true,
+      // We exchange the PKCE ?code= ourselves in AuthCallbackPage. If the client
+      // ALSO auto-detects and exchanges it, the second exchange fails with
+      // "PKCE code verifier not found in storage" (the verifier is single-use and
+      // removed after the first exchange). Keep it off so only our explicit
+      // exchangeCodeForSession runs.
+      detectSessionInUrl: false,
       storageKey: "algodesk_supabase_auth",
       flowType: "pkce",
     },
