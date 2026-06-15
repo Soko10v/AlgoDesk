@@ -2,7 +2,7 @@ import asyncio
 import copy
 from typing import Any
 
-from app.engine.risk import hedge_params, leverage, pct_value, trailing_pct
+from app.engine.risk import funding_cost, hedge_params, leverage, pct_value, round_trip_fee, trailing_pct
 from app.engine.strategy_evaluator import evaluate_signal
 from app.services.exchange import exchange_client
 
@@ -77,11 +77,13 @@ def _simulate(config: dict[str, Any], candles: list[list[float]]) -> dict[str, A
     tp_val = pct_value(config.get("take_profit"))
     trail_val = trailing_pct(config)
     hedge = hedge_params(config)  # None unless this is a futures strategy with hedging on
+    fee = round_trip_fee(config)  # entry+exit taker fee, charged on every closed leg
 
     equity = 1000.0
     peak = equity
     side: str | None = None          # None | "long" | "short"
     entry: float | None = None
+    entry_idx: int | None = None     # bar the position opened on, for funding cost
     extreme: float | None = None     # best price since entry, for the trailing stop
     hedge_side: str | None = None
     hedge_entry: float | None = None
@@ -109,6 +111,7 @@ def _simulate(config: dict[str, Any], candles: list[list[float]]) -> dict[str, A
             if sig in ("long", "short"):
                 side = sig
                 entry = close
+                entry_idx = idx
                 extreme = close
                 trades.append({"side": sig, "price": close, "index": idx, "leg": "main"})
                 if hedge and hedge["mode"] == "constant_partial":
@@ -128,10 +131,11 @@ def _simulate(config: dict[str, Any], candles: list[list[float]]) -> dict[str, A
                     released = low <= release_price
                 if released:
                     hret = (release_price - hedge_entry) / hedge_entry if hedge_side == "long" else (hedge_entry - release_price) / hedge_entry
-                    realize(hedge["ratio"] * hret)
+                    hnet = hret - fee
+                    realize(hedge["ratio"] * hnet)
                     trades.append({
                         "side": "buy" if hedge_side == "short" else "sell", "price": release_price,
-                        "index": idx, "leg": "hedge", "pnl_pct": hret * 100, "reason": "recovered",
+                        "index": idx, "leg": "hedge", "pnl_pct": hnet * 100, "reason": "recovered",
                     })
                     hedge_side = hedge_entry = hedge_extreme = None
 
@@ -171,23 +175,26 @@ def _simulate(config: dict[str, Any], candles: list[list[float]]) -> dict[str, A
 
             if exit_price is not None:
                 ret = main_ret(side, exit_price, entry)
-                realize(ret)
-                wins += ret > 0
-                loss += ret <= 0
+                # Net of round-trip taker fee and (futures) funding over the hold.
+                net = ret - fee - funding_cost(config, idx - (entry_idx or idx))
+                realize(net)
+                wins += net > 0
+                loss += net <= 0
                 trades.append({
                     "side": "sell" if side == "long" else "buy", "price": exit_price,
-                    "index": idx, "leg": "main", "pnl_pct": ret * 100, "reason": reason,
+                    "index": idx, "leg": "main", "pnl_pct": net * 100, "reason": reason,
                 })
                 # Unwind any hedge alongside the main position.
                 if hedge and hedge_entry is not None:
                     hret = (exit_price - hedge_entry) / hedge_entry if hedge_side == "long" else (hedge_entry - exit_price) / hedge_entry
-                    realize(hedge["ratio"] * hret)
+                    hnet = hret - fee
+                    realize(hedge["ratio"] * hnet)
                     trades.append({
                         "side": "buy" if hedge_side == "short" else "sell", "price": exit_price,
-                        "index": idx, "leg": "hedge", "pnl_pct": hret * 100, "reason": "position_closed",
+                        "index": idx, "leg": "hedge", "pnl_pct": hnet * 100, "reason": "position_closed",
                     })
                     hedge_side = hedge_entry = hedge_extreme = None
-                side = entry = extreme = None
+                side = entry = entry_idx = extreme = None
             elif hedge and hedge["mode"] == "auto_squeeze" and hedge_entry is None and high > 0 and low > 0:
                 # Still holding: open a hedge if this candle shows a fast adverse intrabar move.
                 if side == "long" and (high - low) / high * 100 >= hedge["trigger_pct"]:

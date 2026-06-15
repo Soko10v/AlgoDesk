@@ -44,6 +44,29 @@ async def stop_bot(
     return {"ok": True}
 
 
+@router.post("/panic")
+async def panic_close_all(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Emergency stop: halt every running bot and market-close all live futures
+    positions for the current user."""
+    return await bot_supervisor.panic_close_all(db, current_user)
+
+
+@router.post("/{strategy_id}/close-position")
+async def close_position(
+    strategy_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Market-close one strategy's live position now and clear its open records."""
+    strategy = await db.get(Strategy, strategy_id)
+    if strategy is None or strategy.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    return await bot_supervisor.close_position(db, current_user, strategy)
+
+
 @router.post("/{strategy_id}/sync-position")
 async def sync_position(
     strategy_id: int,

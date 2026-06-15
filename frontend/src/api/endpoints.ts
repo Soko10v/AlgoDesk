@@ -32,6 +32,7 @@ export type StrategyConfig = {
   timeframe: string;
   position_size_usdt?: number; // position notional in USD (preferred)
   position_size_pct?: number; // legacy: percent of balance (strategies saved before USD)
+  daily_loss_limit_pct?: number; // pause new entries after this much realized loss today (0 = off)
   entry: EntryRule[];
   exit: RsiRule[];
   stop_loss: PctRule;
@@ -163,6 +164,16 @@ export async function stopBot(id: number) {
 export async function syncPosition(id: number) {
   const { data } = await api.post(`/bots/${id}/sync-position`);
   return data as { closed: number; restored: boolean };
+}
+
+export async function closePosition(id: number) {
+  const { data } = await api.post(`/bots/${id}/close-position`);
+  return data as { closed: boolean };
+}
+
+export async function panicCloseAll() {
+  const { data } = await api.post("/bots/panic");
+  return data as { stopped: number; closed: number };
 }
 
 // ---- backtest ----

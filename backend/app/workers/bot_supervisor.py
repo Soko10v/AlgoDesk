@@ -5,11 +5,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ccxt.base.errors import InsufficientFunds
 
+from app.core.config import get_settings
 from app.core.redis import redis_client
 from app.engine.live_executor import (
     account_is_hedge,
@@ -19,14 +20,21 @@ from app.engine.live_executor import (
     place_stop_order,
 )
 from app.engine.paper_executor import build_paper_trade, paper_fill_price
-from app.engine.risk import adverse_excursion_pct, hedge_params, is_futures, pct_value, trailing_pct
+from app.engine.risk import (
+    adverse_excursion_pct,
+    hedge_params,
+    is_futures,
+    pct_value,
+    round_trip_fee_pct,
+    trailing_pct,
+)
 from app.engine.strategy_evaluator import evaluate_signal
 from app.models.strategy import Strategy
 from app.models.trade import Trade
 from app.models.user import User
 from app.services.exchange import exchange_client, perp_symbol
 from app.services.events import publish_user_event
-from app.services.telegram_alerts import send_telegram_alert
+from app.services.telegram_alerts import send_admin_alert, send_telegram_alert
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +45,12 @@ LOOP_INTERVAL = 2.0
 # (shared across bots), which is frequent enough to spot a freshly closed candle
 # while keeping exchange calls bounded.
 CANDLE_REFRESH_SEC = 60.0
+
+# Health monitoring (watchdog + position-drift detection).
+HEARTBEAT_TTL = 120          # seconds a bot's heartbeat key stays valid
+HEALTH_CHECK_SEC = 120.0     # how often the watchdog runs
+STALL_AFTER_SEC = 90.0       # alert if a running bot hasn't ticked in this long
+DRIFT_CHECK_SEC = 600.0      # how often to compare tracked vs exchange positions
 
 
 def _opposite(side: str) -> str:
@@ -284,6 +298,191 @@ class BotSupervisor:
         await db.commit()
         return {"closed": len(open_trades), "restored": False}
 
+    # ---- risk limits ------------------------------------------------------
+
+    async def _warn_once(self, user: User, strategy: Strategy, key: str, message: str, ttl: int = 3600) -> None:
+        """Publish a one-off warning (UI toast + Telegram) at most once per ttl."""
+        rkey = f"warn:{key}:{user.id}:{strategy.id}"
+        if await redis_client.get(rkey):
+            return
+        await redis_client.set(rkey, "1", ex=ttl)
+        await publish_user_event(
+            user.id,
+            {"type": "bot_warning", "strategy_id": strategy.id, "strategy": strategy.name, "message": message},
+        )
+        await send_telegram_alert(user.telegram_id, f"{strategy.name}: {message}")
+
+    async def _entry_blocked_by_risk(self, db: AsyncSession, user: User, strategy: Strategy) -> bool:
+        """Block a new entry when a risk limit is hit: the strategy's opt-in daily
+        loss limit, or the account-wide cap on simultaneous open positions."""
+        # Per-strategy daily loss limit (opt-in via config; sum of today's realized %).
+        limit = strategy.config_json.get("daily_loss_limit_pct")
+        try:
+            limit = float(limit) if limit is not None else 0.0
+        except (TypeError, ValueError):
+            limit = 0.0
+        if limit > 0:
+            since = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+            today_pnl = await db.scalar(
+                select(func.coalesce(func.sum(Trade.pnl), 0.0)).where(
+                    Trade.strategy_id == strategy.id,
+                    Trade.pnl.is_not(None),
+                    Trade.timestamp >= since,
+                )
+            )
+            if float(today_pnl or 0.0) <= -limit:
+                await self._warn_once(
+                    user, strategy, "daily_loss",
+                    f"daily loss limit ({limit:.2f}%) reached — entries paused until tomorrow.",
+                )
+                return True
+
+        # Account-wide cap on simultaneous open positions.
+        cap = get_settings().max_open_positions_per_user
+        if cap and cap > 0:
+            open_count = await db.scalar(
+                select(func.count(Trade.id)).where(
+                    Trade.leg == "main",
+                    Trade.pnl.is_(None),
+                    Trade.strategy_id.in_(
+                        select(Strategy.id).where(Strategy.user_id == user.id)
+                    ),
+                )
+            )
+            if int(open_count or 0) >= cap:
+                await self._warn_once(
+                    user, strategy, "max_positions",
+                    f"max open positions ({cap}) reached across your strategies — not opening more for now.",
+                )
+                return True
+        return False
+
+    # ---- panic / manual close --------------------------------------------
+
+    async def _flatten_exchange_position(self, user: User, strategy: Strategy, pos: dict) -> None:
+        """Market-close a real futures position on the exchange (reduce-only)."""
+        pos_side = pos.get("side") or ("long" if float(pos.get("contracts") or 0) > 0 else "short")
+        amount = abs(float(pos.get("contracts") or pos.get("size") or 0))
+        if amount <= 0:
+            return
+        order_side = "sell" if pos_side == "long" else "buy"
+        await place_live_order(user, strategy, order_side, amount, reduce_only=True, position_side=pos_side)
+
+    async def _delete_open_rows(self, db: AsyncSession, strategy_id: int) -> int:
+        rows = (
+            await db.execute(select(Trade).where(Trade.strategy_id == strategy_id, Trade.pnl.is_(None)))
+        ).scalars().all()
+        for row in rows:
+            await db.delete(row)
+        return len(rows)
+
+    async def close_position(self, db: AsyncSession, user: User, strategy: Strategy) -> dict:
+        """Flatten one strategy's live position now (market reduce-only) and clear
+        its open records/state. Spot holdings are not auto-sold."""
+        closed = False
+        real, ok = await self._exchange_main_position(user, strategy)
+        if ok and real is not None and strategy.live_enabled:
+            try:
+                await self._flatten_exchange_position(user, strategy, real)
+                closed = True
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("close_position failed for strategy %s: %s", strategy.id, exc)
+        await self._delete_open_rows(db, strategy.id)
+        state = self.states.get(strategy.id)
+        if state is not None:
+            self._clear_position(state)
+        await db.commit()
+        return {"closed": closed}
+
+    async def panic_close_all(self, db: AsyncSession, user: User) -> dict:
+        """Emergency stop: stop every bot the user has running and market-close all
+        their live futures positions. The red button for "get me out of everything"."""
+        strategies = (
+            await db.execute(select(Strategy).where(Strategy.user_id == user.id))
+        ).scalars().all()
+        stopped = 0
+        closed = 0
+        for strategy in strategies:
+            if self.is_running(strategy.id):
+                await self.stop(strategy.id)
+                stopped += 1
+            if strategy.status != "stopped":
+                strategy.status = "stopped"
+            if strategy.live_enabled and is_futures(strategy.config_json):
+                real, ok = await self._exchange_main_position(user, strategy)
+                if ok and real is not None:
+                    try:
+                        await self._flatten_exchange_position(user, strategy, real)
+                        closed += 1
+                    except Exception as exc:  # noqa: BLE001 - best effort, keep going
+                        logger.warning("panic close failed for strategy %s: %s", strategy.id, exc)
+            await self._delete_open_rows(db, strategy.id)
+        await db.commit()
+        return {"stopped": stopped, "closed": closed}
+
+    # ---- health monitor (watchdog + drift) -------------------------------
+
+    async def monitor(self, session_factory) -> None:
+        """Background health loop: detect stalled bot loops (via heartbeat) and
+        live position drift vs the exchange, alerting over Telegram. It never
+        auto-corrects — drift is surfaced so the user can Sync deliberately."""
+        last_drift = 0.0
+        while True:
+            await asyncio.sleep(HEALTH_CHECK_SEC)
+            try:
+                await self._check_heartbeats()
+                if time.time() - last_drift >= DRIFT_CHECK_SEC:
+                    last_drift = time.time()
+                    await self._check_position_drift(session_factory)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - monitor must stay alive
+                logger.exception("health monitor error: %s", exc)
+
+    async def _check_heartbeats(self) -> None:
+        now = time.time()
+        for sid in list(self.tasks):
+            if not self.is_running(sid):
+                continue
+            hb = await redis_client.get(f"hb:bot:{sid}")
+            stale = hb is None or (now - float(hb)) > STALL_AFTER_SEC
+            warn_key = f"hb:warned:{sid}"
+            if stale:
+                if not await redis_client.get(warn_key):
+                    await redis_client.set(warn_key, "1", ex=900)
+                    await send_admin_alert(f"bot {sid} looks stalled (no heartbeat for >{STALL_AFTER_SEC:.0f}s)")
+            else:
+                await redis_client.delete(warn_key)
+
+    async def _check_position_drift(self, session_factory) -> None:
+        async with session_factory() as db:
+            pairs = (
+                await db.execute(
+                    select(Strategy, User)
+                    .join(User, Strategy.user_id == User.id)
+                    .where(Strategy.status == "live")
+                )
+            ).all()
+        for strategy, user in pairs:
+            if not is_futures(strategy.config_json):
+                continue
+            state = self.states.get(strategy.id)
+            tracked = bool(state and state.has_position)
+            real, ok = await self._exchange_main_position(user, strategy)
+            if not ok:
+                continue
+            on_exchange = real is not None
+            if tracked and not on_exchange:
+                await self._warn_once(
+                    user, strategy, "drift",
+                    "the bot is tracking a position the exchange no longer shows — tap Sync to reconcile.",
+                )
+            elif on_exchange and not tracked:
+                await self._warn_once(
+                    user, strategy, "drift",
+                    "there's an open position on the exchange the bot isn't tracking — tap Sync to reconcile.",
+                )
+
     async def shutdown(self) -> None:
         for strategy_id in list(self.tasks):
             await self.stop(strategy_id)
@@ -336,6 +535,8 @@ class BotSupervisor:
                     break
                 try:
                     await self._run_once(db, user, strategy, state)
+                    # Heartbeat: lets the watchdog detect a stalled loop.
+                    await redis_client.set(f"hb:bot:{strategy_id}", time.time(), ex=HEARTBEAT_TTL)
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:  # noqa: BLE001 - keep the bot alive
@@ -369,6 +570,8 @@ class BotSupervisor:
         if not state.has_position:
             if signal in ("long", "short"):
                 if await self._entry_on_cooldown(strategy):
+                    return
+                if await self._entry_blocked_by_risk(db, user, strategy):
                     return
                 amount = await self._entry_amount(user, strategy, state, current_price)
                 if amount is None:
@@ -578,6 +781,7 @@ class BotSupervisor:
         else:
             price = paper_fill_price(current_price, order_side)
         pnl = ((price - entry_price) / entry_price * 100) if side == "long" else ((entry_price - price) / entry_price * 100)
+        pnl -= round_trip_fee_pct(strategy.config_json)  # net of entry+exit taker fee
         # One row per position: settle the open (pnl=NULL) row instead of adding a
         # second row. Fall back to inserting a close row if none was found.
         settled = await self._settle_open_trade(db, strategy.id, "main", pnl)
@@ -762,6 +966,7 @@ class BotSupervisor:
             price = paper_fill_price(current_price, order_side)
         # A short leg profits when price falls below entry; a long leg when it rises.
         pnl = ((entry - price) / entry * 100) if hedge_side == "short" else ((price - entry) / entry * 100)
+        pnl -= round_trip_fee_pct(strategy.config_json)  # net of entry+exit taker fee
         # One row per position: settle the open hedge row in place (see _close_position).
         settled = await self._settle_open_trade(db, strategy.id, "hedge", pnl)
         if not settled:

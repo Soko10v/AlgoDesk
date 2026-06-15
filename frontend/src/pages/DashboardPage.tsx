@@ -12,16 +12,20 @@ import {
   Plus,
   Radio,
   RefreshCw,
+  ShieldAlert,
   Square,
   TrendingDown,
   TrendingUp,
+  XCircle,
 } from "lucide-react";
 import {
+  closePosition,
   exchangeBalance,
   exchangeStatus,
   getSubscription,
   listStrategies,
   listTrades,
+  panicCloseAll,
   startBot,
   stopBot,
   syncPosition,
@@ -94,6 +98,26 @@ export function DashboardPage() {
     onError: () => toast.error("Could not sync position"),
   });
 
+  const closePos = useMutation({
+    mutationFn: (id: number) => closePosition(id),
+    onSuccess: (data) => {
+      toast.success("Position closed", data.closed ? "Market-closed on the exchange" : "No live position to close — record cleared");
+      qc.invalidateQueries({ queryKey: ["trades"] });
+      qc.invalidateQueries({ queryKey: ["strategies"] });
+    },
+    onError: () => toast.error("Could not close position"),
+  });
+
+  const panic = useMutation({
+    mutationFn: () => panicCloseAll(),
+    onSuccess: (data) => {
+      toast.success("Emergency stop done", `Stopped ${data.stopped} bot(s), closed ${data.closed} position(s)`);
+      qc.invalidateQueries({ queryKey: ["strategies"] });
+      qc.invalidateQueries({ queryKey: ["trades"] });
+    },
+    onError: () => toast.error("Emergency stop failed"),
+  });
+
   const allTrades = trades.data ?? [];
   const pending = start.isPending || stop.isPending;
   const navigate = useNavigate();
@@ -104,11 +128,27 @@ export function DashboardPage() {
         title="Dashboard"
         description="Monitor your strategies and live bot activity."
         actions={
-          <Link to="/builder">
-            <Button>
-              <Plus className="h-4 w-4" /> New strategy
-            </Button>
-          </Link>
+          <>
+            {running > 0 && (
+              <Button
+                variant="danger"
+                loading={panic.isPending}
+                onClick={() => {
+                  if (window.confirm("Emergency stop: halt ALL running bots and market-close every live futures position. Continue?")) {
+                    panic.mutate();
+                  }
+                }}
+                title="Stop all bots and close all live positions"
+              >
+                <ShieldAlert className="h-4 w-4" /> Stop all
+              </Button>
+            )}
+            <Link to="/builder">
+              <Button>
+                <Plus className="h-4 w-4" /> New strategy
+              </Button>
+            </Link>
+          </>
         }
       />
 
@@ -169,10 +209,12 @@ export function DashboardPage() {
                   availableUsdt={availableUsdt}
                   trades={allTrades}
                   syncing={sync.isPending && sync.variables === s.id}
+                  closing={closePos.isPending && closePos.variables === s.id}
                   onStart={(mode, usdt) => start.mutate({ id: s.id, mode, usdt })}
                   onStop={() => stop.mutate(s.id)}
                   onEdit={() => navigate(`/builder?edit=${s.id}`)}
                   onSync={() => sync.mutate(s.id)}
+                  onClose={() => closePos.mutate(s.id)}
                 />
               ))}
             </div>
@@ -194,20 +236,24 @@ function StrategyRow({
   availableUsdt,
   trades,
   syncing,
+  closing,
   onStart,
   onStop,
   onEdit,
   onSync,
+  onClose,
 }: {
   strategy: Strategy;
   pending: boolean;
   availableUsdt: number | null;
   trades: Trade[];
   syncing: boolean;
+  closing: boolean;
   onStart: (mode: "paper" | "live", usdt?: number) => void;
   onStop: () => void;
   onEdit: () => void;
   onSync: () => void;
+  onClose: () => void;
 }) {
   const qc = useQueryClient();
   const running = isRunning(strategy.status);
@@ -372,12 +418,18 @@ function StrategyRow({
                   {openCount} open position{openCount > 1 ? "s" : ""} tracked
                 </p>
                 <p className="mt-0.5 text-xs text-amber-200/70">
-                  Closed it on the exchange yourself? Sync reconciles and clears the open record.
+                  Close it now (market order on the exchange), or if you already closed it
+                  yourself, Sync just clears the record.
                 </p>
               </div>
-              <Button size="sm" variant="secondary" onClick={onSync} loading={syncing}>
-                <RefreshCw className="h-3.5 w-3.5" /> Sync now
-              </Button>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button size="sm" variant="danger" onClick={onClose} loading={closing}>
+                  <XCircle className="h-3.5 w-3.5" /> Close now
+                </Button>
+                <Button size="sm" variant="secondary" onClick={onSync} loading={syncing}>
+                  <RefreshCw className="h-3.5 w-3.5" /> Sync
+                </Button>
+              </div>
             </div>
           )}
 
@@ -427,6 +479,13 @@ function StrategyRow({
                 <NumberField
                   value={draft.trailing_stop?.value ?? 0}
                   onValueChange={(v) => patch({ trailing_stop: { type: "pct", value: v } })}
+                  min={0}
+                />
+              </Field>
+              <Field label="Daily loss limit %">
+                <NumberField
+                  value={draft.daily_loss_limit_pct ?? 0}
+                  onValueChange={(v) => patch({ daily_loss_limit_pct: v })}
                   min={0}
                 />
               </Field>

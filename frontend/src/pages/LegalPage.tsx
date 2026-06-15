@@ -34,7 +34,7 @@ const PRIVACY = {
 
 const TERMS = {
   title: "Terms of Service",
-  updated: "June 4, 2026",
+  updated: "June 15, 2026",
   sections: [
     {
       heading: "Service description",
@@ -42,7 +42,15 @@ const TERMS = {
     },
     {
       heading: "Risk disclaimer",
-      body: `Cryptocurrency trading involves significant risk. Past performance of a backtested strategy does not guarantee future results. You may lose some or all of your invested capital. By using AlgoDesk you acknowledge that you are solely responsible for your trading decisions and any resulting gains or losses.`,
+      body: `Cryptocurrency trading involves significant risk and is not suitable for everyone. Past performance of a backtested or paper-traded strategy does NOT guarantee future results — backtests are simulations and real results will differ. Leverage (futures) amplifies both gains and losses and can lead to liquidation and the loss of your entire margin. Automated strategies can also behave unexpectedly during exchange outages, API errors, network latency, or extreme volatility. You may lose some or all of your capital. By using AlgoDesk you acknowledge that you trade at your own risk and are solely responsible for your trading decisions and any resulting gains or losses. AlgoDesk is a tool, not investment advice.`,
+    },
+    {
+      heading: "Eligibility & jurisdiction",
+      body: `You are responsible for ensuring that using AlgoDesk and trading on the connected exchanges is legal in your jurisdiction, and for complying with all applicable laws and tax obligations. AlgoDesk is not available where automated crypto trading or the connected exchanges are restricted or prohibited. You must be of legal age in your jurisdiction to use the service.`,
+    },
+    {
+      heading: "Limitation of liability",
+      body: `AlgoDesk is provided "as is", without warranties of any kind. To the maximum extent permitted by law, AlgoDesk and its operators are not liable for any trading losses, missed trades, liquidations, or other damages arising from use of the service, including those caused by software bugs, downtime, API rate limits, exchange outages, or incorrect strategy configuration. Our total liability for any claim is limited to the amount you paid us in the preceding three months.`,
     },
     {
       heading: "API key usage",
