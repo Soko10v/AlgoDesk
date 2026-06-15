@@ -8,8 +8,16 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ccxt.base.errors import InsufficientFunds
+
 from app.core.redis import redis_client
-from app.engine.live_executor import account_is_hedge, cancel_order, place_live_order, place_stop_order
+from app.engine.live_executor import (
+    account_is_hedge,
+    cancel_order,
+    live_order_amount,
+    place_live_order,
+    place_stop_order,
+)
 from app.engine.paper_executor import build_paper_trade, paper_fill_price
 from app.engine.risk import adverse_excursion_pct, hedge_params, is_futures, pct_value, trailing_pct
 from app.engine.strategy_evaluator import evaluate_signal
@@ -46,6 +54,8 @@ class BotState:
     position_size_usdt: float | None = None  # override set at start; None → use config's position_size_pct
     # None (flat), "long" or "short". Shorts only happen on futures + direction "both".
     position_side: str | None = None
+    # Base size of the open main position, so closes/hedges reuse the exact amount.
+    position_amount: float | None = None
     entry_price: float | None = None
     # Best price reached since entry (high-water for long, low-water for short) — trailing stop.
     extreme_price: float | None = None
@@ -182,10 +192,6 @@ class BotSupervisor:
         if not closes:
             return
 
-        if state.position_size_usdt is not None and current_price > 0:
-            amount = state.position_size_usdt / current_price
-        else:
-            amount = float(strategy.config_json.get("position_size_pct", 10)) / 100
         signal = evaluate_signal(strategy.config_json, closes, state.position_side)
 
         # Track the best price since entry for the trailing stop.
@@ -197,8 +203,20 @@ class BotSupervisor:
 
         if not state.has_position:
             if signal in ("long", "short"):
-                await self._open_position(db, user, strategy, state, signal, current_price, amount)
+                if await self._entry_on_cooldown(strategy):
+                    return
+                amount = await self._entry_amount(user, strategy, state, current_price)
+                if amount is None:
+                    await self._cooldown_and_warn(user, strategy, "size")
+                    return
+                try:
+                    await self._open_position(db, user, strategy, state, signal, current_price, amount)
+                except InsufficientFunds:
+                    await self._cooldown_and_warn(user, strategy, "funds")
+                    return
         else:
+            # Reuse the exact size the position was opened with for closes/hedges.
+            amount = state.position_amount or self._fallback_amount(strategy, state, current_price)
             # In a position: SL/TP take priority, then a signal can close or flip.
             # A flip closes now and the opposite side opens on the next tick.
             exit_reason = self._exit_reason(strategy.config_json, state, current_price)
@@ -209,9 +227,55 @@ class BotSupervisor:
             elif signal in ("long", "short") and signal != state.position_side:
                 await self._close_position(db, user, strategy, state, current_price, amount, "flip")
 
-        # The hedge leg is managed every tick so it can open mid-trade on a squeeze
-        # and unwind once the main position is closed.
-        await self._manage_hedge(db, user, strategy, state, current_price, amount)
+            # The hedge leg is managed while in a position so it can open on a
+            # squeeze and unwind once the main position is closed.
+            await self._manage_hedge(db, user, strategy, state, current_price, amount)
+
+    def _fallback_amount(self, strategy: Strategy, state: BotState, price: float) -> float:
+        """Sizing used for paper trades and as a close fallback. Live entries size
+        from the real balance via _entry_amount instead."""
+        if state.position_size_usdt is not None and price > 0:
+            return state.position_size_usdt / price
+        return float(strategy.config_json.get("position_size_pct", 10)) / 100
+
+    async def _entry_amount(
+        self, user: User, strategy: Strategy, state: BotState, price: float
+    ) -> float | None:
+        """Order size for a new entry. Paper keeps the simple config sizing; live
+        sizes from the real account balance and returns None when it's below the
+        exchange minimum (so the bot warns instead of spamming failed orders)."""
+        if state.mode != "live":
+            return self._fallback_amount(strategy, state, price)
+        return await live_order_amount(user, strategy, price, state.position_size_usdt)
+
+    async def _entry_on_cooldown(self, strategy: Strategy) -> bool:
+        return bool(await redis_client.get(f"entry_cd:{strategy.id}"))
+
+    async def _cooldown_and_warn(self, user: User, strategy: Strategy, kind: str) -> None:
+        """Pause entries for this strategy and tell the user why — at most once an
+        hour — so a funding/sizing problem doesn't hammer the exchange every tick."""
+        await redis_client.set(f"entry_cd:{strategy.id}", "1", ex=300)
+        key = f"entry_warn:{user.id}:{strategy.id}"
+        if await redis_client.get(key):
+            return
+        await redis_client.set(key, "1", ex=3600)
+        if kind == "funds":
+            message = (
+                f"Not enough USDT in your {user.exchange.title()} futures wallet to open "
+                f"the {strategy.name} position. Top up the derivatives/unified wallet or "
+                "lower the position size — entries are paused for a few minutes."
+            )
+        else:
+            message = (
+                f"Your balance is too small for the minimum order size on "
+                f"{strategy.config_json.get('symbol', 'this market')}. Increase your balance "
+                "or the position size — entries are paused for a few minutes."
+            )
+        await publish_user_event(
+            user.id,
+            {"type": "bot_warning", "strategy_id": strategy.id, "strategy": strategy.name, "message": message},
+        )
+        await send_telegram_alert(user.telegram_id, f"{strategy.name}: {message}")
 
     def _exit_reason(self, config: dict[str, Any], state: BotState, current_price: float) -> str | None:
         if not state.has_position or not state.entry_price:
@@ -265,10 +329,13 @@ class BotSupervisor:
             trade = build_paper_trade(strategy, order_side, current_price, amount)
         db.add(trade)
         state.position_side = side
+        state.position_amount = amount
         state.entry_price = trade.price
         state.extreme_price = trade.price  # seed the trailing-stop high/low-water mark
         state.recent_prices = []  # fresh window so a stale extreme cannot trigger a hedge
         await db.commit()
+        # A position opened, so any prior funding/sizing pause is resolved.
+        await redis_client.delete(f"entry_cd:{strategy.id}", f"entry_warn:{user.id}:{strategy.id}")
 
         # Real exchange-side stop so the position is protected even if this process
         # dies or price gaps between ticks. Engine-side _exit_reason stays primary.
@@ -351,6 +418,7 @@ class BotSupervisor:
         )
         db.add(trade)
         state.position_side = None
+        state.position_amount = None
         state.entry_price = None
         state.extreme_price = None
         await db.commit()
