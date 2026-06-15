@@ -32,9 +32,11 @@ import {
   describeEntry,
   describeExit,
   describeHedge,
+  describeSize,
   isBidirectional,
   isFutures,
   normalizeConfig,
+  positionUsdt,
   presets,
   type Preset,
 } from "../lib/strategy";
@@ -228,12 +230,11 @@ export function StrategyBuilderPage() {
             </div>
 
             <div className={cn("grid gap-3", isFutures(cfg) ? "grid-cols-2" : "grid-cols-1")}>
-              <Field label="Position size (% of balance)">
+              <Field label="Position size ($)">
                 <NumberField
                   min={1}
-                  max={100}
-                  value={cfg.position_size_pct}
-                  onValueChange={(v) => setCfg((c) => ({ ...c, position_size_pct: v }))}
+                  value={positionUsdt(cfg)}
+                  onValueChange={(v) => setCfg((c) => ({ ...c, position_size_usdt: v, position_size_pct: undefined }))}
                 />
               </Field>
               {isFutures(cfg) && (
@@ -548,7 +549,7 @@ function buildGraph(cfg: StrategyConfig): { nodes: Node[]; edges: Edge[] } {
       id: "source",
       position: { x: 0, y: 170 },
       data: {
-        label: `${cfg.symbol} · ${cfg.timeframe} · ${cfg.position_size_pct}%${
+        label: `${cfg.symbol} · ${cfg.timeframe} · ${describeSize(cfg)}${
           isFutures(cfg) ? ` · ${cfg.leverage ?? 1}x futures` : ""
         }${isBidirectional(cfg) ? " · long & short" : ""}`,
       },

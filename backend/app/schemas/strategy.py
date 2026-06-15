@@ -12,11 +12,19 @@ ALLOWED_DIRECTIONS = frozenset({"long", "both"})
 ALLOWED_ENTRY_TYPES = frozenset({"ma_cross", "ema_cross", "rsi", "breakout", "macd"})
 
 
+def _positive_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
+
+
 def validate_strategy_config(value: dict[str, Any]) -> dict[str, Any]:
-    required = ["symbol", "timeframe", "position_size_pct", "entry", "exit", "stop_loss", "take_profit"]
+    required = ["symbol", "timeframe", "entry", "exit", "stop_loss", "take_profit"]
     for key in required:
         if key not in value:
             raise ValueError(f"Missing strategy config field: {key}")
+    # Position size can be a fixed USD notional (preferred) or, for strategies
+    # saved before the switch to dollars, a percent of balance. Require one.
+    if not (_positive_number(value.get("position_size_usdt")) or _positive_number(value.get("position_size_pct"))):
+        raise ValueError("Set a position size: position_size_usdt (USD) or position_size_pct (%)")
     tf = value.get("timeframe")
     if tf not in ALLOWED_TIMEFRAMES:
         raise ValueError(f"Unsupported timeframe: {tf}")

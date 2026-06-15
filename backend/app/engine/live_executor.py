@@ -119,8 +119,9 @@ async def live_order_amount(
 
     - With an explicit USDT amount (set when starting the bot), that's the target
       position notional.
-    - Otherwise "position size %" is treated as a share of the free USDT balance,
-      scaled by leverage, as the position notional.
+    - Else the strategy's configured USD notional (position_size_usdt) is used.
+    - Else (legacy strategies) "position size %" is treated as a share of the free
+      USDT balance, scaled by leverage, as the position notional.
 
     Returns None when the resulting size is below the exchange minimum (caller
     should skip and warn) — this is what prevents the old behaviour of trying a
@@ -133,9 +134,14 @@ async def live_order_amount(
     try:
         await client.load_markets()
         m = client.market(symbol)
+        cfg_usdt = strategy.config_json.get("position_size_usdt")
         if override_usdt and override_usdt > 0:
             notional = float(override_usdt)
+        elif cfg_usdt and float(cfg_usdt) > 0:
+            # Fixed USD notional configured on the strategy.
+            notional = float(cfg_usdt)
         else:
+            # Legacy strategies: percent of free balance, scaled by leverage.
             bal = await client.fetch_balance()
             free_usdt = float((bal.get("free") or {}).get("USDT") or 0.0)
             pct = float(strategy.config_json.get("position_size_pct", 10)) / 100
