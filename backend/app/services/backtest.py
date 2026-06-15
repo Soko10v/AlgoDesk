@@ -206,7 +206,8 @@ def _simulate(config: dict[str, Any], candles: list[list[float]]) -> dict[str, A
 
         peak = max(peak, equity)
         drawdown = ((peak - equity) / peak) * 100 if peak else 0.0
-        curve.append({"x": float(idx), "y": float(equity), "dd": float(drawdown)})
+        # x is the candle's real open time (seconds) so the chart shows true dates.
+        curve.append({"x": float(candle[0]) / 1000.0, "y": float(equity), "dd": float(drawdown)})
 
     total_trades = max(wins + loss, 1)
     return {
@@ -215,6 +216,9 @@ def _simulate(config: dict[str, Any], candles: list[list[float]]) -> dict[str, A
         "win_rate": wins / total_trades * 100,
         "trades": trades,
         "equity_curve": [{"x": p["x"], "y": p["y"]} for p in curve],
+        "candles": len(candles),
+        "start": (float(candles[0][0]) / 1000.0) if candles else None,
+        "end": (float(candles[-1][0]) / 1000.0) if candles else None,
     }
 
 

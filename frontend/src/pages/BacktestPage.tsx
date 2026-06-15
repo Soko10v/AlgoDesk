@@ -11,7 +11,7 @@ import {
 } from "../api/endpoints";
 import { toast } from "../store/toast";
 import { Badge, Button, Card, EmptyState, Field, PageHeader, Select, Spinner, StatCard } from "../components/ui";
-import { pct, pnlTone, price, signedPct } from "../lib/formatters";
+import { dateTime, pct, pnlTone, price, signedPct } from "../lib/formatters";
 import { describeEntry } from "../lib/strategy";
 
 export function BacktestPage() {
@@ -60,9 +60,10 @@ export function BacktestPage() {
       bottomColor: "rgba(16,185,129,0.01)",
       lineWidth: 2,
     });
-    const base = Math.floor(Date.now() / 1000) - result.equity_curve.length * 3600;
+    // x carries each candle's real open time (unix seconds), so the axis shows
+    // the actual backtested dates rather than a fabricated "now − N hours" range.
     series.setData(
-      result.equity_curve.map((p, i) => ({ time: (base + i * 3600) as UTCTimestamp, value: p.y }))
+      result.equity_curve.map((p) => ({ time: Math.floor(p.x) as UTCTimestamp, value: p.y }))
     );
     chart.timeScale().fitContent();
 
@@ -114,6 +115,10 @@ export function BacktestPage() {
             </Button>
           </div>
         </div>
+        <p className="mt-3 text-xs text-slate-500">
+          Leave the dates blank to backtest the most recent candles (up to ~2000 of the
+          strategy's timeframe). The exact period and candle count are shown with the results.
+        </p>
       </Card>
 
       {optimize.isPending && (
@@ -223,7 +228,14 @@ export function BacktestPage() {
           </div>
 
           <Card className="p-5">
-            <div className="mb-3 text-sm font-semibold text-slate-300">Equity curve</div>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm font-semibold text-slate-300">Equity curve</span>
+              {result.candles > 0 && result.start && result.end && (
+                <span className="text-xs text-slate-500">
+                  {result.candles} candles · {dateTime(result.start * 1000)} → {dateTime(result.end * 1000)}
+                </span>
+              )}
+            </div>
             <div ref={chartEl} className="w-full" />
           </Card>
 
