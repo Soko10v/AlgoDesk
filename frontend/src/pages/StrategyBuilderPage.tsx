@@ -19,7 +19,7 @@ import {
   type StrategyConfig,
 } from "../api/endpoints";
 import { toast } from "../store/toast";
-import { Badge, Button, Card, Field, Input, PageHeader, Select, Toggle } from "../components/ui";
+import { Badge, Button, Card, Field, Input, NumberField, PageHeader, Select, Toggle } from "../components/ui";
 import { cn } from "../lib/cn";
 import {
   ENTRY_TYPES,
@@ -229,34 +229,27 @@ export function StrategyBuilderPage() {
 
             <div className={cn("grid gap-3", isFutures(cfg) ? "grid-cols-2" : "grid-cols-1")}>
               <Field label="Position size (% of balance)">
-                <Input
-                  type="number"
+                <NumberField
                   min={1}
                   max={100}
                   value={cfg.position_size_pct}
-                  onChange={(e) => setCfg((c) => ({ ...c, position_size_pct: Number(e.target.value) }))}
+                  onValueChange={(v) => setCfg((c) => ({ ...c, position_size_pct: v }))}
                 />
               </Field>
               {isFutures(cfg) && (
                 <Field label={`Leverage (max ${MAX_LEVERAGE}x)`}>
-                  <Input
-                    type="number"
+                  <NumberField
                     min={1}
                     max={MAX_LEVERAGE}
                     value={cfg.leverage ?? 1}
-                    onChange={(e) =>
-                      setCfg((c) => ({
-                        ...c,
-                        leverage: Math.max(1, Math.min(MAX_LEVERAGE, Number(e.target.value))),
-                      }))
-                    }
+                    onValueChange={(v) => setCfg((c) => ({ ...c, leverage: v }))}
                   />
                 </Field>
               )}
             </div>
 
             {isFutures(cfg) && (
-              <Field label="Trade direction" hint="Long & Short flips on the MA cross — long above, short below the slow MA.">
+              <Field label="Trade direction" hint="Long & Short flips on the entry signal — long on the bullish signal, short on the bearish one.">
                 <div className="grid grid-cols-2 gap-2">
                   {([["long", "Long only"], ["both", "Long & Short"]] as const).map(([val, label]) => (
                     <button
@@ -293,48 +286,50 @@ export function StrategyBuilderPage() {
               </div>
             </Block>
 
-            <Block icon={LogOut} title="Exit — RSI" tone="text-sky-300">
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Condition">
-                  <Select value={cfg.exit[0].op} onChange={(e) => setExit({ op: e.target.value as ">" | "<" })}>
-                    <option value=">">RSI above</option>
-                    <option value="<">RSI below</option>
-                  </Select>
-                </Field>
-                <Field label="Value">
-                  <Input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={cfg.exit[0].value}
-                    onChange={(e) => setExit({ value: Number(e.target.value) })}
-                  />
-                </Field>
-              </div>
+            <Block icon={LogOut} title="Exit" tone="text-sky-300">
+              {isBidirectional(cfg) ? (
+                <p className="text-xs leading-relaxed text-slate-400">
+                  In Long &amp; Short the position exits on the opposite entry signal
+                  (the bot flips long↔short), or on Stop loss / Take profit / Trailing
+                  stop below. There's no separate RSI exit in this mode — it applies to
+                  Long only.
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Condition">
+                    <Select value={cfg.exit[0].op} onChange={(e) => setExit({ op: e.target.value as ">" | "<" })}>
+                      <option value=">">RSI above</option>
+                      <option value="<">RSI below</option>
+                    </Select>
+                  </Field>
+                  <Field label="Value">
+                    <NumberField
+                      min={0}
+                      max={100}
+                      value={cfg.exit[0].value}
+                      onValueChange={(v) => setExit({ value: v })}
+                    />
+                  </Field>
+                </div>
+              )}
             </Block>
 
             <div className="grid grid-cols-2 gap-3">
               <Block icon={Shield} title="Stop loss" tone="text-rose-300">
                 <Field label="Percent">
-                  <Input
-                    type="number"
+                  <NumberField
                     min={0}
-                    step={0.1}
                     value={cfg.stop_loss.value}
-                    onChange={(e) => setCfg((c) => ({ ...c, stop_loss: { type: "pct", value: Number(e.target.value) } }))}
+                    onValueChange={(v) => setCfg((c) => ({ ...c, stop_loss: { type: "pct", value: v } }))}
                   />
                 </Field>
               </Block>
               <Block icon={Target} title="Take profit" tone="text-amber-300">
                 <Field label="Percent">
-                  <Input
-                    type="number"
+                  <NumberField
                     min={0}
-                    step={0.1}
                     value={cfg.take_profit.value}
-                    onChange={(e) =>
-                      setCfg((c) => ({ ...c, take_profit: { type: "pct", value: Number(e.target.value) } }))
-                    }
+                    onValueChange={(v) => setCfg((c) => ({ ...c, take_profit: { type: "pct", value: v } }))}
                   />
                 </Field>
               </Block>
@@ -342,14 +337,10 @@ export function StrategyBuilderPage() {
 
             <Block icon={Anchor} title="Trailing stop" tone="text-emerald-300">
               <Field label="Percent" hint="Locks in profit by trailing the peak. 0 = off.">
-                <Input
-                  type="number"
+                <NumberField
                   min={0}
-                  step={0.1}
                   value={cfg.trailing_stop?.value ?? 0}
-                  onChange={(e) =>
-                    setCfg((c) => ({ ...c, trailing_stop: { type: "pct", value: Number(e.target.value) } }))
-                  }
+                  onValueChange={(v) => setCfg((c) => ({ ...c, trailing_stop: { type: "pct", value: v } }))}
                 />
               </Field>
             </Block>
@@ -378,32 +369,27 @@ export function StrategyBuilderPage() {
                     {cfg.hedge.mode === "auto_squeeze" ? (
                       <div className="grid grid-cols-2 gap-3">
                         <Field label="Trigger drop %" hint="Drop that opens the hedge">
-                          <Input
-                            type="number"
+                          <NumberField
                             min={0.1}
-                            step={0.1}
                             value={cfg.hedge.trigger_pct}
-                            onChange={(e) => setHedge({ trigger_pct: Number(e.target.value) })}
+                            onValueChange={(v) => setHedge({ trigger_pct: v })}
                           />
                         </Field>
                         <Field label="Release rebound %" hint="Recovery that closes it">
-                          <Input
-                            type="number"
+                          <NumberField
                             min={0.1}
-                            step={0.1}
                             value={cfg.hedge.release_pct}
-                            onChange={(e) => setHedge({ release_pct: Number(e.target.value) })}
+                            onValueChange={(v) => setHedge({ release_pct: v })}
                           />
                         </Field>
                       </div>
                     ) : (
                       <Field label="Hedge ratio (% of position)" hint="Share of the position held short at all times">
-                        <Input
-                          type="number"
+                        <NumberField
                           min={1}
                           max={100}
                           value={Math.round((cfg.hedge.ratio ?? 0) * 100)}
-                          onChange={(e) => setHedge({ ratio: Math.max(0, Math.min(100, Number(e.target.value))) / 100 })}
+                          onValueChange={(v) => setHedge({ ratio: v / 100 })}
                         />
                       </Field>
                     )}
@@ -522,11 +508,10 @@ function Block({
 function EntryParams({ rule, set }: { rule: EntryRule; set: (patch: Partial<EntryRule>) => void }) {
   const num = (label: string, key: keyof EntryRule, min = 1) => (
     <Field label={label}>
-      <Input
-        type="number"
+      <NumberField
         min={min}
         value={(rule[key] as number) ?? 0}
-        onChange={(e) => set({ [key]: Number(e.target.value) } as Partial<EntryRule>)}
+        onValueChange={(v) => set({ [key]: v } as Partial<EntryRule>)}
       />
     </Field>
   );

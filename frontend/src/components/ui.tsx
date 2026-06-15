@@ -5,6 +5,9 @@ import {
   type ReactNode,
   type SelectHTMLAttributes,
   forwardRef,
+  useEffect,
+  useRef,
+  useState,
 } from "react";
 import { ChevronDown, type LucideIcon } from "lucide-react";
 import { cn } from "../lib/cn";
@@ -70,6 +73,75 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
   )
 );
 Input.displayName = "Input";
+
+type NumberFieldProps = Omit<
+  InputHTMLAttributes<HTMLInputElement>,
+  "value" | "onChange" | "type" | "min" | "max"
+> & {
+  value: number;
+  onValueChange: (value: number) => void;
+  min?: number;
+  max?: number;
+};
+
+// Numeric input that survives mobile/locale decimals. A plain <input type="number">
+// rejects a comma ("1,5") and reports value="" → callers parse that as 0 and the
+// field wipes. This keeps a local text buffer, accepts "," as the decimal point,
+// allows partial entry ("1,", "") while typing, and clamps/normalises on blur.
+export function NumberField({
+  value,
+  onValueChange,
+  min,
+  max,
+  className,
+  onFocus,
+  onBlur,
+  ...props
+}: NumberFieldProps) {
+  const [text, setText] = useState(() => String(value));
+  const editing = useRef(false);
+
+  // Reflect external value changes only while the user isn't actively typing.
+  useEffect(() => {
+    if (!editing.current) setText(Number.isFinite(value) ? String(value) : "");
+  }, [value]);
+
+  const clamp = (n: number) => {
+    if (min !== undefined && n < min) return min;
+    if (max !== undefined && n > max) return max;
+    return n;
+  };
+
+  return (
+    <input
+      {...props}
+      type="text"
+      inputMode="decimal"
+      className={cn("input", className)}
+      value={text}
+      onFocus={(e) => {
+        editing.current = true;
+        e.target.select();
+        onFocus?.(e);
+      }}
+      onChange={(e) => {
+        const raw = e.target.value.replace(",", ".");
+        if (raw !== "" && !/^-?\d*\.?\d*$/.test(raw)) return; // reject stray chars
+        setText(raw);
+        const n = parseFloat(raw);
+        if (Number.isFinite(n)) onValueChange(clamp(n));
+      }}
+      onBlur={(e) => {
+        editing.current = false;
+        const n = parseFloat(text.replace(",", "."));
+        const final = Number.isFinite(n) ? clamp(n) : min ?? 0;
+        setText(String(final));
+        onValueChange(final);
+        onBlur?.(e);
+      }}
+    />
+  );
+}
 
 export function Select({ className, children, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
