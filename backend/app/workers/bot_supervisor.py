@@ -112,8 +112,8 @@ class BotSupervisor:
         For live strategies, also reconciles any open position recorded in the DB
         against what's actually on the exchange:
         - Position still open → restores BotState so the bot resumes tracking it.
-        - Position externally closed → writes a synthetic close trade so the feed
-          shows it as done instead of showing it as perpetually open."""
+        - Position externally closed → removes the dangling open record so it stops
+          showing as perpetually open."""
         async with session_factory() as db:
             pairs = (
                 await db.execute(
@@ -134,104 +134,155 @@ class BotSupervisor:
                     await self._reconcile_live_position(db, user, strategy)
 
     async def _reconcile_live_position(self, db: AsyncSession, user: User, strategy: Strategy) -> None:
-        """Check whether an open DB trade record is still a real exchange position.
-
-        Called once at recovery for each live strategy. On exchange error we restore
-        BotState conservatively (assume open) rather than risk a false synthetic close."""
+        """At recovery, align in-memory state and the DB open record with the
+        exchange: restore BotState if the position is still open, or remove the
+        dangling open record if it was closed while the bot was down."""
         state = self.states.get(strategy.id)
         if state is None:
             return
-
-        open_trade = (
-            await db.execute(
-                select(Trade)
-                .where(Trade.strategy_id == strategy.id, Trade.pnl.is_(None), Trade.leg == "main")
-                .order_by(Trade.timestamp.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-
+        open_trade = await self._latest_open_trade(db, strategy.id, "main")
         if open_trade is None:
             return
-
         position_side = "long" if open_trade.side == "buy" else "short"
-        symbol = strategy.config_json.get("symbol", "BTC/USDT")
-        futures = is_futures(strategy.config_json)
 
-        if not futures:
-            # Spot: assume position still open (balance check is unreliable here).
-            state.position_side = position_side
-            state.entry_price = open_trade.price
-            state.position_amount = open_trade.amount
-            state.extreme_price = open_trade.price
-            logger.info("Restored spot position state for strategy %s (%s)", strategy.id, position_side)
+        if not is_futures(strategy.config_json):
+            # Spot: can't reliably verify a position; resume tracking from the DB.
+            self._restore_state(state, position_side, open_trade.price, open_trade.amount)
             return
 
-        trade_symbol = perp_symbol(symbol)
-        real_pos = None
-        try:
-            client = exchange_client(user.exchange, user, market_type="futures")
-            try:
-                positions = await client.fetch_positions([trade_symbol])
-                real_pos = next(
-                    (p for p in (positions or [])
-                     if abs(float(p.get("contracts") or p.get("size") or 0)) > 0),
-                    None,
-                )
-            finally:
-                await client.close()
-        except Exception as exc:
-            logger.warning("Reconciliation fetch_positions failed for strategy %s: %s", strategy.id, exc)
-            # Conservative fallback: restore from DB without verifying.
-            state.position_side = position_side
-            state.entry_price = open_trade.price
-            state.position_amount = open_trade.amount
-            state.extreme_price = open_trade.price
+        real_pos, ok = await self._exchange_main_position(user, strategy)
+        if not ok:
+            # Couldn't reach the exchange — resume tracking from the DB record
+            # rather than risk wrongly discarding a real position.
+            self._restore_state(state, position_side, open_trade.price, open_trade.amount)
             return
 
         if real_pos is not None:
             entry = float(real_pos.get("entryPrice") or real_pos.get("averageEntryPrice") or 0)
             amount = abs(float(real_pos.get("contracts") or real_pos.get("size") or 0))
-            state.position_side = position_side
-            state.entry_price = entry if entry > 0 else open_trade.price
-            state.position_amount = amount if amount > 0 else open_trade.amount
-            state.extreme_price = state.entry_price
-            logger.info(
-                "Reconciled: restored %s position for strategy %s (entry=%.4f, size=%.6f)",
-                position_side, strategy.id, state.entry_price, state.position_amount,
+            self._restore_state(
+                state, position_side,
+                entry if entry > 0 else open_trade.price,
+                amount if amount > 0 else open_trade.amount,
             )
+            logger.info("Reconciled: restored %s position for strategy %s", position_side, strategy.id)
         else:
-            # Position closed externally: write synthetic close.
-            current_price = 0.0
-            try:
-                client = exchange_client(user.exchange, user, market_type="futures")
-                try:
-                    ticker = await client.fetch_ticker(trade_symbol)
-                    current_price = float(ticker.get("last") or 0.0)
-                finally:
-                    await client.close()
-            except Exception:
-                pass
-            fill = current_price if current_price > 0 else open_trade.price
-            ep = open_trade.price
-            pnl = ((fill - ep) / ep * 100) if position_side == "long" else ((ep - fill) / ep * 100)
-            close_side = "sell" if position_side == "long" else "buy"
-            db.add(Trade(
-                strategy_id=strategy.id,
-                symbol=open_trade.symbol,
-                side=close_side,
-                price=fill,
-                amount=open_trade.amount,
-                pnl=round(pnl, 4),
-                leg="main",
-                mode=open_trade.mode,
-                timestamp=datetime.now(UTC),
-            ))
+            # Position is gone from the exchange — drop the dangling open record so
+            # it stops showing as open, and clear state so the bot starts flat.
+            await db.delete(open_trade)
+            self._clear_position(state)
             await db.commit()
-            logger.info(
-                "Reconciled: synthetic close for strategy %s (externally closed, pnl=%.2f%%)",
-                strategy.id, pnl,
+            logger.info("Reconciled: removed externally-closed open record for strategy %s", strategy.id)
+
+    # ---- position / reconciliation helpers --------------------------------
+
+    @staticmethod
+    def _restore_state(state: BotState, position_side: str, entry_price: float, amount: float) -> None:
+        state.position_side = position_side
+        state.entry_price = entry_price
+        state.position_amount = amount
+        state.extreme_price = entry_price
+
+    @staticmethod
+    def _clear_position(state: BotState) -> None:
+        state.position_side = None
+        state.position_amount = None
+        state.entry_price = None
+        state.extreme_price = None
+        state.stop_order_id = None
+        state.hedge_open = False
+        state.hedge_side = None
+        state.hedge_entry_price = None
+        state.hedge_extreme = None
+
+    async def _latest_open_trade(self, db: AsyncSession, strategy_id: int, leg: str) -> Trade | None:
+        return (
+            await db.execute(
+                select(Trade)
+                .where(Trade.strategy_id == strategy_id, Trade.pnl.is_(None), Trade.leg == leg)
+                .order_by(Trade.timestamp.desc())
+                .limit(1)
             )
+        ).scalar_one_or_none()
+
+    async def _settle_open_trade(self, db: AsyncSession, strategy_id: int, leg: str, pnl: float) -> bool:
+        """One row per position: write the realized pnl onto the strategy's open
+        (pnl=NULL) row for this leg, instead of inserting a separate close row.
+        Returns False if there was no open row to settle."""
+        row = await self._latest_open_trade(db, strategy_id, leg)
+        if row is None:
+            return False
+        row.pnl = pnl
+        return True
+
+    async def _exchange_main_position(self, user: User, strategy: Strategy) -> tuple[dict | None, bool]:
+        """Return (position, ok). ``ok`` is False when the exchange couldn't be
+        reached. Futures only; spot has no position API so returns (None, True)."""
+        if not is_futures(strategy.config_json):
+            return None, True
+        trade_symbol = perp_symbol(strategy.config_json.get("symbol", "BTC/USDT"))
+        try:
+            client = exchange_client(user.exchange, user, market_type="futures")
+            try:
+                positions = await client.fetch_positions([trade_symbol])
+            finally:
+                await client.close()
+        except Exception as exc:  # noqa: BLE001 - treat as "couldn't verify"
+            logger.warning("fetch_positions failed for strategy %s: %s", strategy.id, exc)
+            return None, False
+        real = next(
+            (p for p in (positions or []) if abs(float(p.get("contracts") or p.get("size") or 0)) > 0),
+            None,
+        )
+        return real, True
+
+    async def sync_strategy(self, db: AsyncSession, user: User, strategy: Strategy) -> dict:
+        """Manual reconcile from the UI. Aligns DB open records and in-memory state
+        with the exchange:
+        - A real position still open → keep tracking it (restore state from the
+          exchange) and drop any extra/phantom open rows.
+        - Otherwise remove all dangling open rows and clear state, so the strategy
+          stops showing an open position it no longer has."""
+        open_trades = (
+            await db.execute(
+                select(Trade)
+                .where(Trade.strategy_id == strategy.id, Trade.pnl.is_(None))
+                .order_by(Trade.timestamp.desc())
+            )
+        ).scalars().all()
+        if not open_trades:
+            return {"closed": 0, "restored": False}
+
+        real_pos, ok = await self._exchange_main_position(user, strategy)
+        state = self.states.get(strategy.id)
+
+        if ok and real_pos is not None:
+            # Protect a still-open position: keep the latest main row, restore state.
+            main_open = next((t for t in open_trades if t.leg == "main"), open_trades[0])
+            entry = float(real_pos.get("entryPrice") or real_pos.get("averageEntryPrice") or 0)
+            amount = abs(float(real_pos.get("contracts") or real_pos.get("size") or 0))
+            position_side = "long" if main_open.side == "buy" else "short"
+            if state is not None:
+                self._restore_state(
+                    state, position_side,
+                    entry if entry > 0 else main_open.price,
+                    amount if amount > 0 else main_open.amount,
+                )
+            removed = 0
+            for t in open_trades:
+                if t.id != main_open.id:
+                    await db.delete(t)
+                    removed += 1
+            await db.commit()
+            return {"closed": removed, "restored": True}
+
+        # No real position — remove every dangling open record and start flat.
+        for t in open_trades:
+            await db.delete(t)
+        if state is not None:
+            self._clear_position(state)
+        await db.commit()
+        return {"closed": len(open_trades), "restored": False}
 
     async def shutdown(self) -> None:
         for strategy_id in list(self.tasks):
@@ -527,18 +578,21 @@ class BotSupervisor:
         else:
             price = paper_fill_price(current_price, order_side)
         pnl = ((price - entry_price) / entry_price * 100) if side == "long" else ((entry_price - price) / entry_price * 100)
-        trade = Trade(
-            strategy_id=strategy.id,
-            symbol=strategy.config_json.get("symbol", "BTC/USDT"),
-            side=order_side,
-            price=price,
-            amount=amount,
-            pnl=pnl,
-            leg="main",
-            mode=state.mode,
-            timestamp=datetime.now(UTC),
-        )
-        db.add(trade)
+        # One row per position: settle the open (pnl=NULL) row instead of adding a
+        # second row. Fall back to inserting a close row if none was found.
+        settled = await self._settle_open_trade(db, strategy.id, "main", pnl)
+        if not settled:
+            db.add(Trade(
+                strategy_id=strategy.id,
+                symbol=strategy.config_json.get("symbol", "BTC/USDT"),
+                side=order_side,
+                price=price,
+                amount=amount,
+                pnl=pnl,
+                leg="main",
+                mode=state.mode,
+                timestamp=datetime.now(UTC),
+            ))
         state.position_side = None
         state.position_amount = None
         state.entry_price = None
@@ -552,7 +606,7 @@ class BotSupervisor:
                 "strategy": strategy.name,
                 "side": order_side,
                 "position": side,
-                "price": trade.price,
+                "price": price,
                 "pnl_pct": pnl,
                 "reason": reason,
                 "mode": state.mode,
@@ -560,7 +614,7 @@ class BotSupervisor:
         )
         await send_telegram_alert(
             user.telegram_id,
-            f"Strategy {strategy.name}: close {side.upper()} at {trade.price:.4f}, PnL {pnl:.2f}% ({reason})",
+            f"Strategy {strategy.name}: close {side.upper()} at {price:.4f}, PnL {pnl:.2f}% ({reason})",
         )
 
     # ---- hedge leg -------------------------------------------------------
@@ -708,18 +762,20 @@ class BotSupervisor:
             price = paper_fill_price(current_price, order_side)
         # A short leg profits when price falls below entry; a long leg when it rises.
         pnl = ((entry - price) / entry * 100) if hedge_side == "short" else ((price - entry) / entry * 100)
-        trade = Trade(
-            strategy_id=strategy.id,
-            symbol=strategy.config_json.get("symbol", "BTC/USDT"),
-            side=order_side,
-            price=price,
-            amount=amount,
-            pnl=pnl,
-            leg="hedge",
-            mode=state.mode,
-            timestamp=datetime.now(UTC),
-        )
-        db.add(trade)
+        # One row per position: settle the open hedge row in place (see _close_position).
+        settled = await self._settle_open_trade(db, strategy.id, "hedge", pnl)
+        if not settled:
+            db.add(Trade(
+                strategy_id=strategy.id,
+                symbol=strategy.config_json.get("symbol", "BTC/USDT"),
+                side=order_side,
+                price=price,
+                amount=amount,
+                pnl=pnl,
+                leg="hedge",
+                mode=state.mode,
+                timestamp=datetime.now(UTC),
+            ))
         state.hedge_open = False
         state.hedge_side = None
         state.hedge_entry_price = None

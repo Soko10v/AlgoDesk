@@ -83,7 +83,12 @@ export function DashboardPage() {
   const sync = useMutation({
     mutationFn: (id: number) => syncPosition(id),
     onSuccess: (data) => {
-      toast.success("Position synced", data.closed ? `Closed ${data.closed} open record(s)` : "No open records found");
+      const msg = data.restored
+        ? "Live position still open on the exchange — resumed tracking it"
+        : data.closed
+          ? `Cleared ${data.closed} stale open record(s)`
+          : "Nothing to reconcile";
+      toast.success("Position synced", msg);
       qc.invalidateQueries({ queryKey: ["trades"] });
     },
     onError: () => toast.error("Could not sync position"),
@@ -483,7 +488,13 @@ function StrategyRow({
                           </td>
                           <td className="whitespace-nowrap px-3 py-2 text-right text-slate-300">{price(t.price)}</td>
                           <td className={`whitespace-nowrap px-3 py-2 text-right ${pnlTone(t.pnl)}`}>
-                            {opened ? <span className="text-amber-300">open</span> : signedPct(t.pnl)}
+                            {opened ? (
+                              <span className="text-amber-300" title="Position still open — no realized P&L yet">
+                                open
+                              </span>
+                            ) : (
+                              signedPct(t.pnl)
+                            )}
                           </td>
                           <td className="whitespace-nowrap px-3 py-2 text-right text-slate-500">{timeAgo(t.timestamp)}</td>
                         </tr>

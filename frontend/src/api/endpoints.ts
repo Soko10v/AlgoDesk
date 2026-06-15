@@ -162,7 +162,7 @@ export async function stopBot(id: number) {
 
 export async function syncPosition(id: number) {
   const { data } = await api.post(`/bots/${id}/sync-position`);
-  return data as { closed: number };
+  return data as { closed: number; restored: boolean };
 }
 
 // ---- backtest ----
