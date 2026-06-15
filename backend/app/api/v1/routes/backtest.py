@@ -1,10 +1,11 @@
 from datetime import datetime, time
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
 from app.core.deps import get_current_user
+from app.core.ratelimit import limiter
 from app.models.strategy import Strategy
 from app.models.user import User
 from app.schemas.backtest import BacktestIn, BacktestOut, OptimizeIn, OptimizeOut
@@ -20,7 +21,9 @@ def _date_bounds(start_date, end_date) -> tuple[int | None, int | None]:
 
 
 @router.post("", response_model=BacktestOut)
+@limiter.limit("15/minute")
 async def backtest_strategy(
+    request: Request,
     payload: BacktestIn,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -34,7 +37,9 @@ async def backtest_strategy(
 
 
 @router.post("/optimize", response_model=OptimizeOut)
+@limiter.limit("6/minute")
 async def optimize_strategy(
+    request: Request,
     payload: OptimizeIn,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),

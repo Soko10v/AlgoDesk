@@ -18,6 +18,8 @@ dependencies = [
   "pydantic-settings>=2.4.0",
   "python-jose[cryptography]>=3.3.0",
   "redis>=5.0.8",
+  "sentry-sdk[fastapi]>=2.0.0",
+  "slowapi>=0.1.9",
   "sqlalchemy>=2.0.34",
   "uvicorn[standard]>=0.30.6",
 ]
@@ -25,6 +27,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "ruff>=0.6.2",
+  "pytest>=8.0.0",
 ]
 
 [build-system]

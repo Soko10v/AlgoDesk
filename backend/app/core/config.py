@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     backend_origin: str = "http://localhost:8000"
     access_token_expire_minutes: int = 60 * 24 * 7
     dev_auth: bool = False
+    # Risk safety net: a user can't hold more than this many open positions at once
+    # across all their strategies (0 disables the cap).
+    max_open_positions_per_user: int = 8
+    # Observability/ops (optional; empty disables). admin_telegram_id receives
+    # engine-health alerts (recovery failure, stalled bots).
+    sentry_dsn: str = ""
+    admin_telegram_id: int = 0
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

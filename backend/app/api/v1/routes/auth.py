@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.deps import get_current_user
+from app.core.ratelimit import limiter
 from app.core.security import create_access_token, verify_telegram_payload
 from app.models.user import User
 from app.schemas.auth import AuthConfigOut, TelegramAuthIn, TokenOut
@@ -115,7 +116,8 @@ async def google_callback(
 
 
 @router.post("/telegram", response_model=TokenOut)
-async def telegram_login(payload: TelegramAuthIn, db: AsyncSession = Depends(get_db)) -> TokenOut:
+@limiter.limit("10/minute")
+async def telegram_login(request: Request, payload: TelegramAuthIn, db: AsyncSession = Depends(get_db)) -> TokenOut:
     payload_dict = payload.model_dump(mode="json", exclude_none=True)
     if not verify_telegram_payload({k: str(v) for k, v in payload_dict.items()}):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Telegram signature")

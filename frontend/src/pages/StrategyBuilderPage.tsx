@@ -346,6 +346,16 @@ export function StrategyBuilderPage() {
               </Field>
             </Block>
 
+            <Block icon={Shield} title="Daily loss limit" tone="text-rose-300">
+              <Field label="Percent" hint="Pause new entries after this much realized loss in a day. 0 = off.">
+                <NumberField
+                  min={0}
+                  value={cfg.daily_loss_limit_pct ?? 0}
+                  onValueChange={(v) => setCfg((c) => ({ ...c, daily_loss_limit_pct: v }))}
+                />
+              </Field>
+            </Block>
+
             {isFutures(cfg) && (
               <Block icon={Umbrella} title="Hedge — squeeze protection" tone="text-indigo-300">
                 <div className="flex items-center justify-between">
