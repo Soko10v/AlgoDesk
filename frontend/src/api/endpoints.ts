@@ -159,6 +159,11 @@ export async function stopBot(id: number) {
   return data as { ok: boolean };
 }
 
+export async function syncPosition(id: number) {
+  const { data } = await api.post(`/bots/${id}/sync-position`);
+  return data as { closed: number };
+}
+
 // ---- backtest ----
 export async function runBacktest(strategy_id: number, start_date?: string, end_date?: string) {
   const { data } = await api.post("/backtest", { strategy_id, start_date, end_date });
