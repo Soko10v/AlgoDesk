@@ -117,11 +117,12 @@ async def live_order_amount(
     """Resolve the order size (in base units) for a live entry, sized from the
     real account so it's actually affordable.
 
-    - With an explicit USDT amount (set when starting the bot), that's the target
-      position notional.
-    - Else the strategy's configured USD notional (position_size_usdt) is used.
-    - Else (legacy strategies) "position size %" is treated as a share of the free
-      USDT balance, scaled by leverage, as the position notional.
+    The USD "position size" is treated as **margin**, so the position notional is
+    size × leverage (spot leverage is 1, so size == notional there).
+    - With an explicit USDT amount (set when starting the bot), that's the margin.
+    - Else the strategy's configured USD size (position_size_usdt) is the margin.
+    - Else (legacy strategies) "position size %" of the free USDT balance is the
+      margin. All three are multiplied by leverage to get the position notional.
 
     Returns None when the resulting size is below the exchange minimum (caller
     should skip and warn) — this is what prevents the old behaviour of trying a
@@ -130,22 +131,23 @@ async def live_order_amount(
     if price <= 0:
         return None
     symbol, market = _order_symbol(strategy)
+    lev = leverage(strategy.config_json)
     client = exchange_client(user.exchange, user, market_type=market)
     try:
         await client.load_markets()
         m = client.market(symbol)
         cfg_usdt = strategy.config_json.get("position_size_usdt")
         if override_usdt and override_usdt > 0:
-            notional = float(override_usdt)
+            notional = float(override_usdt) * lev
         elif cfg_usdt and float(cfg_usdt) > 0:
-            # Fixed USD notional configured on the strategy.
-            notional = float(cfg_usdt)
+            # Configured USD margin → notional = margin × leverage.
+            notional = float(cfg_usdt) * lev
         else:
-            # Legacy strategies: percent of free balance, scaled by leverage.
+            # Legacy strategies: percent of free balance as margin, × leverage.
             bal = await client.fetch_balance()
             free_usdt = float((bal.get("free") or {}).get("USDT") or 0.0)
             pct = float(strategy.config_json.get("position_size_pct", 10)) / 100
-            notional = free_usdt * pct * leverage(strategy.config_json)
+            notional = free_usdt * pct * lev
         if notional <= 0:
             return None
         amount = notional / price

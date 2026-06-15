@@ -67,15 +67,16 @@ export function StrategyBuilderPage() {
   const [liveEnabled, setLiveEnabled] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
 
-  // Minimum order size on the exchange for the chosen symbol/market, so the size
-  // field can warn when it's set below what the exchange will actually accept.
+  // Minimum order size on the exchange for the chosen symbol/market. Size is
+  // margin, so the minimum to enter is min_notional / leverage — warn below it.
+  const minLev = isFutures(cfg) ? cfg.leverage ?? 1 : 1;
   const minOrder = useQuery({
-    queryKey: ["min-order", cfg.symbol, isFutures(cfg)],
-    queryFn: () => getMinOrder(cfg.symbol, isFutures(cfg)),
+    queryKey: ["min-order", cfg.symbol, isFutures(cfg), minLev],
+    queryFn: () => getMinOrder(cfg.symbol, isFutures(cfg), minLev),
     staleTime: 60_000,
   });
-  const minNotional = minOrder.data?.min_notional ?? 0;
-  const sizeBelowMin = minNotional > 0 && positionUsdt(cfg) < minNotional;
+  const minSize = minOrder.data?.min_size ?? 0;
+  const sizeBelowMin = minSize > 0 && positionUsdt(cfg) < minSize;
 
   // Auto-load strategy when navigated here with ?edit=ID (e.g. from Dashboard)
   useEffect(() => {
@@ -250,10 +251,12 @@ export function StrategyBuilderPage() {
                 />
                 {sizeBelowMin ? (
                   <p className="mt-1 text-xs text-rose-400">
-                    Below {cfg.symbol} minimum (${minNotional.toFixed(2)}) — live orders will be rejected. Raise the size.
+                    Below {cfg.symbol} minimum (${minSize.toFixed(2)}{minLev > 1 ? ` at ${minLev}x` : ""}) — live orders will be rejected. Raise the size.
                   </p>
-                ) : minNotional > 0 ? (
-                  <p className="mt-1 text-xs text-slate-500">Exchange minimum for {cfg.symbol}: ${minNotional.toFixed(2)}</p>
+                ) : minSize > 0 ? (
+                  <p className="mt-1 text-xs text-slate-500">
+                    Min size for {cfg.symbol}: ${minSize.toFixed(2)}{minLev > 1 ? ` at ${minLev}x (position ≈ $${(minSize * minLev).toFixed(0)})` : ""}
+                  </p>
                 ) : null}
               </Field>
               {isFutures(cfg) && (

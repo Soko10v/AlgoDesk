@@ -235,14 +235,16 @@ export async function exchangeBalance() {
 export type MinOrder = {
   symbol: string;
   market: string;
+  leverage: number;
   min_amount: number;
   price: number;
-  min_notional: number;
+  min_notional: number; // minimum position value the exchange accepts
+  min_size: number; // minimum size (margin) the user must enter = min_notional / leverage
   error?: string | null;
 };
 
-export async function getMinOrder(symbol: string, futures: boolean) {
-  const { data } = await api.get("/exchange/min-order", { params: { symbol, futures } });
+export async function getMinOrder(symbol: string, futures: boolean, leverage = 1) {
+  const { data } = await api.get("/exchange/min-order", { params: { symbol, futures, leverage } });
   return data as MinOrder;
 }
 

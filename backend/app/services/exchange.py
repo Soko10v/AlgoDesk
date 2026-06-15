@@ -52,12 +52,14 @@ async def test_user_credentials(user: User) -> bool:
         await client.close()
 
 
-async def fetch_min_order(exchange: str, symbol: str, futures: bool) -> dict[str, Any]:
-    """Minimum order size for a symbol: the base-unit minimum and its USD value at
-    the current price. Public market data — no API keys needed. Never raises; on
-    failure returns zeros so callers can degrade gracefully."""
+async def fetch_min_order(exchange: str, symbol: str, futures: bool, lev: int = 1) -> dict[str, Any]:
+    """Minimum order for a symbol. Returns the exchange's minimum position notional
+    AND the minimum *size* the user must enter, which — because size is margin —
+    is min_notional / leverage. Public market data; never raises (returns zeros).
+    """
     market_type = "futures" if futures else "spot"
     trade_symbol = perp_symbol(symbol) if futures else symbol
+    lev = max(1, int(lev or 1))
     client = exchange_client(exchange, market_type=market_type)
     try:
         await client.load_markets()
@@ -77,17 +79,21 @@ async def fetch_min_order(exchange: str, symbol: str, futures: bool) -> dict[str
         min_notional = min_amount * price if (min_amount and price) else 0.0
         if min_cost is not None:
             min_notional = max(min_notional, float(min_cost))
+        # The user enters margin; leverage scales it into the position notional.
+        min_size = min_notional / lev if lev else min_notional
         return {
             "symbol": symbol,
             "market": market_type,
+            "leverage": lev,
             "min_amount": min_amount,
             "price": price,
             "min_notional": round(min_notional, 2),
+            "min_size": round(min_size, 2),
         }
     except Exception as exc:  # noqa: BLE001 - degrade gracefully
         return {
-            "symbol": symbol, "market": market_type, "min_amount": 0.0,
-            "price": 0.0, "min_notional": 0.0, "error": str(exc)[:200],
+            "symbol": symbol, "market": market_type, "leverage": lev, "min_amount": 0.0,
+            "price": 0.0, "min_notional": 0.0, "min_size": 0.0, "error": str(exc)[:200],
         }
     finally:
         await client.close()

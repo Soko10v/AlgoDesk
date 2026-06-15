@@ -53,10 +53,12 @@ async def exchange_balance(current_user: User = Depends(get_current_user)) -> Ba
 async def min_order(
     symbol: str,
     futures: bool = False,
+    leverage: int = 1,
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Minimum order size for a symbol on the user's exchange (base units + USD)."""
-    return await fetch_min_order(current_user.exchange, symbol, futures)
+    """Minimum order for a symbol on the user's exchange: position notional minimum
+    and the minimum size (margin) the user must enter at the given leverage."""
+    return await fetch_min_order(current_user.exchange, symbol, futures, leverage)
 
 
 @router.delete("/disconnect")
