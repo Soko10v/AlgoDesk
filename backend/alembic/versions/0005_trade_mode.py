@@ -15,12 +15,20 @@ branch_labels = None
 depends_on = None
 
 
+def _has_column(table: str, column: str) -> bool:
+    insp = sa.inspect(op.get_bind())
+    return any(c["name"] == column for c in insp.get_columns(table))
+
+
 def upgrade() -> None:
-    op.add_column(
-        "trades",
-        sa.Column("mode", sa.String(length=10), nullable=False, server_default="paper"),
-    )
+    # Idempotent: safe to re-run if the schema drifted ahead of alembic_version.
+    if not _has_column("trades", "mode"):
+        op.add_column(
+            "trades",
+            sa.Column("mode", sa.String(length=10), nullable=False, server_default="paper"),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("trades", "mode")
+    if _has_column("trades", "mode"):
+        op.drop_column("trades", "mode")
