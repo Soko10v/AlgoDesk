@@ -11,6 +11,7 @@ type TradeEvent = {
   pnl_pct?: number;
   reason?: string;
   strategy?: string;
+  message?: string;
 };
 
 function notify(data: TradeEvent) {
@@ -22,6 +23,8 @@ function notify(data: TradeEvent) {
   } else if (data.type === "trade_closed") {
     const pnl = typeof data.pnl_pct === "number" ? ` · ${data.pnl_pct.toFixed(2)}%` : "";
     toast.info(`Closed position${pnl}`, `${data.strategy ?? "Strategy"} (${data.reason ?? "signal"})`);
+  } else if (data.type === "bot_warning") {
+    toast.info(data.strategy ?? "Bot notice", data.message);
   } else if (data.type === "bot_error") {
     toast.error("Bot error", data.strategy);
   }

@@ -13,12 +13,43 @@ on the same symbol at once.
 
 import logging
 
+from app.core.redis import redis_client
 from app.engine.risk import is_futures, leverage
 from app.models.strategy import Strategy
 from app.models.user import User
 from app.services.exchange import exchange_client, perp_symbol
 
 logger = logging.getLogger(__name__)
+
+# Per-user cached futures position mode ("hedge" | "oneway"). We don't know how a
+# user's account is configured, so we cache what worked last and self-correct: a
+# wrong guess triggers the exchange's position-mode error, which flips the cache
+# on retry. So if the user switches One-Way <-> Hedge on the exchange, the bot
+# adapts automatically within one rejected order.
+_POSMODE_KEY = "posmode:{exchange}:{uid}"
+# Substrings exchanges use when the positionIdx/positionSide doesn't match the
+# account's position mode (Bybit: "position idx not match position mode").
+_POSMODE_HINTS = ("position idx", "position mode", "position side")
+
+
+async def _cached_posmode(user: User) -> str | None:
+    return await redis_client.get(_POSMODE_KEY.format(exchange=user.exchange, uid=user.id))
+
+
+async def _store_posmode(user: User, hedged: bool) -> None:
+    await redis_client.set(_POSMODE_KEY.format(exchange=user.exchange, uid=user.id), "hedge" if hedged else "oneway")
+
+
+async def account_is_hedge(user: User) -> bool:
+    """True only when we've confirmed (via a successful order) that the account
+    is in hedge mode. Unknown/one-way both return False, so callers that need
+    hedge support (the protective short leg) stay disabled until it's confirmed."""
+    return (await _cached_posmode(user)) == "hedge"
+
+
+def _is_posmode_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return any(hint in msg for hint in _POSMODE_HINTS)
 
 
 def _order_symbol(strategy: Strategy) -> tuple[str, str]:
@@ -29,16 +60,17 @@ def _order_symbol(strategy: Strategy) -> tuple[str, str]:
     return symbol, "spot"
 
 
-def _position_params(exchange_id: str, position_side: str | None, reduce_only: bool) -> dict:
-    """Per-exchange params to target a side of a hedge-mode position."""
+def _position_params(exchange_id: str, position_side: str | None, reduce_only: bool, hedged: bool) -> dict:
+    """Per-exchange params to target a position. ``hedged`` selects between the
+    account's hedge mode (long/short held separately) and one-way mode."""
     params: dict = {}
     if reduce_only:
         params["reduceOnly"] = True
     if position_side:
         if exchange_id == "bybit":
-            # Bybit hedge mode: 1 = long position, 2 = short position.
-            params["positionIdx"] = 1 if position_side == "long" else 2
-        else:  # binance and other ccxt unified exchanges
+            # Bybit: positionIdx 0 = one-way, 1 = hedge-long, 2 = hedge-short.
+            params["positionIdx"] = (1 if position_side == "long" else 2) if hedged else 0
+        elif hedged:  # binance and other ccxt unified exchanges, hedge mode only
             params["positionSide"] = position_side.upper()
     return params
 
@@ -66,12 +98,29 @@ async def place_live_order(
     symbol, market = _order_symbol(strategy)
     client = exchange_client(user.exchange, user, market_type=market)
     try:
-        params: dict = {}
-        if market == "futures":
-            await _ensure_leverage(client, symbol, strategy)
-            params = _position_params(user.exchange, position_side, reduce_only)
-        order = await client.create_order(symbol=symbol, type="market", side=side, amount=amount, params=params)
-        return float(order.get("average") or order.get("price") or 0.0)
+        if market != "futures":
+            order = await client.create_order(symbol=symbol, type="market", side=side, amount=amount, params={})
+            return float(order.get("average") or order.get("price") or 0.0)
+
+        await _ensure_leverage(client, symbol, strategy)
+        # Try the cached position mode first; on a position-mode mismatch flip and
+        # retry once, then remember what worked. This makes the order succeed on
+        # both one-way and hedge accounts without knowing the setting up front.
+        start_hedged = (await _cached_posmode(user)) == "hedge"
+        last_exc: Exception | None = None
+        for hedged in (start_hedged, not start_hedged):
+            params = _position_params(user.exchange, position_side, reduce_only, hedged)
+            try:
+                order = await client.create_order(symbol=symbol, type="market", side=side, amount=amount, params=params)
+                await _store_posmode(user, hedged)
+                return float(order.get("average") or order.get("price") or 0.0)
+            except Exception as exc:  # noqa: BLE001 - only swallow position-mode mismatches
+                if _is_posmode_error(exc):
+                    last_exc = exc
+                    continue
+                raise
+        assert last_exc is not None
+        raise last_exc
     finally:
         await client.close()
 
@@ -96,7 +145,8 @@ async def place_stop_order(
         # reduceOnly is a futures concept; on spot the stop simply sells the held asset.
         params: dict = {"stopLossPrice": stop_price}
         if market == "futures":
-            params.update(_position_params(user.exchange, position_side, reduce_only=True))
+            hedged = (await _cached_posmode(user)) == "hedge"
+            params.update(_position_params(user.exchange, position_side, reduce_only=True, hedged=hedged))
         order = await client.create_order(
             symbol=symbol, type="market", side=side, amount=amount, params=params
         )
