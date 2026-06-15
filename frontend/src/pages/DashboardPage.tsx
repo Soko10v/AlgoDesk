@@ -259,16 +259,16 @@ function StrategyRow({
 
   return (
     <Card className="animate-slide-up overflow-hidden p-0">
-      <div className="flex flex-wrap items-start justify-between gap-3 p-4">
+      <div className="p-4">
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="min-w-0 flex-1 text-left"
+          className="block w-full text-left"
           aria-expanded={expanded}
         >
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <ChevronDown className={cn("h-4 w-4 shrink-0 text-slate-500 transition-transform", expanded && "rotate-180")} />
-            <span className="truncate font-semibold text-slate-100">{strategy.name}</span>
+            <span className="font-semibold text-slate-100">{strategy.name}</span>
             {strategy.status === "live" ? (
               <Badge tone="success">Live</Badge>
             ) : strategy.status === "paper" ? (
@@ -289,7 +289,7 @@ function StrategyRow({
           </div>
         </button>
 
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           {liveUsdt !== null ? (
             // Inline USDT amount picker shown when Live is clicked
             <div className="flex flex-wrap items-center gap-2">
