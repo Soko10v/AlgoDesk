@@ -284,13 +284,15 @@ function StrategyRow({
 
   // Minimum order size for this symbol on the exchange — fetched only while the
   // live size picker is open so we can block sizes the exchange would reject.
+  // Size is margin, so the minimum to enter is min_notional / leverage.
+  const lev = futures ? cfg.leverage ?? 1 : 1;
   const minOrder = useQuery({
-    queryKey: ["min-order", cfg.symbol, futures],
-    queryFn: () => getMinOrder(cfg.symbol, futures),
+    queryKey: ["min-order", cfg.symbol, futures, lev],
+    queryFn: () => getMinOrder(cfg.symbol, futures, lev),
     enabled: liveUsdt !== null,
     staleTime: 60_000,
   });
-  const minNotional = minOrder.data?.min_notional ?? 0;
+  const minSize = minOrder.data?.min_size ?? 0;
 
   const parsedUsdt = parseFloat(liveUsdt ?? "");
   const insufficient =
@@ -298,7 +300,7 @@ function StrategyRow({
     Number.isFinite(parsedUsdt) &&
     parsedUsdt > availableUsdt;
   const belowMin =
-    minNotional > 0 && Number.isFinite(parsedUsdt) && parsedUsdt > 0 && parsedUsdt < minNotional;
+    minSize > 0 && Number.isFinite(parsedUsdt) && parsedUsdt > 0 && parsedUsdt < minSize;
 
   const confirmLive = () => {
     if (!Number.isFinite(parsedUsdt) || parsedUsdt <= 0 || insufficient || belowMin) return;
@@ -372,7 +374,7 @@ function StrategyRow({
                 />
                 {belowMin ? (
                   <p className="mt-1 text-xs text-rose-400">
-                    Min for {cfg.symbol}: ${minNotional.toFixed(2)} (exchange minimum)
+                    Min for {cfg.symbol}: ${minSize.toFixed(2)}{lev > 1 ? ` at ${lev}x` : ""}
                   </p>
                 ) : insufficient && availableUsdt !== null ? (
                   <p className="mt-1 text-xs text-rose-400">
@@ -382,8 +384,8 @@ function StrategyRow({
                   <p className="mt-1 text-xs text-slate-500">
                     {minOrder.isLoading
                       ? "Checking minimum…"
-                      : minNotional > 0
-                        ? `Min $${minNotional.toFixed(2)}${availableUsdt !== null ? ` · avail $${availableUsdt.toFixed(2)}` : ""}`
+                      : minSize > 0
+                        ? `Min $${minSize.toFixed(2)}${availableUsdt !== null ? ` · avail $${availableUsdt.toFixed(2)}` : ""}`
                         : availableUsdt !== null
                           ? `Available: $${availableUsdt.toFixed(2)}`
                           : ""}
@@ -434,22 +436,34 @@ function StrategyRow({
       {expanded && (
         <div className="space-y-5 border-t border-white/[0.06] bg-white/[0.02] p-4">
           {openCount > 0 && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-3">
-              <div className="text-sm">
-                <p className="font-medium text-amber-200">
-                  {openCount} open position{openCount > 1 ? "s" : ""} tracked
-                </p>
-                <p className="mt-0.5 text-xs text-amber-200/70">
-                  Close it now (market order on the exchange), or if you already closed it
-                  yourself, Sync just clears the record.
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <Button size="sm" variant="danger" onClick={onClose} loading={closing}>
-                  <XCircle className="h-3.5 w-3.5" /> Close now
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
+              <p className="text-sm font-medium text-slate-200">
+                Position open · managed by the bot
+              </p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                You don't need to do anything — the bot closes it on your exit rule, stop-loss
+                or take-profit. These are manual overrides only if you want to step in:
+              </p>
+              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    if (window.confirm("Market-close this position on the exchange right now?")) onClose();
+                  }}
+                  loading={closing}
+                  title="Place a market order now to close the position on the exchange"
+                >
+                  <XCircle className="h-3.5 w-3.5" /> Close on exchange
                 </Button>
-                <Button size="sm" variant="secondary" onClick={onSync} loading={syncing}>
-                  <RefreshCw className="h-3.5 w-3.5" /> Sync
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={onSync}
+                  loading={syncing}
+                  title="Already closed it on the exchange yourself? Clear the stale record"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" /> Already closed it? Sync
                 </Button>
               </div>
             </div>

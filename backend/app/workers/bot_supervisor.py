@@ -24,6 +24,7 @@ from app.engine.risk import (
     adverse_excursion_pct,
     hedge_params,
     is_futures,
+    leverage,
     pct_value,
     round_trip_fee_pct,
     trailing_pct,
@@ -603,15 +604,16 @@ class BotSupervisor:
         """Sizing used for paper trades and as a close fallback. Live entries size
         from the real balance via _entry_amount instead.
 
-        Order of preference: the per-launch USD override, then the strategy's
-        configured USD notional, then the legacy percent-of-balance for strategies
-        saved before the switch to dollars."""
+        The USD size is treated as margin, so notional = size × leverage (spot
+        leverage is 1). Order of preference: the per-launch USD override, then the
+        strategy's configured USD size, then the legacy percent-of-balance."""
         if price > 0:
+            lev = leverage(strategy.config_json)
             if state.position_size_usdt is not None:
-                return state.position_size_usdt / price
+                return state.position_size_usdt * lev / price
             cfg_usdt = strategy.config_json.get("position_size_usdt")
             if cfg_usdt:
-                return float(cfg_usdt) / price
+                return float(cfg_usdt) * lev / price
         return float(strategy.config_json.get("position_size_pct", 10)) / 100
 
     async def _entry_amount(
