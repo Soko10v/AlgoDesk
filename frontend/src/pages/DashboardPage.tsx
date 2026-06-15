@@ -10,6 +10,7 @@ import {
   Plug,
   Plus,
   Radio,
+  RefreshCw,
   Square,
   TrendingDown,
   TrendingUp,
@@ -22,6 +23,7 @@ import {
   listTrades,
   startBot,
   stopBot,
+  syncPosition,
   type Strategy,
   type Trade,
 } from "../api/endpoints";
@@ -73,6 +75,21 @@ export function DashboardPage() {
     },
     onError: () => toast.error("Could not stop bot"),
   });
+
+  const sync = useMutation({
+    mutationFn: (id: number) => syncPosition(id),
+    onSuccess: (data) => {
+      toast.success("Position synced", data.closed ? `Closed ${data.closed} open record(s)` : "No open records found");
+      qc.invalidateQueries({ queryKey: ["trades"] });
+    },
+    onError: () => toast.error("Could not sync position"),
+  });
+
+  // Strategy IDs that have at least one open (pnl=null) trade record.
+  const openPositionIds = useMemo(
+    () => new Set((trades.data ?? []).filter((t) => t.pnl === null || t.pnl === undefined).map((t) => t.strategy_id)),
+    [trades.data],
+  );
 
   const pending = start.isPending || stop.isPending;
   const navigate = useNavigate();
@@ -146,9 +163,11 @@ export function DashboardPage() {
                   strategy={s}
                   pending={pending}
                   availableUsdt={availableUsdt}
+                  hasOpenPosition={openPositionIds.has(s.id)}
                   onStart={(mode, usdt) => start.mutate({ id: s.id, mode, usdt })}
                   onStop={() => stop.mutate(s.id)}
                   onEdit={() => navigate(`/builder?edit=${s.id}`)}
+                  onSync={() => sync.mutate(s.id)}
                 />
               ))}
             </div>
@@ -168,16 +187,20 @@ function StrategyRow({
   strategy,
   pending,
   availableUsdt,
+  hasOpenPosition,
   onStart,
   onStop,
   onEdit,
+  onSync,
 }: {
   strategy: Strategy;
   pending: boolean;
   availableUsdt: number | null;
+  hasOpenPosition: boolean;
   onStart: (mode: "paper" | "live", usdt?: number) => void;
   onStop: () => void;
   onEdit: () => void;
+  onSync: () => void;
 }) {
   const running = isRunning(strategy.status);
   const cfg = strategy.config_json;
@@ -265,6 +288,17 @@ function StrategyRow({
               <Button size="sm" variant="ghost" onClick={onEdit} disabled={pending} title="Edit strategy">
                 <Pencil className="h-3.5 w-3.5" /> Edit
               </Button>
+              {hasOpenPosition && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={onSync}
+                  disabled={pending}
+                  title="Position closed on exchange? Click to sync and clear the open record"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" /> Sync
+                </Button>
+              )}
               {running ? (
                 <Button size="sm" variant="danger" onClick={onStop} disabled={pending}>
                   <Square className="h-3.5 w-3.5" /> Stop

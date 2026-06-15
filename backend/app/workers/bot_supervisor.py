@@ -24,7 +24,7 @@ from app.engine.strategy_evaluator import evaluate_signal
 from app.models.strategy import Strategy
 from app.models.trade import Trade
 from app.models.user import User
-from app.services.exchange import exchange_client
+from app.services.exchange import exchange_client, perp_symbol
 from app.services.events import publish_user_event
 from app.services.telegram_alerts import send_telegram_alert
 
@@ -107,17 +107,131 @@ class BotSupervisor:
         self.states.pop(strategy_id, None)
 
     async def recover(self, session_factory) -> None:
-        """Restart bots that were marked running before a process restart."""
+        """Restart bots that were marked running before a process restart.
+
+        For live strategies, also reconciles any open position recorded in the DB
+        against what's actually on the exchange:
+        - Position still open → restores BotState so the bot resumes tracking it.
+        - Position externally closed → writes a synthetic close trade so the feed
+          shows it as done instead of showing it as perpetually open."""
         async with session_factory() as db:
-            rows = (
-                await db.execute(select(Strategy).where(Strategy.status.in_(["paper", "live"])))
-            ).scalars().all()
-        for strategy in rows:
+            pairs = (
+                await db.execute(
+                    select(Strategy, User)
+                    .join(User, Strategy.user_id == User.id)
+                    .where(Strategy.status.in_(["paper", "live"]))
+                )
+            ).all()
+
+        for strategy, user in pairs:
             try:
                 await self.start(session_factory, strategy.id, strategy.status)
                 logger.info("Recovered bot for strategy %s (%s)", strategy.id, strategy.status)
             except ValueError:
                 pass
+            if strategy.status == "live":
+                async with session_factory() as db:
+                    await self._reconcile_live_position(db, user, strategy)
+
+    async def _reconcile_live_position(self, db: AsyncSession, user: User, strategy: Strategy) -> None:
+        """Check whether an open DB trade record is still a real exchange position.
+
+        Called once at recovery for each live strategy. On exchange error we restore
+        BotState conservatively (assume open) rather than risk a false synthetic close."""
+        state = self.states.get(strategy.id)
+        if state is None:
+            return
+
+        open_trade = (
+            await db.execute(
+                select(Trade)
+                .where(Trade.strategy_id == strategy.id, Trade.pnl.is_(None), Trade.leg == "main")
+                .order_by(Trade.timestamp.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+        if open_trade is None:
+            return
+
+        position_side = "long" if open_trade.side == "buy" else "short"
+        symbol = strategy.config_json.get("symbol", "BTC/USDT")
+        futures = is_futures(strategy.config_json)
+
+        if not futures:
+            # Spot: assume position still open (balance check is unreliable here).
+            state.position_side = position_side
+            state.entry_price = open_trade.price
+            state.position_amount = open_trade.amount
+            state.extreme_price = open_trade.price
+            logger.info("Restored spot position state for strategy %s (%s)", strategy.id, position_side)
+            return
+
+        trade_symbol = perp_symbol(symbol)
+        real_pos = None
+        try:
+            client = exchange_client(user.exchange, user, market_type="futures")
+            try:
+                positions = await client.fetch_positions([trade_symbol])
+                real_pos = next(
+                    (p for p in (positions or [])
+                     if abs(float(p.get("contracts") or p.get("size") or 0)) > 0),
+                    None,
+                )
+            finally:
+                await client.close()
+        except Exception as exc:
+            logger.warning("Reconciliation fetch_positions failed for strategy %s: %s", strategy.id, exc)
+            # Conservative fallback: restore from DB without verifying.
+            state.position_side = position_side
+            state.entry_price = open_trade.price
+            state.position_amount = open_trade.amount
+            state.extreme_price = open_trade.price
+            return
+
+        if real_pos is not None:
+            entry = float(real_pos.get("entryPrice") or real_pos.get("averageEntryPrice") or 0)
+            amount = abs(float(real_pos.get("contracts") or real_pos.get("size") or 0))
+            state.position_side = position_side
+            state.entry_price = entry if entry > 0 else open_trade.price
+            state.position_amount = amount if amount > 0 else open_trade.amount
+            state.extreme_price = state.entry_price
+            logger.info(
+                "Reconciled: restored %s position for strategy %s (entry=%.4f, size=%.6f)",
+                position_side, strategy.id, state.entry_price, state.position_amount,
+            )
+        else:
+            # Position closed externally: write synthetic close.
+            current_price = 0.0
+            try:
+                client = exchange_client(user.exchange, user, market_type="futures")
+                try:
+                    ticker = await client.fetch_ticker(trade_symbol)
+                    current_price = float(ticker.get("last") or 0.0)
+                finally:
+                    await client.close()
+            except Exception:
+                pass
+            fill = current_price if current_price > 0 else open_trade.price
+            ep = open_trade.price
+            pnl = ((fill - ep) / ep * 100) if position_side == "long" else ((ep - fill) / ep * 100)
+            close_side = "sell" if position_side == "long" else "buy"
+            db.add(Trade(
+                strategy_id=strategy.id,
+                symbol=open_trade.symbol,
+                side=close_side,
+                price=fill,
+                amount=open_trade.amount,
+                pnl=round(pnl, 4),
+                leg="main",
+                mode=open_trade.mode,
+                timestamp=datetime.now(UTC),
+            ))
+            await db.commit()
+            logger.info(
+                "Reconciled: synthetic close for strategy %s (externally closed, pnl=%.2f%%)",
+                strategy.id, pnl,
+            )
 
     async def shutdown(self) -> None:
         for strategy_id in list(self.tasks):
