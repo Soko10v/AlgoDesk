@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Activity,
   Boxes,
+  ChevronDown,
   Crown,
   Pencil,
   Play,
@@ -24,13 +25,16 @@ import {
   startBot,
   stopBot,
   syncPosition,
+  updateStrategy,
   type Strategy,
+  type StrategyConfig,
   type Trade,
 } from "../api/endpoints";
 import { toast } from "../store/toast";
-import { Badge, Button, Card, EmptyState, Input, PageHeader, Spinner, StatCard } from "../components/ui";
-import { describeEntry, describeExit, isRunning } from "../lib/strategy";
-import { pnlTone, price, signedPct, timeAgo } from "../lib/formatters";
+import { Badge, Button, Card, EmptyState, Field, Input, NumberField, PageHeader, Spinner, StatCard } from "../components/ui";
+import { describeEntry, describeExit, describeHedge, isBidirectional, isFutures, isRunning } from "../lib/strategy";
+import { num, pnlTone, price, signedPct, timeAgo, usd } from "../lib/formatters";
+import { cn } from "../lib/cn";
 
 export function DashboardPage() {
   const qc = useQueryClient();
@@ -85,12 +89,7 @@ export function DashboardPage() {
     onError: () => toast.error("Could not sync position"),
   });
 
-  // Strategy IDs that have at least one open (pnl=null) trade record.
-  const openPositionIds = useMemo(
-    () => new Set((trades.data ?? []).filter((t) => t.pnl === null || t.pnl === undefined).map((t) => t.strategy_id)),
-    [trades.data],
-  );
-
+  const allTrades = trades.data ?? [];
   const pending = start.isPending || stop.isPending;
   const navigate = useNavigate();
 
@@ -163,7 +162,8 @@ export function DashboardPage() {
                   strategy={s}
                   pending={pending}
                   availableUsdt={availableUsdt}
-                  hasOpenPosition={openPositionIds.has(s.id)}
+                  trades={allTrades}
+                  syncing={sync.isPending && sync.variables === s.id}
                   onStart={(mode, usdt) => start.mutate({ id: s.id, mode, usdt })}
                   onStop={() => stop.mutate(s.id)}
                   onEdit={() => navigate(`/builder?edit=${s.id}`)}
@@ -187,7 +187,8 @@ function StrategyRow({
   strategy,
   pending,
   availableUsdt,
-  hasOpenPosition,
+  trades,
+  syncing,
   onStart,
   onStop,
   onEdit,
@@ -196,16 +197,38 @@ function StrategyRow({
   strategy: Strategy;
   pending: boolean;
   availableUsdt: number | null;
-  hasOpenPosition: boolean;
+  trades: Trade[];
+  syncing: boolean;
   onStart: (mode: "paper" | "live", usdt?: number) => void;
   onStop: () => void;
   onEdit: () => void;
   onSync: () => void;
 }) {
+  const qc = useQueryClient();
   const running = isRunning(strategy.status);
   const cfg = strategy.config_json;
+  const futures = isFutures(cfg);
+  const [expanded, setExpanded] = useState(false);
   const [liveUsdt, setLiveUsdt] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Inline-editable draft of the tunable params. Synced from props unless the
+  // user has unsaved edits, so a background refetch can't wipe what they typed.
+  const [draft, setDraft] = useState<StrategyConfig>(strategy.config_json);
+  const [name, setName] = useState(strategy.name);
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => {
+    if (!dirty) {
+      setDraft(strategy.config_json);
+      setName(strategy.name);
+    }
+  }, [strategy, dirty]);
+
+  const myTrades = useMemo(
+    () => trades.filter((t) => t.strategy_id === strategy.id),
+    [trades, strategy.id],
+  );
+  const openCount = myTrades.filter((t) => t.pnl === null || t.pnl === undefined).length;
 
   const parsedUsdt = parseFloat(liveUsdt ?? "");
   const insufficient =
@@ -219,11 +242,32 @@ function StrategyRow({
     setLiveUsdt(null);
   };
 
+  const save = useMutation({
+    mutationFn: () => updateStrategy(strategy.id, { name: name.trim() || strategy.name, config_json: draft }),
+    onSuccess: () => {
+      toast.success("Strategy updated", "Changes apply on the bot's next tick");
+      setDirty(false);
+      qc.invalidateQueries({ queryKey: ["strategies"] });
+    },
+    onError: () => toast.error("Could not save changes"),
+  });
+
+  const patch = (next: Partial<StrategyConfig>) => {
+    setDraft((d) => ({ ...d, ...next }));
+    setDirty(true);
+  };
+
   return (
-    <Card className="card-hover animate-slide-up p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
+    <Card className="animate-slide-up overflow-hidden p-0">
+      <div className="flex flex-wrap items-start justify-between gap-3 p-4">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="min-w-0 flex-1 text-left"
+          aria-expanded={expanded}
+        >
           <div className="flex items-center gap-2">
+            <ChevronDown className={cn("h-4 w-4 shrink-0 text-slate-500 transition-transform", expanded && "rotate-180")} />
             <span className="truncate font-semibold text-slate-100">{strategy.name}</span>
             {strategy.status === "live" ? (
               <Badge tone="success">Live</Badge>
@@ -233,8 +277,9 @@ function StrategyRow({
               <Badge tone="neutral">Stopped</Badge>
             )}
             {strategy.live_enabled && <Badge tone="violet">Live enabled</Badge>}
+            {openCount > 0 && <Badge tone="warning">{openCount} open</Badge>}
           </div>
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400">
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 pl-6 text-xs text-slate-400">
             <span className="font-mono text-slate-300">{cfg.symbol}</span>
             <span>· {cfg.timeframe}</span>
             <span>· Size {cfg.position_size_pct}%</span>
@@ -242,7 +287,7 @@ function StrategyRow({
             <span>· Out: {describeExit(cfg)}</span>
             <span>· SL {cfg.stop_loss?.value}% / TP {cfg.take_profit?.value}%</span>
           </div>
-        </div>
+        </button>
 
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           {liveUsdt !== null ? (
@@ -285,20 +330,9 @@ function StrategyRow({
             </div>
           ) : (
             <>
-              <Button size="sm" variant="ghost" onClick={onEdit} disabled={pending} title="Edit strategy">
-                <Pencil className="h-3.5 w-3.5" /> Edit
+              <Button size="sm" variant="ghost" onClick={onEdit} disabled={pending} title="Open in the visual builder">
+                <Pencil className="h-3.5 w-3.5" /> Builder
               </Button>
-              {hasOpenPosition && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={onSync}
-                  disabled={pending}
-                  title="Position closed on exchange? Click to sync and clear the open record"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" /> Sync
-                </Button>
-              )}
               {running ? (
                 <Button size="sm" variant="danger" onClick={onStop} disabled={pending}>
                   <Square className="h-3.5 w-3.5" /> Stop
@@ -323,7 +357,156 @@ function StrategyRow({
           )}
         </div>
       </div>
+
+      {expanded && (
+        <div className="space-y-5 border-t border-white/[0.06] bg-white/[0.02] p-4">
+          {openCount > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-3">
+              <div className="text-sm">
+                <p className="font-medium text-amber-200">
+                  {openCount} open position{openCount > 1 ? "s" : ""} tracked
+                </p>
+                <p className="mt-0.5 text-xs text-amber-200/70">
+                  Closed it on the exchange yourself? Sync reconciles and clears the open record.
+                </p>
+              </div>
+              <Button size="sm" variant="secondary" onClick={onSync} loading={syncing}>
+                <RefreshCw className="h-3.5 w-3.5" /> Sync now
+              </Button>
+            </div>
+          )}
+
+          {/* Inline-editable tuning */}
+          <div>
+            <div className="mb-2.5 flex items-center justify-between gap-2">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Quick settings</h4>
+              {dirty && (
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setDirty(false)} disabled={save.isPending}>
+                    Reset
+                  </Button>
+                  <Button size="sm" onClick={() => save.mutate()} loading={save.isPending}>
+                    Save
+                  </Button>
+                </div>
+              )}
+            </div>
+            <div className="mb-3">
+              <Field label="Strategy name">
+                <Input value={name} onChange={(e) => { setName(e.target.value); setDirty(true); }} />
+              </Field>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Field label="Position size %">
+                <NumberField
+                  value={draft.position_size_pct}
+                  onValueChange={(v) => patch({ position_size_pct: v })}
+                  min={0}
+                  max={100}
+                />
+              </Field>
+              <Field label="Stop loss %">
+                <NumberField
+                  value={draft.stop_loss?.value ?? 0}
+                  onValueChange={(v) => patch({ stop_loss: { type: "pct", value: v } })}
+                  min={0}
+                />
+              </Field>
+              <Field label="Take profit %">
+                <NumberField
+                  value={draft.take_profit?.value ?? 0}
+                  onValueChange={(v) => patch({ take_profit: { type: "pct", value: v } })}
+                  min={0}
+                />
+              </Field>
+              <Field label="Trailing %">
+                <NumberField
+                  value={draft.trailing_stop?.value ?? 0}
+                  onValueChange={(v) => patch({ trailing_stop: { type: "pct", value: v } })}
+                  min={0}
+                />
+              </Field>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              Tuning applies to the running bot on its next tick. For entry/exit logic, symbol, market
+              or leverage, open the <button type="button" onClick={onEdit} className="text-brand-400 hover:underline">builder</button>.
+            </p>
+          </div>
+
+          {/* Read-only config summary */}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 sm:grid-cols-3">
+            <Info label="Market" value={futures ? `Futures · ${cfg.leverage ?? 1}x` : "Spot"} />
+            <Info label="Direction" value={isBidirectional(cfg) ? "Long & Short" : "Long only"} />
+            <Info label="Timeframe" value={cfg.timeframe} />
+            <Info label="Entry" value={describeEntry(cfg)} />
+            <Info label="Exit" value={describeExit(cfg)} />
+            {futures && <Info label="Hedge" value={describeHedge(cfg)} />}
+          </div>
+
+          {/* Trades for this strategy */}
+          <div>
+            <h4 className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Recent trades
+            </h4>
+            {myTrades.length === 0 ? (
+              <p className="text-sm text-slate-500">No trades yet for this strategy.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-white/[0.06]">
+                <table className="w-full text-xs">
+                  <thead className="bg-white/[0.03] text-slate-400">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium">Side</th>
+                      <th className="px-3 py-2 text-right font-medium">Size</th>
+                      <th className="px-3 py-2 text-right font-medium">Price</th>
+                      <th className="px-3 py-2 text-right font-medium">PnL</th>
+                      <th className="px-3 py-2 text-right font-medium">When</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/[0.04]">
+                    {myTrades.slice(0, 8).map((t) => {
+                      const opened = t.pnl === null || t.pnl === undefined;
+                      return (
+                        <tr key={t.id}>
+                          <td className="whitespace-nowrap px-3 py-2">
+                            <span className={t.side === "buy" ? "text-brand-300" : "text-rose-300"}>
+                              {t.side.toUpperCase()}
+                            </span>
+                            {t.leg === "hedge" && <span className="ml-1 text-indigo-300">·H</span>}
+                            {t.mode === "live" ? (
+                              <span className="ml-1 text-[10px] uppercase text-emerald-400/70">live</span>
+                            ) : (
+                              <span className="ml-1 text-[10px] uppercase text-slate-500">paper</span>
+                            )}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-right text-slate-300">
+                            {num(t.amount, 4)}
+                            <span className="text-slate-500"> · {usd(t.amount * t.price)}</span>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-right text-slate-300">{price(t.price)}</td>
+                          <td className={`whitespace-nowrap px-3 py-2 text-right ${pnlTone(t.pnl)}`}>
+                            {opened ? <span className="text-amber-300">open</span> : signedPct(t.pnl)}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-right text-slate-500">{timeAgo(t.timestamp)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </Card>
+  );
+}
+
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <span className="block text-xs text-slate-500">{label}</span>
+      <span className="text-sm text-slate-200">{value}</span>
+    </div>
   );
 }
 
