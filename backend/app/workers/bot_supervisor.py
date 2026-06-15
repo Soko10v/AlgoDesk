@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.redis import redis_client
-from app.engine.live_executor import cancel_order, place_live_order, place_stop_order
+from app.engine.live_executor import account_is_hedge, cancel_order, place_live_order, place_stop_order
 from app.engine.paper_executor import build_paper_trade, paper_fill_price
 from app.engine.risk import adverse_excursion_pct, hedge_params, is_futures, pct_value, trailing_pct
 from app.engine.strategy_evaluator import evaluate_signal
@@ -418,6 +418,33 @@ class BotSupervisor:
         elif state.has_position and adverse_excursion_pct(state.recent_prices, main_side) >= params["trigger_pct"]:
             await self._open_hedge(db, user, strategy, state, want_hedge_side, current_price, hedge_amount)
 
+    async def _warn_hedge_unavailable(self, user: User, strategy: Strategy) -> None:
+        """Tell the user (at most once per hour) that hedging is on for the
+        strategy but their exchange account is in one-way mode, so it can't run."""
+        key = f"hedge_warn:{user.id}:{strategy.id}"
+        if await redis_client.get(key):
+            return
+        await redis_client.set(key, "1", ex=3600)
+        await publish_user_event(
+            user.id,
+            {
+                "type": "bot_warning",
+                "strategy_id": strategy.id,
+                "strategy": strategy.name,
+                "message": (
+                    "Hedging is enabled for this strategy, but your "
+                    f"{user.exchange.title()} futures account is in One-Way mode. "
+                    "Enable Hedge Mode in your exchange settings to activate hedging — "
+                    "the bot keeps running the main position meanwhile."
+                ),
+            },
+        )
+        await send_telegram_alert(
+            user.telegram_id,
+            f"{strategy.name}: enable Hedge Mode on {user.exchange.title()} to use hedging "
+            "(running the main position only for now).",
+        )
+
     async def _open_hedge(
         self,
         db: AsyncSession,
@@ -430,6 +457,13 @@ class BotSupervisor:
     ) -> None:
         order_side = _order_side(hedge_side)
         if state.mode == "live":
+            # The protective short leg needs a hedge-mode account (long + short held
+            # at once). If the user's account is one-way, skip hedging and warn them
+            # to enable Hedge Mode — the main position keeps running long-only. Once
+            # they switch the account, account_is_hedge() flips and hedging resumes.
+            if not await account_is_hedge(user):
+                await self._warn_hedge_unavailable(user, strategy)
+                return
             price = await place_live_order(user, strategy, order_side, amount, position_side=hedge_side)
             trade = Trade(
                 strategy_id=strategy.id,
