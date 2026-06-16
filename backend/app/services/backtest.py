@@ -133,7 +133,7 @@ def _simulate(config: dict[str, Any], candles: list[list[float]], include_series
         # candle = [ts, open, high, low, close, volume]
         open_, high, low, close = candle[1], candle[2], candle[3], candle[4]
         sample = closes[: idx + 1]
-        sig = evaluate_signal(config, sample, side)
+        sig = evaluate_signal(config, sample, side, candles[: idx + 1])
 
         if side is None:
             if sig in ("long", "short"):
@@ -277,11 +277,12 @@ _RISK_PROFILES = [
     (1.5, 3.0, 0.0),   # tight scalp
 ]
 
-# Entry-filter options to try: none, or a trend filter (trade with the MA).
+# Entry-filter options to try: none, trade-with-the-trend, or trend-strength (ADX).
 _FILTER_SETS: list[list[dict[str, Any]]] = [
     [],
     [{"type": "trend", "ma": "ema", "period": 200}],
     [{"type": "trend", "ma": "ema", "period": 50}],
+    [{"type": "adx", "period": 14, "min": 20}],
 ]
 
 

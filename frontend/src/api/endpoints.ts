@@ -19,7 +19,10 @@ export type PctRule = { type: "pct"; value: number };
 // side; a filter can veto it). Trend = trade with the MA; RSI = skip extremes.
 export type TrendFilter = { type: "trend"; ma: "ema" | "sma"; period: number };
 export type RsiFilter = { type: "rsi"; period: number; min?: number; max?: number };
-export type StrategyFilter = TrendFilter | RsiFilter;
+export type VolumeFilter = { type: "volume"; period: number; mult: number };
+export type AtrFilter = { type: "atr"; period: number; min_pct?: number; max_pct?: number };
+export type AdxFilter = { type: "adx"; period: number; min: number };
+export type StrategyFilter = TrendFilter | RsiFilter | VolumeFilter | AtrFilter | AdxFilter;
 export type FilterType = StrategyFilter["type"];
 
 export type Market = "spot" | "futures";

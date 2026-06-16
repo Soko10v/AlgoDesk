@@ -10,7 +10,7 @@ ALLOWED_MARKETS = frozenset({"spot", "futures"})
 ALLOWED_HEDGE_MODES = frozenset({"auto_squeeze", "constant_partial"})
 ALLOWED_DIRECTIONS = frozenset({"long", "both"})
 ALLOWED_ENTRY_TYPES = frozenset({"ma_cross", "ema_cross", "rsi", "breakout", "macd"})
-ALLOWED_FILTER_TYPES = frozenset({"trend", "rsi"})
+ALLOWED_FILTER_TYPES = frozenset({"trend", "rsi", "volume", "atr", "adx"})
 ALLOWED_FILTER_MA = frozenset({"ema", "sma"})
 
 
@@ -60,11 +60,13 @@ def _validate_filters(filters: Any) -> None:
         ftype = f.get("type")
         if ftype not in ALLOWED_FILTER_TYPES:
             raise ValueError(f"Unsupported filter type: {ftype}")
-        period = f.get("period", 14 if ftype == "rsi" else 200)
+        period = f.get("period", 14 if ftype != "trend" else 200)
         if not _positive_number(period):
             raise ValueError("filter period must be a positive number")
         if ftype == "trend" and f.get("ma", "ema") not in ALLOWED_FILTER_MA:
             raise ValueError("trend filter ma must be 'ema' or 'sma'")
+        if ftype == "volume" and not _positive_number(f.get("mult", 1.5)):
+            raise ValueError("volume filter mult must be a positive number")
 
 
 def _validate_futures(value: dict[str, Any]) -> None:
