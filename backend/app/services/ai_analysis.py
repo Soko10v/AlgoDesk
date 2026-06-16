@@ -173,17 +173,17 @@ async def analyze_strategy(config: dict[str, Any], result: dict[str, Any]) -> di
 async def analyze_strategy_iterative(
     config: dict[str, Any],
     original_result: dict[str, Any],
-    since_ms: int | None = None,
-    until_ms: int | None = None,
+    candles: list[list[float]],
     progress_cb=None,
 ) -> dict[str, Any]:
-    """Propose → backtest → compare → retry if worse. Up to 3 attempts total.
+    """Propose → backtest → compare, three times. Always produces three distinct
+    variants so the user has options to compare and save.
 
-    Returns the best config found (if any beats the original) along with per-attempt
-    metrics so the UI can show what was tried. ``progress_cb(n)`` (if given) is called
-    with the current attempt number so a background job can report live progress.
+    Every proposal is simulated on the SAME ``candles`` as the original (no extra
+    network fetches), so the comparison is fair and fast. ``progress_cb(n)`` (if
+    given) is called with the current attempt number for live progress.
     """
-    from app.services.backtest import run_backtest  # local import avoids circular dependency
+    from app.services.backtest import simulate_backtest  # local import avoids circular dependency
 
     if not is_configured():
         raise RuntimeError("AI analysis is not configured")
@@ -250,7 +250,7 @@ async def analyze_strategy_iterative(
             continue
 
         try:
-            prop_result = await run_backtest(proposed, since_ms=since_ms, until_ms=until_ms)
+            prop_result = simulate_backtest(proposed, candles, include_series=False)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Backtest of proposed config attempt %d failed: %s", attempt_n, exc)
             messages.append({"role": "assistant", "content": raw})

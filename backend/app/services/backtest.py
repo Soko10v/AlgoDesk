@@ -56,18 +56,40 @@ async def _fetch_candles(
     return candles[:limit]
 
 
+async def load_candles(
+    config: dict[str, Any],
+    since_ms: int | None = None,
+    until_ms: int | None = None,
+    limit: int = MAX_CANDLES,
+) -> list[list[float]]:
+    """Fetch OHLCV candles for a strategy's symbol/timeframe in one network round-trip.
+
+    Separated from the simulation so callers that test several configs over the same
+    period (the optimizer, the AI analysis) fetch once and reuse, instead of opening a
+    fresh client and re-fetching per config — repeated rapid fetches get throttled and
+    come back empty, which silently produced 0-trade backtests."""
+    symbol = config.get("symbol", "BTC/USDT")
+    timeframe = config.get("timeframe", "1h")
+    client = exchange_client()
+    try:
+        return await _fetch_candles(client, symbol, timeframe, since_ms, until_ms, limit=limit)
+    finally:
+        await client.close()
+
+
+def simulate_backtest(
+    config: dict[str, Any], candles: list[list[float]], include_series: bool = True
+) -> dict[str, Any]:
+    """Run a strategy over already-fetched candles (pure, no network)."""
+    return _simulate(config, candles, include_series=include_series)
+
+
 async def run_backtest(
     config: dict[str, Any],
     since_ms: int | None = None,
     until_ms: int | None = None,
 ) -> dict[str, Any]:
-    symbol = config.get("symbol", "BTC/USDT")
-    timeframe = config.get("timeframe", "1h")
-    client = exchange_client()
-    try:
-        candles = await _fetch_candles(client, symbol, timeframe, since_ms, until_ms)
-    finally:
-        await client.close()
+    candles = await load_candles(config, since_ms, until_ms)
     return _simulate(config, candles)
 
 
@@ -322,14 +344,7 @@ async def run_optimization(
 ) -> dict[str, Any]:
     """Sweep parameter combinations over one candle set and rank by a
     risk-adjusted score. CPU work runs in a thread so the event loop stays free."""
-    symbol = config.get("symbol", "BTC/USDT")
-    timeframe = config.get("timeframe", "1h")
-    client = exchange_client()
-    try:
-        candles = await _fetch_candles(client, symbol, timeframe, since_ms, until_ms, limit=OPTIMIZE_CANDLES)
-    finally:
-        await client.close()
-
+    candles = await load_candles(config, since_ms, until_ms, limit=OPTIMIZE_CANDLES)
     results = await asyncio.to_thread(_run_grid, config, candles)
     ranked = [r for r in results if r["score"] != float("-inf")] or results
     return {"results": ranked[:OPTIMIZE_TOP_N], "tested": len(results), "candles": len(candles)}
