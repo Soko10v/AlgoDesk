@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createChart, type IChartApi, type SeriesMarker, type Time, type UTCTimestamp } from "lightweight-charts";
-import { Activity, Play, Percent, Save, Sparkles, TrendingDown, Trophy, Wand2 } from "lucide-react";
+import { Activity, MessageSquare, Play, Percent, Save, Send, Sparkles, TrendingDown, Trophy, Wand2 } from "lucide-react";
 import {
+  askAi,
   authConfig,
   createStrategy,
   getAnalyzeStatus,
@@ -10,6 +11,7 @@ import {
   optimizeStrategy,
   runBacktest,
   startAnalyze,
+  type ChatMessage,
   type OptimizeResult,
   type StrategyConfig,
 } from "../api/endpoints";
@@ -92,6 +94,80 @@ export function BacktestPage() {
     },
     onError: () => toast.error("Could not save strategy"),
   });
+
+  // ---- Ask AI (constrained chat about the selected strategy) ----
+  type ChatItem = {
+    role: "user" | "assistant";
+    content: string;
+    proposed_config?: StrategyConfig | null;
+    proposed_changes?: string;
+    original_return_pct?: number;
+    proposed_return_pct?: number | null;
+    proposed_drawdown_pct?: number | null;
+    proposed_win_rate?: number | null;
+    proposed_trades?: number | null;
+  };
+  const [chat, setChat] = useState<ChatItem[]>([]);
+  const [askText, setAskText] = useState("");
+  // The config the chat is iterating on; follow-up requests build on the last proposal.
+  const [workingConfig, setWorkingConfig] = useState<StrategyConfig | null>(null);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Reset the conversation when the user picks a different strategy.
+  useEffect(() => {
+    setChat([]);
+    setWorkingConfig(null);
+    setAskText("");
+  }, [strategyId]);
+
+  const ask = useMutation({
+    mutationFn: (history: ChatMessage[]) =>
+      askAi(strategyId as number, history, workingConfig, startDate || undefined, endDate || undefined),
+    onSuccess: (res) => {
+      setChat((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: res.answer || "—",
+          proposed_config: res.proposed_config,
+          proposed_changes: res.proposed_changes,
+          original_return_pct: res.original_return_pct,
+          proposed_return_pct: res.proposed_return_pct,
+          proposed_drawdown_pct: res.proposed_drawdown_pct,
+          proposed_win_rate: res.proposed_win_rate,
+          proposed_trades: res.proposed_trades,
+        },
+      ]);
+      if (res.proposed_config) setWorkingConfig(res.proposed_config);
+    },
+    onError: (e: unknown) => {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error("AI failed", detail);
+      setChat((prev) => prev.slice(0, -1)); // drop the unanswered user bubble
+    },
+  });
+
+  const saveChat = useMutation({
+    mutationFn: (config: StrategyConfig) => createStrategy({ name: `${stratName} (AI)`, config_json: config }),
+    onSuccess: (s) => {
+      toast.success("Saved strategy", s.name);
+      qc.invalidateQueries({ queryKey: ["strategies"] });
+    },
+    onError: () => toast.error("Could not save strategy"),
+  });
+
+  function sendAsk() {
+    const text = askText.trim();
+    if (!text || !strategyId || ask.isPending) return;
+    const next: ChatItem[] = [...chat, { role: "user", content: text }];
+    setChat(next);
+    setAskText("");
+    ask.mutate(next.map((m) => ({ role: m.role, content: m.content })));
+  }
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chat, ask.isPending]);
 
   useEffect(() => {
     if (!result || !equityEl.current || !priceEl.current) return;
@@ -248,6 +324,95 @@ export function BacktestPage() {
           strategy's timeframe). The exact period and candle count are shown with the results.
         </p>
       </Card>
+
+      {aiEnabled && (
+        <Card className="mt-6 p-0">
+          <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-3 text-sm font-semibold text-slate-200">
+            <MessageSquare className="h-4 w-4 text-brand-400" /> Ask AI
+            <span className="ml-auto text-xs font-normal text-slate-500">about this strategy</span>
+          </div>
+          <div className="p-5">
+            <div className="max-h-[420px] space-y-3 overflow-y-auto">
+              {chat.length === 0 && (
+                <p className="text-sm text-slate-500">
+                  Задай вопрос или попроси словами что-то изменить — например «сделай стоп уже и торгуй
+                  реже» или «почему так много стоп-лоссов?». ИИ ответит и, если нужно, пришлёт изменённую
+                  стратегию.
+                </p>
+              )}
+              {chat.map((m, i) =>
+                m.role === "user" ? (
+                  <div key={i} className="ml-auto max-w-[85%] rounded-2xl bg-brand-600/20 px-3 py-2 text-sm text-slate-100">
+                    {m.content}
+                  </div>
+                ) : (
+                  <div key={i} className="mr-auto max-w-[92%] space-y-2">
+                    <div className="rounded-2xl bg-white/[0.04] px-3 py-2 text-sm leading-relaxed text-slate-200 whitespace-pre-wrap">
+                      {m.content}
+                    </div>
+                    {m.proposed_config && (
+                      <div className="rounded-xl border border-brand-500/20 bg-brand-500/[0.04] p-3">
+                        <div className="text-xs font-semibold text-brand-300">
+                          Обновлённая стратегия · доходность{" "}
+                          <span className={pnlTone(m.proposed_return_pct ?? 0)}>
+                            {signedPct(m.proposed_return_pct ?? 0)}
+                          </span>{" "}
+                          <span className="text-slate-500">
+                            (было {signedPct(m.original_return_pct ?? 0)})
+                          </span>
+                        </div>
+                        <div className="mt-0.5 text-xs text-slate-500">
+                          Просадка {pct(m.proposed_drawdown_pct ?? 0)} · Винрейт {pct(m.proposed_win_rate ?? 0)} ·{" "}
+                          {m.proposed_trades ?? 0} сделок
+                        </div>
+                        {m.proposed_changes && (
+                          <p className="mt-2 whitespace-pre-wrap text-sm text-slate-300">{m.proposed_changes}</p>
+                        )}
+                        <Button
+                          className="mt-3"
+                          size="sm"
+                          onClick={() => saveChat.mutate(m.proposed_config!)}
+                          loading={saveChat.isPending}
+                        >
+                          <Save className="h-3.5 w-3.5" /> Save as new strategy
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )
+              )}
+              {ask.isPending && (
+                <div className="mr-auto flex items-center gap-2 rounded-2xl bg-white/[0.04] px-3 py-2 text-sm text-slate-400">
+                  <Spinner /> Думаю…
+                </div>
+              )}
+              <div ref={chatEndRef} />
+            </div>
+            <div className="mt-3 flex gap-2">
+              <input
+                className="input flex-1"
+                placeholder={strategyId ? "Спроси или попроси изменить…" : "Сначала выбери стратегию"}
+                value={askText}
+                onChange={(e) => setAskText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendAsk();
+                  }
+                }}
+                disabled={!strategyId || ask.isPending}
+              />
+              <Button onClick={sendAsk} loading={ask.isPending} disabled={!strategyId || !askText.trim()}>
+                <Send className="h-4 w-4" />
+              </Button>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              ИИ работает только с этой стратегией. Изменения проверяются и сразу бэктестятся на том же
+              периоде — но прошлые результаты не гарантируют будущих. Сохрани и протестируй в paper-режиме.
+            </p>
+          </div>
+        </Card>
+      )}
 
       {aiPending && (
         <Card className="mt-6 flex items-center justify-center gap-3 p-12 text-slate-400">

@@ -12,14 +12,17 @@ from app.schemas.backtest import (
     AnalyzeIn,
     AnalyzeStartOut,
     AnalyzeStatusOut,
+    AskIn,
+    AskOut,
     BacktestIn,
     BacktestOut,
     OptimizeIn,
     OptimizeOut,
 )
-from app.services.ai_analysis import is_configured
+from app.schemas.strategy import validate_strategy_config
+from app.services.ai_analysis import ask_about_strategy, is_configured
 from app.services.ai_jobs import get_job, start_job
-from app.services.backtest import run_backtest, run_optimization
+from app.services.backtest import load_candles, run_backtest, run_optimization, simulate_backtest
 
 router = APIRouter()
 
@@ -99,3 +102,49 @@ async def analyze_status(
         result=job.get("result"),
         error=job.get("error"),
     )
+
+
+@router.post("/ask", response_model=AskOut)
+@limiter.limit("20/minute")
+async def ask_ai(
+    request: Request,
+    payload: AskIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AskOut:
+    """Constrained free-form chat about one strategy. Answers questions and, on
+    request, returns an edited config (validated + backtested) the user can save."""
+    strategy = await db.get(Strategy, payload.strategy_id)
+    if strategy is None or strategy.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    if not is_configured():
+        raise HTTPException(status_code=503, detail="AI analysis is not configured (set DEEPSEEK_API_KEY)")
+
+    msgs = [m for m in payload.messages if m.role in ("user", "assistant") and m.content.strip()][-20:]
+    if not msgs or msgs[-1].role != "user":
+        raise HTTPException(status_code=400, detail="Send a question or request")
+
+    # Refine the working config the user is iterating on, falling back to the saved
+    # strategy. symbol/timeframe are pinned so candles and comparisons stay consistent.
+    base = strategy.config_json
+    if payload.base_config:
+        candidate = dict(payload.base_config)
+        candidate["symbol"] = strategy.config_json.get("symbol")
+        candidate["timeframe"] = strategy.config_json.get("timeframe")
+        try:
+            validate_strategy_config(candidate)
+            base = candidate
+        except Exception:  # noqa: BLE001 - ignore a bad client-supplied base
+            base = strategy.config_json
+
+    since_ms, until_ms = _date_bounds(payload.start_date, payload.end_date)
+    candles = await load_candles(strategy.config_json, since_ms, until_ms)
+    if not candles:
+        raise HTTPException(status_code=502, detail="No market data returned by the exchange — try again")
+    original = simulate_backtest(base, candles)
+    history = [{"role": m.role, "content": m.content[:2000]} for m in msgs]
+    try:
+        data = await ask_about_strategy(base, original, candles, history)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=f"AI request failed: {exc}")
+    return AskOut(**data)

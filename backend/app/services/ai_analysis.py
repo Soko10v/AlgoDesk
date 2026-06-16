@@ -319,3 +319,99 @@ async def analyze_strategy_iterative(
         "best_return_pct": best_return,
         "best_drawdown_pct": best_drawdown,
     }
+
+
+# ---- free-form chat ("Ask AI") ---------------------------------------------
+
+_ASK_SYSTEM = """\
+Ты — ассистент по конкретному торговому боту в no-code конструкторе AlgoDesk.
+Твоя единственная задача — помогать с ЭТОЙ торговой стратегией: объяснять её
+поведение по бэктесту и, по запросу пользователя, предлагать изменения конфига.
+
+Жёсткие правила (соблюдай строго):
+- Отвечай ТОЛЬКО на темы этой стратегии, бота, бэктеста и торговых настроек.
+  На любой посторонний вопрос вежливо откажись и предложи спросить про стратегию.
+- Не выдумывай поля. Меняй только перечисленные ниже поля конфига.
+- symbol и timeframe менять НЕЛЬЗЯ — оставляй как в текущем конфиге.
+- Если пользователь просит что-то изменить — верни ПОЛНЫЙ новый proposed_config.
+  Если он только задаёт вопрос (ничего менять не просит) — proposed_config: null.
+- Все текстовые поля — на русском, коротко и по делу.
+
+Поля конфига:
+- market ("spot"|"futures"), direction ("long"|"both"), leverage (1-10)
+- position_size_usdt — это МАРЖА в USD; объём позиции = маржа × leverage
+- entry: массив правил (ma_cross/ema_cross/rsi/breakout/macd). ВАЖНО: движок
+  использует только ПЕРВОЕ правило массива — не рассчитывай на комбинацию из нескольких.
+- exit: правила RSI; stop_loss/take_profit/trailing_stop: {type:"pct", value:n} (0 = выкл)
+- hedge: защитный шорт (только фьючерс); daily_loss_limit_pct: дневной лимит убытка
+
+Отвечай ТОЛЬКО валидным JSON:
+{
+ "answer": "ответ пользователю простым языком",
+ "proposed_changes": "что изменил и почему, кратко (пусто, если без изменений)",
+ "proposed_config": { ...полный конфиг той же формы... } | null
+}
+"""
+
+
+async def ask_about_strategy(
+    config: dict[str, Any],
+    original_result: dict[str, Any],
+    candles: list[list[float]],
+    history: list[dict[str, str]],
+) -> dict[str, Any]:
+    """Free-form Q&A about a strategy. The model is constrained to this strategy
+    and must return JSON. If it proposes a config change, it's validated and
+    backtested on the same candles so the user sees the effect before saving."""
+    if not is_configured():
+        raise RuntimeError("AI analysis is not configured")
+    from app.services.backtest import simulate_backtest  # local import avoids circular dependency
+
+    orig_return = round(float(original_result.get("total_return_pct", 0.0)), 2)
+    orig_drawdown = round(float(original_result.get("max_drawdown_pct", 0.0)), 2)
+    context = {
+        "config": config,
+        "leverage": leverage(config),
+        "backtest": {
+            "total_return_pct": orig_return,
+            "max_drawdown_pct": orig_drawdown,
+            "win_rate_pct": round(float(original_result.get("win_rate", 0.0)), 2),
+            "candles": original_result.get("candles"),
+        },
+        "trades": _trade_summary(original_result),
+    }
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": _ASK_SYSTEM},
+        {"role": "system", "content": "Текущая стратегия и её бэктест (JSON):\n" + json.dumps(context, ensure_ascii=False)},
+        *history,
+    ]
+    raw = await _call_deepseek_raw(messages)
+
+    out: dict[str, Any] = {
+        "answer": "",
+        "proposed_changes": "",
+        "proposed_config": None,
+        "original_return_pct": orig_return,
+        "original_drawdown_pct": orig_drawdown,
+        "proposed_return_pct": None,
+        "proposed_drawdown_pct": None,
+        "proposed_win_rate": None,
+        "proposed_trades": None,
+    }
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        out["answer"] = str(raw)
+        return out
+
+    out["answer"] = str(parsed.get("answer") or parsed.get("assessment") or "")
+    out["proposed_changes"] = str(parsed.get("proposed_changes") or "")
+    proposed = _parse_proposed(parsed, config)
+    out["proposed_config"] = proposed
+    if proposed:
+        res = simulate_backtest(proposed, candles, include_series=False)
+        out["proposed_return_pct"] = round(float(res.get("total_return_pct", 0.0)), 2)
+        out["proposed_drawdown_pct"] = round(float(res.get("max_drawdown_pct", 0.0)), 2)
+        out["proposed_win_rate"] = round(float(res.get("win_rate", 0.0)), 2)
+        out["proposed_trades"] = len([t for t in res.get("trades", []) if isinstance(t.get("pnl_pct"), (int, float))])
+    return out
