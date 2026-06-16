@@ -10,6 +10,8 @@ ALLOWED_MARKETS = frozenset({"spot", "futures"})
 ALLOWED_HEDGE_MODES = frozenset({"auto_squeeze", "constant_partial"})
 ALLOWED_DIRECTIONS = frozenset({"long", "both"})
 ALLOWED_ENTRY_TYPES = frozenset({"ma_cross", "ema_cross", "rsi", "breakout", "macd"})
+ALLOWED_FILTER_TYPES = frozenset({"trend", "rsi"})
+ALLOWED_FILTER_MA = frozenset({"ema", "sma"})
 
 
 def _positive_number(value: Any) -> bool:
@@ -35,6 +37,8 @@ def validate_strategy_config(value: dict[str, Any]) -> dict[str, Any]:
         if etype is not None and etype not in ALLOWED_ENTRY_TYPES:
             raise ValueError(f"Unsupported entry type: {etype}")
 
+    _validate_filters(value.get("filters"))
+
     # market defaults to spot so strategies saved before futures support stay valid.
     market = value.get("market", "spot")
     if market not in ALLOWED_MARKETS:
@@ -42,6 +46,25 @@ def validate_strategy_config(value: dict[str, Any]) -> dict[str, Any]:
     if market == "futures":
         _validate_futures(value)
     return value
+
+
+def _validate_filters(filters: Any) -> None:
+    """Optional entry filters: trend (price vs MA) and rsi (skip extremes)."""
+    if filters is None:
+        return
+    if not isinstance(filters, list):
+        raise ValueError("filters must be a list")
+    for f in filters:
+        if not isinstance(f, dict):
+            raise ValueError("each filter must be an object")
+        ftype = f.get("type")
+        if ftype not in ALLOWED_FILTER_TYPES:
+            raise ValueError(f"Unsupported filter type: {ftype}")
+        period = f.get("period", 14 if ftype == "rsi" else 200)
+        if not _positive_number(period):
+            raise ValueError("filter period must be a positive number")
+        if ftype == "trend" and f.get("ma", "ema") not in ALLOWED_FILTER_MA:
+            raise ValueError("trend filter ma must be 'ema' or 'sma'")
 
 
 def _validate_futures(value: dict[str, Any]) -> None:

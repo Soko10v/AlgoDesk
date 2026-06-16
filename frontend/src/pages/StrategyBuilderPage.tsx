@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactFlow, { Background, Controls, MarkerType, type Edge, type Node } from "reactflow";
 import "reactflow/dist/style.css";
-import { Anchor, ArrowDownUp, Crosshair, LogIn, LogOut, Pencil, Plus, Save, Shield, Sparkles, Target, Trash2, Umbrella, Zap } from "lucide-react";
+import { Anchor, ArrowDownUp, Crosshair, Filter, LogIn, LogOut, Pencil, Plus, Save, Shield, Sparkles, Target, Trash2, Umbrella, X, Zap } from "lucide-react";
 import {
   createStrategy,
   deleteStrategy,
@@ -13,25 +13,30 @@ import {
   type Direction,
   type EntryRule,
   type EntryType,
+  type FilterType,
   type HedgeConfig,
   type HedgeMode,
   type Market,
   type Strategy,
   type StrategyConfig,
+  type StrategyFilter,
 } from "../api/endpoints";
 import { toast } from "../store/toast";
 import { Badge, Button, Card, Field, Input, NumberField, PageHeader, Select, Toggle } from "../components/ui";
 import { cn } from "../lib/cn";
 import {
   ENTRY_TYPES,
+  FILTER_TYPES,
   MAX_LEVERAGE,
   SYMBOLS,
   TIMEFRAMES,
   defaultConfig,
   defaultEntry,
+  defaultFilter,
   defaultHedge,
   describeEntry,
   describeExit,
+  describeFilters,
   describeHedge,
   describeSize,
   isBidirectional,
@@ -93,6 +98,16 @@ export function StrategyBuilderPage() {
   const setEntry = (patch: Partial<EntryRule>) =>
     setCfg((c) => ({ ...c, entry: [{ ...c.entry[0], ...patch }] }));
   const setEntryType = (type: EntryType) => setCfg((c) => ({ ...c, entry: [defaultEntry(type)] }));
+  const addFilter = () => setCfg((c) => ({ ...c, filters: [...(c.filters ?? []), defaultFilter("trend")] }));
+  const removeFilter = (i: number) =>
+    setCfg((c) => ({ ...c, filters: (c.filters ?? []).filter((_, idx) => idx !== i) }));
+  const changeFilterType = (i: number, type: FilterType) =>
+    setCfg((c) => ({ ...c, filters: (c.filters ?? []).map((f, idx) => (idx === i ? defaultFilter(type) : f)) }));
+  const patchFilter = (i: number, patch: FilterPatch) =>
+    setCfg((c) => ({
+      ...c,
+      filters: (c.filters ?? []).map((f, idx) => (idx === i ? ({ ...f, ...patch } as StrategyFilter) : f)),
+    }));
   const setExit = (patch: Partial<{ op: ">" | "<"; value: number }>) =>
     setCfg((c) => ({ ...c, exit: [{ ...c.exit[0], ...patch }] }));
   const setHedge = (patch: Partial<HedgeConfig>) =>
@@ -309,6 +324,28 @@ export function StrategyBuilderPage() {
               </div>
             </Block>
 
+            <Block icon={Filter} title="Entry filters (optional)" tone="text-violet-300">
+              <p className="mb-3 text-xs leading-relaxed text-slate-500">
+                Extra conditions that must hold to open a trade. The entry signal picks the side; a
+                filter can veto it — e.g. only go long while price is above the 200 EMA, or skip
+                buying when RSI is overbought.
+              </p>
+              <div className="space-y-2.5">
+                {(cfg.filters ?? []).map((f, i) => (
+                  <FilterRow
+                    key={i}
+                    filter={f}
+                    onType={(t) => changeFilterType(i, t)}
+                    onPatch={(p) => patchFilter(i, p)}
+                    onRemove={() => removeFilter(i)}
+                  />
+                ))}
+              </div>
+              <Button className="mt-3" size="sm" variant="ghost" onClick={addFilter}>
+                <Plus className="h-3.5 w-3.5" /> Add filter
+              </Button>
+            </Block>
+
             <Block icon={LogOut} title="Exit" tone="text-sky-300">
               {isBidirectional(cfg) ? (
                 <p className="text-xs leading-relaxed text-slate-400">
@@ -486,6 +523,11 @@ export function StrategyBuilderPage() {
                         <Umbrella className="h-3 w-3" /> hedge
                       </Badge>
                     )}
+                    {(s.config_json.filters?.length ?? 0) > 0 && (
+                      <Badge tone="violet">
+                        <Filter className="h-3 w-3" /> filter
+                      </Badge>
+                    )}
                   </div>
                   <div className="mt-1 truncate text-xs text-slate-500">
                     {s.config_json.symbol} · {describeEntry(s.config_json)} → {describeExit(s.config_json)}
@@ -534,6 +576,75 @@ function Block({
         <Icon className="h-4 w-4" /> {title}
       </div>
       {children}
+    </div>
+  );
+}
+
+type FilterPatch = { ma?: "ema" | "sma"; period?: number; min?: number; max?: number };
+
+function FilterRow({
+  filter,
+  onType,
+  onPatch,
+  onRemove,
+}: {
+  filter: StrategyFilter;
+  onType: (t: FilterType) => void;
+  onPatch: (p: FilterPatch) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+      <div className="flex items-center gap-2">
+        <Select value={filter.type} onChange={(e) => onType(e.target.value as FilterType)}>
+          {FILTER_TYPES.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.label}
+            </option>
+          ))}
+        </Select>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="!px-2 text-slate-400 hover:!bg-rose-500/10 hover:text-rose-300"
+          onClick={onRemove}
+          title="Remove filter"
+        >
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      <div className="mt-3">
+        {filter.type === "trend" ? (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="MA type">
+              <Select value={filter.ma} onChange={(e) => onPatch({ ma: e.target.value as "ema" | "sma" })}>
+                <option value="ema">EMA</option>
+                <option value="sma">SMA</option>
+              </Select>
+            </Field>
+            <Field label="Period">
+              <NumberField min={2} max={400} value={filter.period} onValueChange={(v) => onPatch({ period: v })} />
+            </Field>
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Period">
+              <NumberField min={2} max={100} value={filter.period} onValueChange={(v) => onPatch({ period: v })} />
+            </Field>
+            <Field label="Max for long">
+              <NumberField min={0} max={100} value={filter.max ?? 0} onValueChange={(v) => onPatch({ max: v })} />
+            </Field>
+            <Field label="Min for short">
+              <NumberField min={0} max={100} value={filter.min ?? 0} onValueChange={(v) => onPatch({ min: v })} />
+            </Field>
+          </div>
+        )}
+      </div>
+      <p className="mt-2 text-xs text-slate-500">
+        {filter.type === "trend"
+          ? `Only long above the ${filter.ma.toUpperCase()} ${filter.period}, only short below it.`
+          : `Skip longs when RSI ≥ ${filter.max ?? "—"}, skip shorts when RSI ≤ ${filter.min ?? "—"}.`}
+      </p>
     </div>
   );
 }
@@ -592,7 +703,11 @@ function buildGraph(cfg: StrategyConfig): { nodes: Node[]; edges: Edge[] } {
     {
       id: "entry",
       position: { x: 260, y: 170 },
-      data: { label: `Entry · ${describeEntry(cfg)}${isBidirectional(cfg) ? " · flip L/S" : ""}` },
+      data: {
+        label: `Entry · ${describeEntry(cfg)}${isBidirectional(cfg) ? " · flip L/S" : ""}${
+          describeFilters(cfg) ? ` · filter: ${describeFilters(cfg)}` : ""
+        }`,
+      },
       style: accentNode("rgba(16,185,129,0.6)"),
       sourcePosition: "right" as never,
       targetPosition: "left" as never,

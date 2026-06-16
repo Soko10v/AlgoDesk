@@ -15,6 +15,13 @@ export type MaCrossRule = { type: "ma_cross"; fast: number; slow: number };
 export type RsiRule = { type: "rsi"; op: ">" | "<"; value: number };
 export type PctRule = { type: "pct"; value: number };
 
+// Entry filters layer extra conditions on top of the entry signal (it picks the
+// side; a filter can veto it). Trend = trade with the MA; RSI = skip extremes.
+export type TrendFilter = { type: "trend"; ma: "ema" | "sma"; period: number };
+export type RsiFilter = { type: "rsi"; period: number; min?: number; max?: number };
+export type StrategyFilter = TrendFilter | RsiFilter;
+export type FilterType = StrategyFilter["type"];
+
 export type Market = "spot" | "futures";
 export type Direction = "long" | "both";
 export type HedgeMode = "auto_squeeze" | "constant_partial";
@@ -34,6 +41,7 @@ export type StrategyConfig = {
   position_size_pct?: number; // legacy: percent of balance (strategies saved before USD)
   daily_loss_limit_pct?: number; // pause new entries after this much realized loss today (0 = off)
   entry: EntryRule[];
+  filters?: StrategyFilter[]; // optional extra entry conditions (trend / rsi)
   exit: RsiRule[];
   stop_loss: PctRule;
   take_profit: PctRule;

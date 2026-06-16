@@ -66,7 +66,15 @@ _SYSTEM = """\
 Поля конфига:
 - symbol, timeframe, market ("spot"|"futures"), direction ("long"|"both"), leverage (1-10)
 - position_size_usdt — это МАРЖА в USD; объём позиции = маржа × leverage
-- entry: массив правил (ma_cross/ema_cross/rsi/breakout/macd), exit: правила RSI
+- entry: массив правил (ma_cross/ema_cross/rsi/breakout/macd). ВАЖНО: движок берёт
+  ТОЛЬКО ПЕРВОЕ правило массива — не добавляй второе правило как «фильтр».
+- filters: массив доп. условий входа (работают реально, в отличие от второго entry):
+  - {"type":"trend","ma":"ema"|"sma","period":N} — лонг только если цена ВЫШЕ MA,
+    шорт только если НИЖЕ (фильтр тренда, напр. EMA 200)
+  - {"type":"rsi","period":N,"max":X,"min":M} — не входить в лонг при RSI ≥ max
+    (перекупленность), не входить в шорт при RSI ≤ min (перепроданность)
+  Хочешь добавить подтверждение по тренду/импульсу — клади его в filters.
+- exit: правила RSI
 - stop_loss/take_profit/trailing_stop: {type:"pct", value:n} (0 = выключено)
 - hedge: настройки защитного шорта (фьючерс)
 - daily_loss_limit_pct: дневной лимит убытка
@@ -342,6 +350,10 @@ _ASK_SYSTEM = """\
 - position_size_usdt — это МАРЖА в USD; объём позиции = маржа × leverage
 - entry: массив правил (ma_cross/ema_cross/rsi/breakout/macd). ВАЖНО: движок
   использует только ПЕРВОЕ правило массива — не рассчитывай на комбинацию из нескольких.
+- filters: доп. условия входа (работают реально):
+  {"type":"trend","ma":"ema"|"sma","period":N} — лонг только выше MA, шорт только ниже;
+  {"type":"rsi","period":N,"max":X,"min":M} — не лонговать при RSI≥max, не шортить при RSI≤min.
+  Фильтр тренда/импульса клади сюда, НЕ вторым правилом в entry.
 - exit: правила RSI; stop_loss/take_profit/trailing_stop: {type:"pct", value:n} (0 = выкл)
 - hedge: защитный шорт (только фьючерс); daily_loss_limit_pct: дневной лимит убытка
 

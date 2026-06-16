@@ -277,6 +277,13 @@ _RISK_PROFILES = [
     (1.5, 3.0, 0.0),   # tight scalp
 ]
 
+# Entry-filter options to try: none, or a trend filter (trade with the MA).
+_FILTER_SETS: list[list[dict[str, Any]]] = [
+    [],
+    [{"type": "trend", "ma": "ema", "period": 200}],
+    [{"type": "trend", "ma": "ema", "period": 50}],
+]
+
 
 def _entry_variations(entry_type: str) -> list[dict[str, Any]]:
     if entry_type in ("ma_cross", "ema_cross"):
@@ -301,12 +308,14 @@ def _param_grid(base: dict[str, Any]) -> list[dict[str, Any]]:
     grid: list[dict[str, Any]] = []
     for entry in _entry_variations(entry_type):
         for sl, tp, trail in _RISK_PROFILES:
-            cfg = copy.deepcopy(base)
-            cfg["entry"] = [entry]
-            cfg["stop_loss"] = {"type": "pct", "value": sl}
-            cfg["take_profit"] = {"type": "pct", "value": tp}
-            cfg["trailing_stop"] = {"type": "pct", "value": trail}
-            grid.append(cfg)
+            for filters in _FILTER_SETS:
+                cfg = copy.deepcopy(base)
+                cfg["entry"] = [entry]
+                cfg["stop_loss"] = {"type": "pct", "value": sl}
+                cfg["take_profit"] = {"type": "pct", "value": tp}
+                cfg["trailing_stop"] = {"type": "pct", "value": trail}
+                cfg["filters"] = copy.deepcopy(filters)
+                grid.append(cfg)
     return grid
 
 
