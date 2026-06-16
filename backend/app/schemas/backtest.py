@@ -16,6 +16,7 @@ class BacktestOut(BaseModel):
     win_rate: float
     trades: list[dict[str, Any]]
     equity_curve: list[dict[str, float]]
+    price_series: list[dict[str, float]] = []  # OHLC per candle: {x,o,h,l,c}
     candles: int = 0
     start: float | None = None  # unix seconds of the first candle tested
     end: float | None = None    # unix seconds of the last candle tested
