@@ -3,12 +3,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createChart, type IChartApi, type SeriesMarker, type Time, type UTCTimestamp } from "lightweight-charts";
 import { Activity, Play, Percent, Save, Sparkles, TrendingDown, Trophy, Wand2 } from "lucide-react";
 import {
-  analyzeStrategy,
   authConfig,
   createStrategy,
+  getAnalyzeStatus,
   listStrategies,
   optimizeStrategy,
   runBacktest,
+  startAnalyze,
+  type AiAnalysis,
   type OptimizeResult,
 } from "../api/endpoints";
 import { toast } from "../store/toast";
@@ -38,20 +40,39 @@ export function BacktestPage() {
 
   const cfg = useQuery({ queryKey: ["auth-config"], queryFn: authConfig, staleTime: Infinity });
   const aiEnabled = cfg.data?.ai_enabled ?? false;
-  const [aiAttempt, setAiAttempt] = useState(1);
-  const analyze = useMutation({
-    mutationFn: () => analyzeStrategy(strategyId as number, startDate || undefined, endDate || undefined),
+
+  // AI analysis runs as a background job (several backtests + DeepSeek calls), so
+  // we start it, then poll for live attempt progress and the final result.
+  const [aiJobId, setAiJobId] = useState<string | null>(null);
+  const startAi = useMutation({
+    mutationFn: () => startAnalyze(strategyId as number, startDate || undefined, endDate || undefined),
+    onSuccess: (d) => setAiJobId(d.job_id),
     onError: (e: unknown) => {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       toast.error("AI analysis failed", detail);
     },
   });
+  const aiStatus = useQuery({
+    queryKey: ["ai-status", aiJobId],
+    queryFn: () => getAnalyzeStatus(aiJobId as string),
+    enabled: !!aiJobId,
+    refetchInterval: (q) => {
+      const s = q.state.data?.status;
+      return s === "done" || s === "error" ? false : 2000;
+    },
+  });
 
   useEffect(() => {
-    if (!analyze.isPending) { setAiAttempt(1); return; }
-    const id = setInterval(() => setAiAttempt((p) => Math.min(p + 1, 3)), 45_000);
-    return () => clearInterval(id);
-  }, [analyze.isPending]);
+    if (aiStatus.data?.status === "error") {
+      toast.error("AI analysis failed", aiStatus.data.error || undefined);
+      setAiJobId(null);
+    }
+  }, [aiStatus.data?.status, aiStatus.data?.error]);
+
+  const aiPending =
+    startAi.isPending || (!!aiJobId && aiStatus.data?.status !== "done" && aiStatus.data?.status !== "error");
+  const aiData = aiStatus.data?.status === "done" ? aiStatus.data.result : null;
+  const aiAttempt = aiStatus.data?.attempt ?? 1;
 
   const stratName = strategies.data?.find((s) => s.id === strategyId)?.name ?? "Strategy";
   const saveOptimized = useMutation({
@@ -63,7 +84,7 @@ export function BacktestPage() {
     onError: () => toast.error("Could not save strategy"),
   });
   const saveAi = useMutation({
-    mutationFn: (config: NonNullable<typeof analyze.data>["proposed_config"]) =>
+    mutationFn: (config: AiAnalysis["proposed_config"]) =>
       createStrategy({ name: `${stratName} (AI)`, config_json: config! }),
     onSuccess: (s) => {
       toast.success("Saved strategy", s.name);
@@ -213,8 +234,8 @@ export function BacktestPage() {
           {aiEnabled && (
             <Button
               variant="secondary"
-              onClick={() => analyze.mutate()}
-              loading={analyze.isPending}
+              onClick={() => startAi.mutate()}
+              loading={aiPending}
               disabled={!strategyId}
               title="DeepSeek reviews the backtest and suggests an improved bot"
             >
@@ -228,13 +249,13 @@ export function BacktestPage() {
         </p>
       </Card>
 
-      {analyze.isPending && (
+      {aiPending && (
         <Card className="mt-6 flex items-center justify-center gap-3 p-12 text-slate-400">
           <Spinner /> AI trying strategy {aiAttempt}…
         </Card>
       )}
 
-      {analyze.data && !analyze.isPending && (
+      {aiData && !aiPending && (
         <Card className="mt-6 p-0">
           <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-3 text-sm font-semibold text-slate-200">
             <Sparkles className="h-4 w-4 text-brand-400" /> AI analysis
@@ -243,23 +264,23 @@ export function BacktestPage() {
             {/* Verdict */}
             <div
               className={`rounded-xl border p-3 text-sm font-medium ${
-                analyze.data.rating === "good"
+                aiData.rating === "good"
                   ? "border-brand-500/20 bg-brand-500/[0.06] text-brand-300"
-                  : analyze.data.rating === "bad"
+                  : aiData.rating === "bad"
                     ? "border-rose-500/20 bg-rose-500/[0.06] text-rose-300"
                     : "border-amber-500/20 bg-amber-500/[0.06] text-amber-200"
               }`}
             >
-              {analyze.data.verdict || "—"}
+              {aiData.verdict || "—"}
             </div>
 
             {/* Assessment */}
-            {analyze.data.assessment && (
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-300">{analyze.data.assessment}</p>
+            {aiData.assessment && (
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-300">{aiData.assessment}</p>
             )}
 
             {/* Attempts comparison table */}
-            {analyze.data.attempts.length > 0 && (
+            {aiData.attempts.length > 0 && (
               <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]">
                 <div className="border-b border-white/[0.06] px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
                   Strategies tested
@@ -277,15 +298,15 @@ export function BacktestPage() {
                   <tbody className="divide-y divide-white/[0.05]">
                     <tr>
                       <td className="px-3 py-2 text-slate-500">Original</td>
-                      <td className={`px-3 py-2 text-right font-semibold ${pnlTone(analyze.data.original_return_pct)}`}>
-                        {signedPct(analyze.data.original_return_pct)}
+                      <td className={`px-3 py-2 text-right font-semibold ${pnlTone(aiData.original_return_pct)}`}>
+                        {signedPct(aiData.original_return_pct)}
                       </td>
-                      <td className="px-3 py-2 text-right text-rose-400">{pct(analyze.data.original_drawdown_pct)}</td>
+                      <td className="px-3 py-2 text-right text-rose-400">{pct(aiData.original_drawdown_pct)}</td>
                       <td className="px-3 py-2 text-right text-slate-500">—</td>
                       <td className="px-3 py-2 text-right text-slate-500">—</td>
                     </tr>
-                    {analyze.data.attempts.map((a) => {
-                      const isWinner = analyze.data!.improved && a.n === analyze.data!.attempts.length;
+                    {aiData.attempts.map((a) => {
+                      const isWinner = aiData!.improved && a.n === aiData!.attempts.length;
                       return (
                         <tr key={a.n} className={isWinner ? "bg-brand-500/[0.04]" : "hover:bg-white/[0.02]"}>
                           <td className={`px-3 py-2 font-medium ${isWinner ? "text-brand-300" : "text-slate-400"}`}>
@@ -306,26 +327,26 @@ export function BacktestPage() {
             )}
 
             {/* Result card */}
-            {analyze.data.improved && analyze.data.proposed_config ? (
+            {aiData.improved && aiData.proposed_config ? (
               <div className="rounded-xl border border-brand-500/20 bg-brand-500/[0.04] p-3">
                 <div className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-brand-400">
                   AI found a better strategy
                 </div>
-                {analyze.data.proposed_changes && (
-                  <p className="whitespace-pre-wrap text-sm text-slate-300">{analyze.data.proposed_changes}</p>
+                {aiData.proposed_changes && (
+                  <p className="whitespace-pre-wrap text-sm text-slate-300">{aiData.proposed_changes}</p>
                 )}
                 <Button
                   className="mt-3"
                   size="sm"
-                  onClick={() => saveAi.mutate(analyze.data!.proposed_config)}
+                  onClick={() => saveAi.mutate(aiData!.proposed_config)}
                   loading={saveAi.isPending}
                 >
                   <Save className="h-3.5 w-3.5" /> Save as new strategy
                 </Button>
               </div>
-            ) : analyze.data.attempts.length > 0 ? (
+            ) : aiData.attempts.length > 0 ? (
               <div className="rounded-xl border border-slate-700/50 bg-slate-800/30 p-3 text-sm text-slate-400">
-                AI tried {analyze.data.attempts.length} variation{analyze.data.attempts.length !== 1 ? "s" : ""} and
+                AI tried {aiData.attempts.length} variation{aiData.attempts.length !== 1 ? "s" : ""} and
                 couldn't beat the original on this period.
               </div>
             ) : null}

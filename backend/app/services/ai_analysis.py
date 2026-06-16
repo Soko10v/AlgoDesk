@@ -100,7 +100,7 @@ async def _call_deepseek_raw(messages: list[dict[str, str]]) -> str:
         "stream": False,
     }
     try:
-        async with httpx.AsyncClient(timeout=90) as client:
+        async with httpx.AsyncClient(timeout=120) as client:
             resp = await client.post(
                 f"{settings.deepseek_base_url.rstrip('/')}/chat/completions",
                 headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
@@ -108,9 +108,13 @@ async def _call_deepseek_raw(messages: list[dict[str, str]]) -> str:
             )
             resp.raise_for_status()
             data = resp.json()
-    except Exception as exc:  # noqa: BLE001
+    except httpx.HTTPStatusError as exc:
+        body = exc.response.text[:200] if exc.response is not None else ""
+        logger.warning("DeepSeek HTTP %s: %s", exc.response.status_code, body)
+        raise RuntimeError(f"DeepSeek error {exc.response.status_code}") from exc
+    except Exception as exc:  # noqa: BLE001 - transport/timeout
         logger.warning("DeepSeek request failed: %s", exc)
-        raise RuntimeError("AI request failed") from exc
+        raise RuntimeError("AI request failed (network/timeout)") from exc
     return data["choices"][0]["message"]["content"]
 
 
@@ -171,11 +175,13 @@ async def analyze_strategy_iterative(
     original_result: dict[str, Any],
     since_ms: int | None = None,
     until_ms: int | None = None,
+    progress_cb=None,
 ) -> dict[str, Any]:
     """Propose → backtest → compare → retry if worse. Up to 3 attempts total.
 
     Returns the best config found (if any beats the original) along with per-attempt
-    metrics so the UI can show what was tried.
+    metrics so the UI can show what was tried. ``progress_cb(n)`` (if given) is called
+    with the current attempt number so a background job can report live progress.
     """
     from app.services.backtest import run_backtest  # local import avoids circular dependency
 
@@ -207,10 +213,14 @@ async def analyze_strategy_iterative(
     best_drawdown: float = original_drawdown
     final_parsed: dict[str, Any] = {}
 
+    last_error: str | None = None
     for attempt_n in range(1, 4):
+        if progress_cb:
+            progress_cb(attempt_n)
         try:
             raw = await _call_deepseek_raw(messages)
-        except RuntimeError:
+        except RuntimeError as exc:
+            last_error = str(exc)
             break
 
         try:
@@ -271,6 +281,10 @@ async def analyze_strategy_iterative(
                 f"Верни JSON в том же формате."
             ),
         })
+
+    # Never got a usable response from DeepSeek — surface the real error.
+    if not final_parsed and last_error:
+        raise RuntimeError(last_error)
 
     improved = best_config is not None
     rating = final_parsed.get("rating")

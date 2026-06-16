@@ -226,9 +226,22 @@ export type AiAnalysis = {
   best_drawdown_pct: number | null;
 };
 
-export async function analyzeStrategy(strategy_id: number, start_date?: string, end_date?: string) {
+export type AnalyzeStatus = {
+  status: "running" | "done" | "error";
+  attempt: number;
+  result: AiAnalysis | null;
+  error: string | null;
+};
+
+// Starts the iterative AI analysis as a background job; poll getAnalyzeStatus.
+export async function startAnalyze(strategy_id: number, start_date?: string, end_date?: string) {
   const { data } = await api.post("/backtest/analyze", { strategy_id, start_date, end_date });
-  return data as AiAnalysis;
+  return data as { job_id: string };
+}
+
+export async function getAnalyzeStatus(job_id: string) {
+  const { data } = await api.get(`/backtest/analyze/${job_id}`);
+  return data as AnalyzeStatus;
 }
 
 // ---- trades ----
