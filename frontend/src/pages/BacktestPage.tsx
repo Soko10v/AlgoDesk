@@ -10,8 +10,8 @@ import {
   optimizeStrategy,
   runBacktest,
   startAnalyze,
-  type AiAnalysis,
   type OptimizeResult,
+  type StrategyConfig,
 } from "../api/endpoints";
 import { toast } from "../store/toast";
 import { Badge, Button, Card, EmptyState, Field, PageHeader, Select, Spinner, StatCard } from "../components/ui";
@@ -84,8 +84,8 @@ export function BacktestPage() {
     onError: () => toast.error("Could not save strategy"),
   });
   const saveAi = useMutation({
-    mutationFn: (config: AiAnalysis["proposed_config"]) =>
-      createStrategy({ name: `${stratName} (AI)`, config_json: config! }),
+    mutationFn: (v: { config: StrategyConfig; n: number }) =>
+      createStrategy({ name: `${stratName} (AI #${v.n})`, config_json: v.config }),
     onSuccess: (s) => {
       toast.success("Saved strategy", s.name);
       qc.invalidateQueries({ queryKey: ["strategies"] });
@@ -279,20 +279,40 @@ export function BacktestPage() {
               <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-300">{aiData.assessment}</p>
             )}
 
-            {/* Attempts comparison table */}
+            {/* Summary line */}
+            {aiData.attempts.length > 0 && (
+              <div
+                className={`rounded-xl border p-3 text-sm ${
+                  aiData.improved
+                    ? "border-brand-500/20 bg-brand-500/[0.04] text-brand-300"
+                    : "border-slate-700/50 bg-slate-800/30 text-slate-400"
+                }`}
+              >
+                {aiData.improved
+                  ? `Version #${aiData.best_n} is the strongest — ${signedPct(aiData.best_return_pct ?? 0)} vs ${signedPct(
+                      aiData.original_return_pct
+                    )} for the original. Save any version below to backtest or run it.`
+                  : `None of the 3 versions beat the original (${signedPct(
+                      aiData.original_return_pct
+                    )}) on this period. You can still save any to test on another window.`}
+              </div>
+            )}
+
+            {/* Three AI versions — each can be saved/downloaded */}
             {aiData.attempts.length > 0 && (
               <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]">
                 <div className="border-b border-white/[0.06] px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Strategies tested
+                  AI versions
                 </div>
                 <table className="min-w-full text-sm">
                   <thead className="text-left text-xs uppercase tracking-wider text-slate-500">
                     <tr>
-                      <th className="px-3 py-2 font-medium">#</th>
+                      <th className="px-3 py-2 font-medium">Version</th>
                       <th className="px-3 py-2 text-right font-medium">Return</th>
                       <th className="px-3 py-2 text-right font-medium">Drawdown</th>
-                      <th className="px-3 py-2 text-right font-medium">Win rate</th>
+                      <th className="px-3 py-2 text-right font-medium">Win</th>
                       <th className="px-3 py-2 text-right font-medium">Trades</th>
+                      <th className="px-3 py-2" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/[0.05]">
@@ -304,13 +324,14 @@ export function BacktestPage() {
                       <td className="px-3 py-2 text-right text-rose-400">{pct(aiData.original_drawdown_pct)}</td>
                       <td className="px-3 py-2 text-right text-slate-500">—</td>
                       <td className="px-3 py-2 text-right text-slate-500">—</td>
+                      <td className="px-3 py-2" />
                     </tr>
                     {aiData.attempts.map((a) => {
-                      const isWinner = aiData!.improved && a.n === aiData!.attempts.length;
+                      const isWinner = aiData!.improved && a.n === aiData!.best_n;
                       return (
                         <tr key={a.n} className={isWinner ? "bg-brand-500/[0.04]" : "hover:bg-white/[0.02]"}>
                           <td className={`px-3 py-2 font-medium ${isWinner ? "text-brand-300" : "text-slate-400"}`}>
-                            {isWinner ? "✓ " : ""}Attempt {a.n}
+                            {isWinner ? "✓ " : ""}#{a.n}
                           </td>
                           <td className={`px-3 py-2 text-right font-semibold ${pnlTone(a.total_return_pct)}`}>
                             {signedPct(a.total_return_pct)}
@@ -318,6 +339,18 @@ export function BacktestPage() {
                           <td className="px-3 py-2 text-right text-rose-400">{pct(a.max_drawdown_pct)}</td>
                           <td className="px-3 py-2 text-right text-slate-300">{pct(a.win_rate)}</td>
                           <td className="px-3 py-2 text-right text-slate-300">{a.trades}</td>
+                          <td className="px-3 py-2 text-right">
+                            {a.config && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => saveAi.mutate({ config: a.config!, n: a.n })}
+                                disabled={saveAi.isPending}
+                              >
+                                <Save className="h-3.5 w-3.5" /> Save
+                              </Button>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}
@@ -326,30 +359,22 @@ export function BacktestPage() {
               </div>
             )}
 
-            {/* Result card */}
-            {aiData.improved && aiData.proposed_config ? (
-              <div className="rounded-xl border border-brand-500/20 bg-brand-500/[0.04] p-3">
-                <div className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-brand-400">
-                  AI found a better strategy
-                </div>
-                {aiData.proposed_changes && (
-                  <p className="whitespace-pre-wrap text-sm text-slate-300">{aiData.proposed_changes}</p>
+            {/* What each version changed */}
+            {aiData.attempts.some((a) => a.proposed_changes) && (
+              <div className="space-y-2">
+                {aiData.attempts.map((a) =>
+                  a.proposed_changes ? (
+                    <div key={a.n} className="rounded-lg border border-white/[0.06] bg-white/[0.01] p-3">
+                      <div className="mb-1 text-xs font-semibold text-slate-400">
+                        Version #{a.n}
+                        {aiData!.improved && a.n === aiData!.best_n ? " · recommended" : ""}
+                      </div>
+                      <p className="whitespace-pre-wrap text-sm text-slate-300">{a.proposed_changes}</p>
+                    </div>
+                  ) : null
                 )}
-                <Button
-                  className="mt-3"
-                  size="sm"
-                  onClick={() => saveAi.mutate(aiData!.proposed_config)}
-                  loading={saveAi.isPending}
-                >
-                  <Save className="h-3.5 w-3.5" /> Save as new strategy
-                </Button>
               </div>
-            ) : aiData.attempts.length > 0 ? (
-              <div className="rounded-xl border border-slate-700/50 bg-slate-800/30 p-3 text-sm text-slate-400">
-                AI tried {aiData.attempts.length} variation{aiData.attempts.length !== 1 ? "s" : ""} and
-                couldn't beat the original on this period.
-              </div>
-            ) : null}
+            )}
 
             <p className="text-xs text-slate-500">
               AI suggestions are based on past data and can be wrong — backtest the saved version and start in paper mode.
