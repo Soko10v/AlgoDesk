@@ -246,6 +246,38 @@ export async function getAnalyzeStatus(job_id: string) {
   return data as AnalyzeStatus;
 }
 
+export type ChatMessage = { role: "user" | "assistant"; content: string };
+export type AskResult = {
+  answer: string;
+  proposed_changes: string;
+  proposed_config: StrategyConfig | null;
+  original_return_pct: number;
+  original_drawdown_pct: number;
+  proposed_return_pct: number | null;
+  proposed_drawdown_pct: number | null;
+  proposed_win_rate: number | null;
+  proposed_trades: number | null;
+};
+
+// Constrained free-form chat about a strategy. base_config carries the working
+// config being refined so follow-up requests build on the previous answer.
+export async function askAi(
+  strategy_id: number,
+  messages: ChatMessage[],
+  base_config?: StrategyConfig | null,
+  start_date?: string,
+  end_date?: string
+) {
+  const { data } = await api.post("/backtest/ask", {
+    strategy_id,
+    messages,
+    base_config: base_config ?? undefined,
+    start_date,
+    end_date,
+  });
+  return data as AskResult;
+}
+
 // ---- trades ----
 export async function listTrades(strategy_id?: number, mode?: "paper" | "live") {
   const params: Record<string, unknown> = {};

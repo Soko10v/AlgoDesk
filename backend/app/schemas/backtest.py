@@ -83,3 +83,28 @@ class AnalyzeStatusOut(BaseModel):
     attempt: int = 1
     result: AnalyzeOut | None = None
     error: str | None = None
+
+
+class ChatMessage(BaseModel):
+    role: str  # "user" | "assistant"
+    content: str
+
+
+class AskIn(BaseModel):
+    strategy_id: int
+    messages: list[ChatMessage]
+    base_config: dict[str, Any] | None = None  # working config to refine (defaults to the saved strategy)
+    start_date: date | None = None
+    end_date: date | None = None
+
+
+class AskOut(BaseModel):
+    answer: str
+    proposed_changes: str = ""
+    proposed_config: dict[str, Any] | None = None
+    original_return_pct: float = 0.0
+    original_drawdown_pct: float = 0.0
+    proposed_return_pct: float | None = None
+    proposed_drawdown_pct: float | None = None
+    proposed_win_rate: float | None = None
+    proposed_trades: int | None = None
