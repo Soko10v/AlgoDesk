@@ -6,6 +6,7 @@ class AuthConfigOut(BaseModel):
     supabase_anon_key: str
     telegram_bot_username: str = ""
     google_enabled: bool = False
+    ai_enabled: bool = False
 
 
 class TelegramAuthIn(BaseModel):

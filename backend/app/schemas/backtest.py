@@ -41,3 +41,17 @@ class OptimizeOut(BaseModel):
     results: list[OptimizeResult]
     tested: int
     candles: int
+
+
+class AnalyzeIn(BaseModel):
+    strategy_id: int
+    start_date: date | None = None
+    end_date: date | None = None
+
+
+class AnalyzeOut(BaseModel):
+    verdict: str
+    rating: str
+    assessment: str
+    proposed_changes: str
+    proposed_config: dict[str, Any] | None = None
