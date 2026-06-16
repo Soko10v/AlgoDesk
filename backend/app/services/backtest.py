@@ -48,8 +48,11 @@ async def _fetch_candles(
         if candles[-1][0] >= end - tf_ms:
             break
         cursor = candles[-1][0] + tf_ms
-        if len(batch) < want:
-            break
+        # Don't stop just because a page came back shorter than requested: exchanges
+        # cap page size and an unaligned `since` often returns one fewer candle.
+        # Termination is handled above — reaching `end`, an empty page, or no new
+        # candles (the dedup guard). Stopping on a short page truncated the no-date
+        # backtest ~one page in (it ended ~10 days early instead of at "now").
     return candles[:limit]
 
 
