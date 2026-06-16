@@ -203,12 +203,27 @@ export async function optimizeStrategy(strategy_id: number, start_date?: string,
   return data as OptimizeResponse;
 }
 
+export type AttemptInfo = {
+  n: number;
+  total_return_pct: number;
+  max_drawdown_pct: number;
+  win_rate: number;
+  trades: number;
+  proposed_changes: string;
+};
+
 export type AiAnalysis = {
   verdict: string;
   rating: "good" | "mixed" | "bad";
   assessment: string;
   proposed_changes: string;
   proposed_config: StrategyConfig | null;
+  improved: boolean;
+  attempts: AttemptInfo[];
+  original_return_pct: number;
+  original_drawdown_pct: number;
+  best_return_pct: number | null;
+  best_drawdown_pct: number | null;
 };
 
 export async function analyzeStrategy(strategy_id: number, start_date?: string, end_date?: string) {
