@@ -298,81 +298,55 @@ export function BacktestPage() {
               </div>
             )}
 
-            {/* Three AI versions — each can be saved/downloaded */}
+            {/* Per-version cards — metrics, what changed, and a Save button each.
+               Full-width so the Save action is always visible on a phone (a wide
+               table pushed it off-screen). */}
             {aiData.attempts.length > 0 && (
-              <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]">
-                <div className="border-b border-white/[0.06] px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  AI versions
-                </div>
-                <table className="min-w-full text-sm">
-                  <thead className="text-left text-xs uppercase tracking-wider text-slate-500">
-                    <tr>
-                      <th className="px-3 py-2 font-medium">Version</th>
-                      <th className="px-3 py-2 text-right font-medium">Return</th>
-                      <th className="px-3 py-2 text-right font-medium">Drawdown</th>
-                      <th className="px-3 py-2 text-right font-medium">Win</th>
-                      <th className="px-3 py-2 text-right font-medium">Trades</th>
-                      <th className="px-3 py-2" />
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/[0.05]">
-                    <tr>
-                      <td className="px-3 py-2 text-slate-500">Original</td>
-                      <td className={`px-3 py-2 text-right font-semibold ${pnlTone(aiData.original_return_pct)}`}>
-                        {signedPct(aiData.original_return_pct)}
-                      </td>
-                      <td className="px-3 py-2 text-right text-rose-400">{pct(aiData.original_drawdown_pct)}</td>
-                      <td className="px-3 py-2 text-right text-slate-500">—</td>
-                      <td className="px-3 py-2 text-right text-slate-500">—</td>
-                      <td className="px-3 py-2" />
-                    </tr>
-                    {aiData.attempts.map((a) => {
-                      const isWinner = aiData!.improved && a.n === aiData!.best_n;
-                      return (
-                        <tr key={a.n} className={isWinner ? "bg-brand-500/[0.04]" : "hover:bg-white/[0.02]"}>
-                          <td className={`px-3 py-2 font-medium ${isWinner ? "text-brand-300" : "text-slate-400"}`}>
-                            {isWinner ? "✓ " : ""}#{a.n}
-                          </td>
-                          <td className={`px-3 py-2 text-right font-semibold ${pnlTone(a.total_return_pct)}`}>
-                            {signedPct(a.total_return_pct)}
-                          </td>
-                          <td className="px-3 py-2 text-right text-rose-400">{pct(a.max_drawdown_pct)}</td>
-                          <td className="px-3 py-2 text-right text-slate-300">{pct(a.win_rate)}</td>
-                          <td className="px-3 py-2 text-right text-slate-300">{a.trades}</td>
-                          <td className="px-3 py-2 text-right">
-                            {a.config && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => saveAi.mutate({ config: a.config!, n: a.n })}
-                                disabled={saveAi.isPending}
-                              >
-                                <Save className="h-3.5 w-3.5" /> Save
-                              </Button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {/* What each version changed */}
-            {aiData.attempts.some((a) => a.proposed_changes) && (
               <div className="space-y-2">
-                {aiData.attempts.map((a) =>
-                  a.proposed_changes ? (
-                    <div key={a.n} className="rounded-lg border border-white/[0.06] bg-white/[0.01] p-3">
-                      <div className="mb-1 text-xs font-semibold text-slate-400">
-                        Version #{a.n}
-                        {aiData!.improved && a.n === aiData!.best_n ? " · recommended" : ""}
+                <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  AI versions · original {signedPct(aiData.original_return_pct)} / drawdown{" "}
+                  {pct(aiData.original_drawdown_pct)}
+                </div>
+                {aiData.attempts.map((a) => {
+                  const isWinner = aiData!.improved && a.n === aiData!.best_n;
+                  return (
+                    <div
+                      key={a.n}
+                      className={`rounded-xl border p-3 ${
+                        isWinner
+                          ? "border-brand-500/30 bg-brand-500/[0.05]"
+                          : "border-white/[0.08] bg-white/[0.02]"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-sm font-semibold text-slate-200">
+                          {isWinner ? "✓ " : ""}Version #{a.n}
+                          {isWinner && <span className="ml-1.5 text-xs font-normal text-brand-400">recommended</span>}
+                        </div>
+                        <span className={`text-sm font-semibold ${pnlTone(a.total_return_pct)}`}>
+                          {signedPct(a.total_return_pct)}
+                        </span>
                       </div>
-                      <p className="whitespace-pre-wrap text-sm text-slate-300">{a.proposed_changes}</p>
+                      <div className="mt-1 text-xs text-slate-500">
+                        Drawdown {pct(a.max_drawdown_pct)} · Win {pct(a.win_rate)} · {a.trades} trades
+                      </div>
+                      {a.proposed_changes && (
+                        <p className="mt-2 whitespace-pre-wrap text-sm text-slate-300">{a.proposed_changes}</p>
+                      )}
+                      {a.config && (
+                        <Button
+                          className="mt-3 w-full sm:w-auto"
+                          size="sm"
+                          variant={isWinner ? "primary" : "secondary"}
+                          onClick={() => saveAi.mutate({ config: a.config!, n: a.n })}
+                          disabled={saveAi.isPending}
+                        >
+                          <Save className="h-3.5 w-3.5" /> Save version #{a.n}
+                        </Button>
+                      )}
                     </div>
-                  ) : null
-                )}
+                  );
+                })}
               </div>
             )}
 
