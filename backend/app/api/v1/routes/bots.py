@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import SessionLocal, get_db
 from app.core.deps import get_current_user
+from app.engine.risk import is_futures
 from app.models.strategy import Strategy
 from app.models.user import User
 from app.schemas.strategy import BotControlIn
@@ -23,6 +25,34 @@ async def start_bot(
         raise HTTPException(status_code=404, detail="Strategy not found")
     if payload.mode == "live" and not strategy.live_enabled:
         raise HTTPException(status_code=400, detail="Live mode disabled for this strategy")
+    if payload.mode == "live":
+        # A single exchange account holds one position per symbol (one-way mode) and
+        # leverage is per-symbol — so two live bots on the same symbol would merge
+        # into one position and fight over leverage. Block that.
+        sym = strategy.config_json.get("symbol")
+        fut = is_futures(strategy.config_json)
+        others = (
+            await db.execute(
+                select(Strategy).where(
+                    Strategy.user_id == current_user.id,
+                    Strategy.id != strategy.id,
+                    Strategy.status == "live",
+                )
+            )
+        ).scalars().all()
+        clash = next(
+            (s for s in others if s.config_json.get("symbol") == sym and is_futures(s.config_json) == fut),
+            None,
+        )
+        if clash is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"“{clash.name}” is already trading {sym} live. Two live bots on the same "
+                    "symbol and account merge into one exchange position and conflict on leverage. "
+                    "Stop it first, or use a different symbol."
+                ),
+            )
     await bot_supervisor.start(SessionLocal, strategy.id, payload.mode, position_size_usdt=payload.position_size_usdt)
     strategy.status = payload.mode
     await db.commit()
