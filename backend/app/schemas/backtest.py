@@ -70,3 +70,14 @@ class AnalyzeOut(BaseModel):
     original_drawdown_pct: float = 0.0
     best_return_pct: float | None = None
     best_drawdown_pct: float | None = None
+
+
+class AnalyzeStartOut(BaseModel):
+    job_id: str
+
+
+class AnalyzeStatusOut(BaseModel):
+    status: str  # "running" | "done" | "error"
+    attempt: int = 1
+    result: AnalyzeOut | None = None
+    error: str | None = None
