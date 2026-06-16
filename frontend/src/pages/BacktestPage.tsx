@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createChart, type IChartApi, type UTCTimestamp } from "lightweight-charts";
+import { createChart, type IChartApi, type SeriesMarker, type Time, type UTCTimestamp } from "lightweight-charts";
 import { Activity, Play, Percent, Save, TrendingDown, Trophy, Wand2 } from "lucide-react";
 import {
   createStrategy,
@@ -19,7 +19,8 @@ export function BacktestPage() {
   const [strategyId, setStrategyId] = useState<number | null>(null);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const chartEl = useRef<HTMLDivElement | null>(null);
+  const equityEl = useRef<HTMLDivElement | null>(null);
+  const priceEl = useRef<HTMLDivElement | null>(null);
 
   const qc = useQueryClient();
   const run = useMutation({
@@ -43,35 +44,105 @@ export function BacktestPage() {
   });
 
   useEffect(() => {
-    if (!result || !chartEl.current) return;
-    const el = chartEl.current;
-    const chart: IChartApi = createChart(el, {
-      width: el.clientWidth,
-      height: 300,
+    if (!result || !equityEl.current || !priceEl.current) return;
+    const eEl = equityEl.current;
+    const pEl = priceEl.current;
+    const common = {
       layout: { background: { color: "transparent" }, textColor: "#94a3b8", fontFamily: "Inter, sans-serif" },
       grid: { vertLines: { color: "rgba(148,163,184,0.08)" }, horzLines: { color: "rgba(148,163,184,0.08)" } },
       rightPriceScale: { borderColor: "rgba(148,163,184,0.1)" },
-      timeScale: { borderColor: "rgba(148,163,184,0.1)" },
+      timeScale: { borderColor: "rgba(148,163,184,0.1)", timeVisible: true },
       crosshair: { vertLine: { labelVisible: false } },
-    });
-    const series = chart.addAreaSeries({
+    } as const;
+
+    // Equity (top) and price (bottom) share the same candle timestamps, so their
+    // time axes line up: a jump in equity sits directly above the trade marker.
+    const equityChart: IChartApi = createChart(eEl, { width: eEl.clientWidth, height: 220, ...common });
+    const priceChart: IChartApi = createChart(pEl, { width: pEl.clientWidth, height: 260, ...common });
+
+    const equitySeries = equityChart.addAreaSeries({
       lineColor: "#10b981",
       topColor: "rgba(16,185,129,0.35)",
       bottomColor: "rgba(16,185,129,0.01)",
       lineWidth: 2,
     });
-    // x carries each candle's real open time (unix seconds), so the axis shows
-    // the actual backtested dates rather than a fabricated "now − N hours" range.
-    series.setData(
+    equitySeries.setData(
       result.equity_curve.map((p) => ({ time: Math.floor(p.x) as UTCTimestamp, value: p.y }))
     );
-    chart.timeScale().fitContent();
 
-    const onResize = () => chart.applyOptions({ width: el.clientWidth });
+    const priceSeries = priceChart.addCandlestickSeries({
+      upColor: "#10b981",
+      downColor: "#f43f5e",
+      borderVisible: false,
+      wickUpColor: "#10b981",
+      wickDownColor: "#f43f5e",
+    });
+    priceSeries.setData(
+      result.price_series.map((p) => ({
+        time: Math.floor(p.x) as UTCTimestamp,
+        open: p.o,
+        high: p.h,
+        low: p.l,
+        close: p.c,
+      }))
+    );
+
+    // Buy/sell markers; exits are coloured by P&L and labelled with the %.
+    const markers: SeriesMarker<Time>[] = [];
+    for (const t of result.trades) {
+      if (typeof t.time !== "number") continue;
+      const time = Math.floor(t.time) as UTCTimestamp;
+      const side = String(t.side ?? "");
+      const buyish = side === "buy" || side === "long";
+      const isExit = typeof t.pnl_pct === "number";
+      if (t.leg === "hedge") {
+        markers.push({ time, position: buyish ? "belowBar" : "aboveBar", color: "#818cf8", shape: "circle", text: "H" });
+      } else if (isExit) {
+        const p = t.pnl_pct as number;
+        markers.push({
+          time,
+          position: buyish ? "belowBar" : "aboveBar",
+          color: p >= 0 ? "#10b981" : "#f43f5e",
+          shape: buyish ? "arrowUp" : "arrowDown",
+          text: signedPct(p),
+        });
+      } else {
+        markers.push({
+          time,
+          position: buyish ? "belowBar" : "aboveBar",
+          color: "#60a5fa",
+          shape: buyish ? "arrowUp" : "arrowDown",
+          text: buyish ? "Buy" : "Sell",
+        });
+      }
+    }
+    markers.sort((a, b) => (a.time as number) - (b.time as number));
+    priceSeries.setMarkers(markers);
+
+    equityChart.timeScale().fitContent();
+    priceChart.timeScale().fitContent();
+
+    // Keep the two time axes locked together when panning/zooming either chart.
+    let syncing = false;
+    const link = (src: IChartApi, dst: IChartApi) =>
+      src.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+        if (syncing || !range) return;
+        syncing = true;
+        dst.timeScale().setVisibleLogicalRange(range);
+        syncing = false;
+      });
+    link(equityChart, priceChart);
+    link(priceChart, equityChart);
+
+    const onResize = () => {
+      equityChart.applyOptions({ width: eEl.clientWidth });
+      priceChart.applyOptions({ width: pEl.clientWidth });
+    };
     window.addEventListener("resize", onResize);
     return () => {
       window.removeEventListener("resize", onResize);
-      chart.remove();
+      equityChart.remove();
+      priceChart.remove();
     };
   }, [result]);
 
@@ -236,7 +307,15 @@ export function BacktestPage() {
                 </span>
               )}
             </div>
-            <div ref={chartEl} className="w-full" />
+            <div ref={equityEl} className="w-full" />
+            <div className="mb-2 mt-5 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm font-semibold text-slate-300">Price &amp; trades</span>
+              <span className="text-xs text-slate-500">
+                <span className="text-brand-400">▲</span> buy ·{" "}
+                <span className="text-rose-400">▼</span> sell — exit markers show P&amp;L; axes are time-aligned with the equity curve
+              </span>
+            </div>
+            <div ref={priceEl} className="w-full" />
           </Card>
 
           <Card className="overflow-hidden p-0">

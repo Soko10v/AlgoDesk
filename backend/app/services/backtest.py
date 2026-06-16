@@ -71,9 +71,12 @@ async def run_backtest(
     return _simulate(config, candles)
 
 
-def _simulate(config: dict[str, Any], candles: list[list[float]]) -> dict[str, Any]:
+def _simulate(config: dict[str, Any], candles: list[list[float]], include_series: bool = True) -> dict[str, Any]:
     """Run the strategy over already-fetched candles. Pure/CPU-only so the
-    optimizer can reuse one candle set across many parameter combinations."""
+    optimizer can reuse one candle set across many parameter combinations.
+
+    ``include_series`` controls whether the (heavier) price series + per-trade
+    timestamps are built — the optimizer doesn't need them, so it passes False."""
     closes = [c[4] for c in candles]
     lev = leverage(config)
     sl_val = pct_value(config.get("stop_loss"))
@@ -212,6 +215,19 @@ def _simulate(config: dict[str, Any], candles: list[list[float]]) -> dict[str, A
         # x is the candle's real open time (seconds) so the chart shows true dates.
         curve.append({"x": float(candle[0]) / 1000.0, "y": float(equity), "dd": float(drawdown)})
 
+    price_series: list[dict[str, float]] = []
+    if include_series:
+        price_series = [
+            {"x": float(c[0]) / 1000.0, "o": float(c[1]), "h": float(c[2]), "l": float(c[3]), "c": float(c[4])}
+            for c in candles
+        ]
+        # Stamp each trade with its candle's open time so the chart can place a
+        # marker at the exact bar where the trade happened.
+        for t in trades:
+            i = t.get("index")
+            if isinstance(i, int) and 0 <= i < len(candles):
+                t["time"] = float(candles[i][0]) / 1000.0
+
     total_trades = max(wins + loss, 1)
     return {
         "total_return_pct": (equity - 1000.0) / 1000.0 * 100,
@@ -219,6 +235,7 @@ def _simulate(config: dict[str, Any], candles: list[list[float]]) -> dict[str, A
         "win_rate": wins / total_trades * 100,
         "trades": trades,
         "equity_curve": [{"x": p["x"], "y": p["y"]} for p in curve],
+        "price_series": price_series,
         "candles": len(candles),
         "start": (float(candles[0][0]) / 1000.0) if candles else None,
         "end": (float(candles[-1][0]) / 1000.0) if candles else None,
@@ -286,7 +303,7 @@ def _score(result: dict[str, Any], n_trades: int) -> float:
 def _run_grid(config: dict[str, Any], candles: list[list[float]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for cfg in _param_grid(config):
-        res = _simulate(cfg, candles)
+        res = _simulate(cfg, candles, include_series=False)
         n = _closed_trades(res)
         out.append({
             "config": cfg,

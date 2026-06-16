@@ -110,6 +110,7 @@ export type BacktestResult = {
   win_rate: number;
   trades: Array<Record<string, unknown>>;
   equity_curve: Array<{ x: number; y: number }>; // x = unix seconds
+  price_series: Array<{ x: number; o: number; h: number; l: number; c: number }>; // x = unix seconds
   candles: number;
   start: number | null; // unix seconds of first candle
   end: number | null; // unix seconds of last candle
