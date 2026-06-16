@@ -66,6 +66,19 @@ export function DashboardPage() {
   const running = items.filter((s) => isRunning(s.status)).length;
   const nameById = useMemo(() => new Map(items.map((s) => [s.id, s.name])), [items]);
 
+  // Name of another LIVE bot already trading the same symbol+market, if any —
+  // running two on one symbol/account merges them into one exchange position.
+  const liveClashName = (s: Strategy): string | null => {
+    const other = items.find(
+      (o) =>
+        o.id !== s.id &&
+        o.status === "live" &&
+        o.config_json.symbol === s.config_json.symbol &&
+        isFutures(o.config_json) === isFutures(s.config_json)
+    );
+    return other ? other.name : null;
+  };
+
   const start = useMutation({
     mutationFn: ({ id, mode, usdt }: { id: number; mode: "paper" | "live"; usdt?: number }) =>
       startBot(id, mode, usdt),
@@ -73,7 +86,10 @@ export function DashboardPage() {
       toast.success("Bot started", `${v.mode} mode`);
       qc.invalidateQueries({ queryKey: ["strategies"] });
     },
-    onError: () => toast.error("Could not start bot"),
+    onError: (e: unknown) => {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error("Could not start bot", detail);
+    },
   });
 
   const stop = useMutation({
@@ -211,6 +227,7 @@ export function DashboardPage() {
                   trades={allTrades}
                   syncing={sync.isPending && sync.variables === s.id}
                   closing={closePos.isPending && closePos.variables === s.id}
+                  liveClash={liveClashName(s)}
                   onStart={(mode, usdt) => start.mutate({ id: s.id, mode, usdt })}
                   onStop={() => stop.mutate(s.id)}
                   onEdit={() => navigate(`/builder?edit=${s.id}`)}
@@ -238,6 +255,7 @@ function StrategyRow({
   trades,
   syncing,
   closing,
+  liveClash,
   onStart,
   onStop,
   onEdit,
@@ -250,6 +268,7 @@ function StrategyRow({
   trades: Trade[];
   syncing: boolean;
   closing: boolean;
+  liveClash: string | null;
   onStart: (mode: "paper" | "live", usdt?: number) => void;
   onStop: () => void;
   onEdit: () => void;
@@ -344,6 +363,7 @@ function StrategyRow({
             )}
             {strategy.live_enabled && <Badge tone="violet">Live enabled</Badge>}
             {openCount > 0 && <Badge tone="warning">{openCount} open</Badge>}
+            {liveClash !== null && <Badge tone="danger">Shares {cfg.symbol} with {liveClash}</Badge>}
           </div>
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 pl-6 text-xs text-slate-400">
             <span className="font-mono text-slate-300">{cfg.symbol}</span>
@@ -421,8 +441,14 @@ function StrategyRow({
                     size="sm"
                     variant="secondary"
                     onClick={() => setLiveUsdt(String(positionUsdt(cfg)))}
-                    disabled={pending || !strategy.live_enabled}
-                    title={strategy.live_enabled ? "Enter position size to start live trading" : "Enable live in the builder first"}
+                    disabled={pending || !strategy.live_enabled || liveClash !== null}
+                    title={
+                      liveClash !== null
+                        ? `“${liveClash}” is already live on ${cfg.symbol} — stop it first (one position per symbol/account)`
+                        : strategy.live_enabled
+                          ? "Enter position size to start live trading"
+                          : "Enable live in the builder first"
+                    }
                   >
                     <Play className="h-3.5 w-3.5" /> Live
                   </Button>
