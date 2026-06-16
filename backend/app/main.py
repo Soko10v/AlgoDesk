@@ -32,7 +32,7 @@ background_tasks: list[asyncio.Task] = []
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    background_tasks.append(asyncio.create_task(stream_symbols(["BTC/USDT", "ETH/USDT"])))
+    background_tasks.append(asyncio.create_task(stream_symbols(SessionLocal)))
     try:
         await bot_supervisor.recover(SessionLocal)
     except Exception:
