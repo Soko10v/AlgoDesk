@@ -16,7 +16,7 @@ import uuid
 from typing import Any
 
 from app.services.ai_analysis import analyze_strategy_iterative
-from app.services.backtest import run_backtest
+from app.services.backtest import load_candles, simulate_backtest
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +38,17 @@ def get_job(job_id: str) -> dict[str, Any] | None:
 async def _run(job_id: str, config: dict[str, Any], since_ms: int | None, until_ms: int | None) -> None:
     job = _JOBS[job_id]
     try:
-        original = await run_backtest(config, since_ms=since_ms, until_ms=until_ms)
+        # Fetch candles once; the original and all three proposals are simulated on
+        # the same data (fair comparison, and no repeated fetches to get throttled).
+        candles = await load_candles(config, since_ms, until_ms)
+        if not candles:
+            raise RuntimeError("No market data returned by the exchange — try again")
+        original = simulate_backtest(config, candles)
 
         def progress(n: int) -> None:
             job["attempt"] = n
 
-        data = await analyze_strategy_iterative(
-            config, original, since_ms=since_ms, until_ms=until_ms, progress_cb=progress
-        )
+        data = await analyze_strategy_iterative(config, original, candles, progress_cb=progress)
         job["result"] = data
         job["status"] = "done"
     except Exception as exc:  # noqa: BLE001 - record any failure for the poller
