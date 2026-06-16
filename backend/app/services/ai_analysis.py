@@ -208,12 +208,11 @@ async def analyze_strategy_iterative(
     ]
 
     attempts: list[dict[str, Any]] = []
-    best_config: dict[str, Any] | None = None
-    best_return: float = original_return
-    best_drawdown: float = original_drawdown
-    final_parsed: dict[str, Any] = {}
-
+    final_parsed: dict[str, Any] = {}  # first usable response — holds the verdict/assessment
     last_error: str | None = None
+
+    # Always produce three distinct variants so the user has options to compare and
+    # save, even if an early one already beats the original.
     for attempt_n in range(1, 4):
         if progress_cb:
             progress_cb(attempt_n)
@@ -226,24 +225,37 @@ async def analyze_strategy_iterative(
         try:
             parsed = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
-            final_parsed = {
-                "verdict": "AI-анализ", "rating": "mixed",
-                "assessment": str(raw), "proposed_changes": "", "proposed_config": None,
-            }
-            break
+            if not final_parsed:
+                final_parsed = {
+                    "verdict": "AI-анализ", "rating": "mixed",
+                    "assessment": str(raw), "proposed_changes": "", "proposed_config": None,
+                }
+            messages.append({"role": "assistant", "content": raw})
+            messages.append({"role": "user", "content": "Ответ был не в формате JSON. Верни строго валидный JSON с proposed_config."})
+            continue
 
-        final_parsed = parsed
+        if not final_parsed:
+            final_parsed = parsed  # keep the first response's verdict/assessment/rating
+
         proposed = _parse_proposed(parsed, config)
-
         if not proposed:
-            # AI decided nothing can be improved (or returned invalid config).
-            break
+            messages.append({"role": "assistant", "content": raw})
+            messages.append({
+                "role": "user",
+                "content": (
+                    f"Нужен конкретный вариант {attempt_n} (полный proposed_config), "
+                    f"даже если стратегия уже неплохая — пользователь хочет выбрать из нескольких. Верни JSON."
+                ),
+            })
+            continue
 
         try:
             prop_result = await run_backtest(proposed, since_ms=since_ms, until_ms=until_ms)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Backtest of proposed config attempt %d failed: %s", attempt_n, exc)
-            break
+            messages.append({"role": "assistant", "content": raw})
+            messages.append({"role": "user", "content": "Не удалось протестировать этот конфиг. Предложи другой вариант. Верни JSON."})
+            continue
 
         prop_return = round(float(prop_result.get("total_return_pct", 0.0)), 2)
         prop_drawdown = round(float(prop_result.get("max_drawdown_pct", 0.0)), 2)
@@ -257,28 +269,18 @@ async def analyze_strategy_iterative(
             "win_rate": prop_winrate,
             "trades": prop_trades,
             "proposed_changes": str(parsed.get("proposed_changes") or ""),
+            "config": proposed,
         })
 
-        # "Better" = higher return, or same return with significantly lower drawdown.
-        is_better = prop_return > original_return or (
-            abs(prop_return - original_return) < 1.0 and prop_drawdown < original_drawdown * 0.75
-        )
-
-        if is_better:
-            best_config = proposed
-            best_return = prop_return
-            best_drawdown = prop_drawdown
-            break
-
-        # Give feedback for the next attempt.
+        # Always ask for a genuinely different next variant so the three options diverge.
         messages.append({"role": "assistant", "content": raw})
         messages.append({
             "role": "user",
             "content": (
-                f"Попытка {attempt_n}: бэктест дал return={prop_return:.1f}%, drawdown={prop_drawdown:.1f}% — "
-                f"хуже оригинала (return={original_return:.1f}%, drawdown={original_drawdown:.1f}%). "
-                f"Попробуй принципиально другой подход (другие индикаторы входа, уровни стопа/тейка). "
-                f"Верни JSON в том же формате."
+                f"Вариант {attempt_n}: бэктест дал return={prop_return:.1f}%, drawdown={prop_drawdown:.1f}% "
+                f"(оригинал: return={original_return:.1f}%, drawdown={original_drawdown:.1f}%). "
+                f"Предложи ПРИНЦИПИАЛЬНО ДРУГОЙ вариант (другие индикаторы входа, уровни стопа/тейка), "
+                f"чтобы пользователю было из чего выбрать. Верни JSON в том же формате."
             ),
         })
 
@@ -286,21 +288,34 @@ async def analyze_strategy_iterative(
     if not final_parsed and last_error:
         raise RuntimeError(last_error)
 
-    improved = best_config is not None
-    rating = final_parsed.get("rating")
+    # Pick the best of the variants (highest return); "improved" if it beats the original.
+    best_config: dict[str, Any] | None = None
+    best_return: float | None = None
+    best_drawdown: float | None = None
+    best_n: int | None = None
+    improved = False
+    if attempts:
+        best = max(attempts, key=lambda a: a["total_return_pct"])
+        best_config = best["config"]
+        best_return = best["total_return_pct"]
+        best_drawdown = best["max_drawdown_pct"]
+        best_n = best["n"]
+        improved = best_return > original_return or (
+            abs(best_return - original_return) < 1.0 and best_drawdown < original_drawdown * 0.75
+        )
 
+    rating = final_parsed.get("rating")
     return {
         "verdict": str(final_parsed.get("verdict") or ""),
         "rating": rating if rating in ("good", "mixed", "bad") else "mixed",
         "assessment": str(final_parsed.get("assessment") or ""),
-        "proposed_changes": (
-            attempts[-1]["proposed_changes"] if attempts else str(final_parsed.get("proposed_changes") or "")
-        ),
+        "proposed_changes": str(final_parsed.get("proposed_changes") or ""),
         "proposed_config": best_config,
         "improved": improved,
         "attempts": attempts,
+        "best_n": best_n,
         "original_return_pct": original_return,
         "original_drawdown_pct": original_drawdown,
-        "best_return_pct": best_return if improved else None,
-        "best_drawdown_pct": best_drawdown if improved else None,
+        "best_return_pct": best_return,
+        "best_drawdown_pct": best_drawdown,
     }

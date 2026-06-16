@@ -56,6 +56,7 @@ class AttemptInfo(BaseModel):
     win_rate: float
     trades: int
     proposed_changes: str = ""
+    config: dict[str, Any] | None = None
 
 
 class AnalyzeOut(BaseModel):
@@ -66,6 +67,7 @@ class AnalyzeOut(BaseModel):
     proposed_config: dict[str, Any] | None = None
     improved: bool = False
     attempts: list[AttemptInfo] = []
+    best_n: int | None = None
     original_return_pct: float = 0.0
     original_drawdown_pct: float = 0.0
     best_return_pct: float | None = None

@@ -210,6 +210,7 @@ export type AttemptInfo = {
   win_rate: number;
   trades: number;
   proposed_changes: string;
+  config: StrategyConfig | null;
 };
 
 export type AiAnalysis = {
@@ -220,6 +221,7 @@ export type AiAnalysis = {
   proposed_config: StrategyConfig | null;
   improved: boolean;
   attempts: AttemptInfo[];
+  best_n: number | null;
   original_return_pct: number;
   original_drawdown_pct: number;
   best_return_pct: number | null;
