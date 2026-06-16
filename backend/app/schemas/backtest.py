@@ -49,9 +49,24 @@ class AnalyzeIn(BaseModel):
     end_date: date | None = None
 
 
+class AttemptInfo(BaseModel):
+    n: int
+    total_return_pct: float
+    max_drawdown_pct: float
+    win_rate: float
+    trades: int
+    proposed_changes: str = ""
+
+
 class AnalyzeOut(BaseModel):
     verdict: str
     rating: str
     assessment: str
     proposed_changes: str
     proposed_config: dict[str, Any] | None = None
+    improved: bool = False
+    attempts: list[AttemptInfo] = []
+    original_return_pct: float = 0.0
+    original_drawdown_pct: float = 0.0
+    best_return_pct: float | None = None
+    best_drawdown_pct: float | None = None

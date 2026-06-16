@@ -38,6 +38,7 @@ export function BacktestPage() {
 
   const cfg = useQuery({ queryKey: ["auth-config"], queryFn: authConfig, staleTime: Infinity });
   const aiEnabled = cfg.data?.ai_enabled ?? false;
+  const [aiAttempt, setAiAttempt] = useState(1);
   const analyze = useMutation({
     mutationFn: () => analyzeStrategy(strategyId as number, startDate || undefined, endDate || undefined),
     onError: (e: unknown) => {
@@ -45,6 +46,12 @@ export function BacktestPage() {
       toast.error("AI analysis failed", detail);
     },
   });
+
+  useEffect(() => {
+    if (!analyze.isPending) { setAiAttempt(1); return; }
+    const id = setInterval(() => setAiAttempt((p) => Math.min(p + 1, 3)), 45_000);
+    return () => clearInterval(id);
+  }, [analyze.isPending]);
 
   const stratName = strategies.data?.find((s) => s.id === strategyId)?.name ?? "Strategy";
   const saveOptimized = useMutation({
@@ -223,7 +230,7 @@ export function BacktestPage() {
 
       {analyze.isPending && (
         <Card className="mt-6 flex items-center justify-center gap-3 p-12 text-slate-400">
-          <Spinner /> AI is reviewing the backtest…
+          <Spinner /> AI trying strategy {aiAttempt}…
         </Card>
       )}
 
@@ -233,6 +240,7 @@ export function BacktestPage() {
             <Sparkles className="h-4 w-4 text-brand-400" /> AI analysis
           </div>
           <div className="space-y-4 p-5">
+            {/* Verdict */}
             <div
               className={`rounded-xl border p-3 text-sm font-medium ${
                 analyze.data.rating === "good"
@@ -244,13 +252,64 @@ export function BacktestPage() {
             >
               {analyze.data.verdict || "—"}
             </div>
+
+            {/* Assessment */}
             {analyze.data.assessment && (
               <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-300">{analyze.data.assessment}</p>
             )}
-            {analyze.data.proposed_config && (
-              <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
-                <div className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Suggested improved version
+
+            {/* Attempts comparison table */}
+            {analyze.data.attempts.length > 0 && (
+              <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]">
+                <div className="border-b border-white/[0.06] px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Strategies tested
+                </div>
+                <table className="min-w-full text-sm">
+                  <thead className="text-left text-xs uppercase tracking-wider text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">#</th>
+                      <th className="px-3 py-2 text-right font-medium">Return</th>
+                      <th className="px-3 py-2 text-right font-medium">Drawdown</th>
+                      <th className="px-3 py-2 text-right font-medium">Win rate</th>
+                      <th className="px-3 py-2 text-right font-medium">Trades</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/[0.05]">
+                    <tr>
+                      <td className="px-3 py-2 text-slate-500">Original</td>
+                      <td className={`px-3 py-2 text-right font-semibold ${pnlTone(analyze.data.original_return_pct)}`}>
+                        {signedPct(analyze.data.original_return_pct)}
+                      </td>
+                      <td className="px-3 py-2 text-right text-rose-400">{pct(analyze.data.original_drawdown_pct)}</td>
+                      <td className="px-3 py-2 text-right text-slate-500">—</td>
+                      <td className="px-3 py-2 text-right text-slate-500">—</td>
+                    </tr>
+                    {analyze.data.attempts.map((a) => {
+                      const isWinner = analyze.data!.improved && a.n === analyze.data!.attempts.length;
+                      return (
+                        <tr key={a.n} className={isWinner ? "bg-brand-500/[0.04]" : "hover:bg-white/[0.02]"}>
+                          <td className={`px-3 py-2 font-medium ${isWinner ? "text-brand-300" : "text-slate-400"}`}>
+                            {isWinner ? "✓ " : ""}Attempt {a.n}
+                          </td>
+                          <td className={`px-3 py-2 text-right font-semibold ${pnlTone(a.total_return_pct)}`}>
+                            {signedPct(a.total_return_pct)}
+                          </td>
+                          <td className="px-3 py-2 text-right text-rose-400">{pct(a.max_drawdown_pct)}</td>
+                          <td className="px-3 py-2 text-right text-slate-300">{pct(a.win_rate)}</td>
+                          <td className="px-3 py-2 text-right text-slate-300">{a.trades}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Result card */}
+            {analyze.data.improved && analyze.data.proposed_config ? (
+              <div className="rounded-xl border border-brand-500/20 bg-brand-500/[0.04] p-3">
+                <div className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-brand-400">
+                  AI found a better strategy
                 </div>
                 {analyze.data.proposed_changes && (
                   <p className="whitespace-pre-wrap text-sm text-slate-300">{analyze.data.proposed_changes}</p>
@@ -264,7 +323,13 @@ export function BacktestPage() {
                   <Save className="h-3.5 w-3.5" /> Save as new strategy
                 </Button>
               </div>
-            )}
+            ) : analyze.data.attempts.length > 0 ? (
+              <div className="rounded-xl border border-slate-700/50 bg-slate-800/30 p-3 text-sm text-slate-400">
+                AI tried {analyze.data.attempts.length} variation{analyze.data.attempts.length !== 1 ? "s" : ""} and
+                couldn't beat the original on this period.
+              </div>
+            ) : null}
+
             <p className="text-xs text-slate-500">
               AI suggestions are based on past data and can be wrong — backtest the saved version and start in paper mode.
             </p>

@@ -9,7 +9,7 @@ from app.core.ratelimit import limiter
 from app.models.strategy import Strategy
 from app.models.user import User
 from app.schemas.backtest import AnalyzeIn, AnalyzeOut, BacktestIn, BacktestOut, OptimizeIn, OptimizeOut
-from app.services.ai_analysis import analyze_strategy, is_configured
+from app.services.ai_analysis import analyze_strategy_iterative, is_configured
 from app.services.backtest import run_backtest, run_optimization
 
 router = APIRouter()
@@ -69,7 +69,9 @@ async def analyze_backtest(
     since_ms, until_ms = _date_bounds(payload.start_date, payload.end_date)
     result = await run_backtest(strategy.config_json, since_ms=since_ms, until_ms=until_ms)
     try:
-        data = await analyze_strategy(strategy.config_json, result)
+        data = await analyze_strategy_iterative(
+            strategy.config_json, result, since_ms=since_ms, until_ms=until_ms
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=f"AI analysis failed: {exc}")
     return AnalyzeOut(**data)
