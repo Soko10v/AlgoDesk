@@ -34,6 +34,7 @@ async def auth_config() -> AuthConfigOut:
         supabase_anon_key=settings.supabase_anon_key,
         telegram_bot_username=settings.telegram_bot_username,
         google_enabled=bool(settings.google_client_id and settings.google_client_secret),
+        ai_enabled=bool(settings.deepseek_api_key),
     )
 
 

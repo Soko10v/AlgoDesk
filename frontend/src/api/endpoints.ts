@@ -60,6 +60,8 @@ export type AuthConfig = {
   supabase_url: string;
   supabase_anon_key: string;
   telegram_bot_username: string;
+  google_enabled?: boolean;
+  ai_enabled?: boolean;
 };
 export type Subscription = {
   plan: string;
@@ -199,6 +201,19 @@ export type OptimizeResponse = { results: OptimizeResult[]; tested: number; cand
 export async function optimizeStrategy(strategy_id: number, start_date?: string, end_date?: string) {
   const { data } = await api.post("/backtest/optimize", { strategy_id, start_date, end_date });
   return data as OptimizeResponse;
+}
+
+export type AiAnalysis = {
+  verdict: string;
+  rating: "good" | "mixed" | "bad";
+  assessment: string;
+  proposed_changes: string;
+  proposed_config: StrategyConfig | null;
+};
+
+export async function analyzeStrategy(strategy_id: number, start_date?: string, end_date?: string) {
+  const { data } = await api.post("/backtest/analyze", { strategy_id, start_date, end_date });
+  return data as AiAnalysis;
 }
 
 // ---- trades ----

@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     # engine-health alerts (recovery failure, stalled bots).
     sentry_dsn: str = ""
     admin_telegram_id: int = 0
+    # AI strategy analysis via DeepSeek (OpenAI-compatible). Empty key disables it.
+    deepseek_api_key: str = ""
+    deepseek_model: str = "deepseek-chat"
+    deepseek_base_url: str = "https://api.deepseek.com"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

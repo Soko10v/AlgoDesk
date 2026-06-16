@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createChart, type IChartApi, type SeriesMarker, type Time, type UTCTimestamp } from "lightweight-charts";
-import { Activity, Play, Percent, Save, TrendingDown, Trophy, Wand2 } from "lucide-react";
+import { Activity, Play, Percent, Save, Sparkles, TrendingDown, Trophy, Wand2 } from "lucide-react";
 import {
+  analyzeStrategy,
+  authConfig,
   createStrategy,
   listStrategies,
   optimizeStrategy,
@@ -33,9 +35,29 @@ export function BacktestPage() {
     mutationFn: () => optimizeStrategy(strategyId as number, startDate || undefined, endDate || undefined),
     onError: () => toast.error("Optimization failed", "Try a shorter period."),
   });
+
+  const cfg = useQuery({ queryKey: ["auth-config"], queryFn: authConfig, staleTime: Infinity });
+  const aiEnabled = cfg.data?.ai_enabled ?? false;
+  const analyze = useMutation({
+    mutationFn: () => analyzeStrategy(strategyId as number, startDate || undefined, endDate || undefined),
+    onError: (e: unknown) => {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error("AI analysis failed", detail);
+    },
+  });
+
   const stratName = strategies.data?.find((s) => s.id === strategyId)?.name ?? "Strategy";
   const saveOptimized = useMutation({
     mutationFn: (r: OptimizeResult) => createStrategy({ name: `${stratName} (optimized)`, config_json: r.config }),
+    onSuccess: (s) => {
+      toast.success("Saved strategy", s.name);
+      qc.invalidateQueries({ queryKey: ["strategies"] });
+    },
+    onError: () => toast.error("Could not save strategy"),
+  });
+  const saveAi = useMutation({
+    mutationFn: (config: NonNullable<typeof analyze.data>["proposed_config"]) =>
+      createStrategy({ name: `${stratName} (AI)`, config_json: config! }),
     onSuccess: (s) => {
       toast.success("Saved strategy", s.name);
       qc.invalidateQueries({ queryKey: ["strategies"] });
@@ -150,7 +172,7 @@ export function BacktestPage() {
       <PageHeader title="Backtest" description="Replay a strategy on historical Bybit candles." />
 
       <Card className="animate-slide-up p-5">
-        <div className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Strategy">
             <Select value={strategyId ?? ""} onChange={(e) => setStrategyId(Number(e.target.value) || null)}>
               <option value="">Select strategy…</option>
@@ -167,27 +189,88 @@ export function BacktestPage() {
           <Field label="End date">
             <input type="date" className="input" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
           </Field>
-          <div className="flex gap-2">
-            <Button className="flex-1" onClick={() => run.mutate()} loading={run.isPending} disabled={!strategyId}>
-              <Play className="h-4 w-4" /> Run
-            </Button>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button onClick={() => run.mutate()} loading={run.isPending} disabled={!strategyId}>
+            <Play className="h-4 w-4" /> Run
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => optimize.mutate()}
+            loading={optimize.isPending}
+            disabled={!strategyId}
+            title="Sweep parameter combinations and rank the best"
+          >
+            <Wand2 className="h-4 w-4" /> Optimize
+          </Button>
+          {aiEnabled && (
             <Button
-              className="flex-1"
               variant="secondary"
-              onClick={() => optimize.mutate()}
-              loading={optimize.isPending}
+              onClick={() => analyze.mutate()}
+              loading={analyze.isPending}
               disabled={!strategyId}
-              title="Sweep parameter combinations and rank the best"
+              title="DeepSeek reviews the backtest and suggests an improved bot"
             >
-              <Wand2 className="h-4 w-4" /> Optimize
+              <Sparkles className="h-4 w-4" /> AI analysis
             </Button>
-          </div>
+          )}
         </div>
         <p className="mt-3 text-xs text-slate-500">
           Leave the dates blank to backtest the most recent candles (up to ~2000 of the
           strategy's timeframe). The exact period and candle count are shown with the results.
         </p>
       </Card>
+
+      {analyze.isPending && (
+        <Card className="mt-6 flex items-center justify-center gap-3 p-12 text-slate-400">
+          <Spinner /> AI is reviewing the backtest…
+        </Card>
+      )}
+
+      {analyze.data && !analyze.isPending && (
+        <Card className="mt-6 p-0">
+          <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-3 text-sm font-semibold text-slate-200">
+            <Sparkles className="h-4 w-4 text-brand-400" /> AI analysis
+          </div>
+          <div className="space-y-4 p-5">
+            <div
+              className={`rounded-xl border p-3 text-sm font-medium ${
+                analyze.data.rating === "good"
+                  ? "border-brand-500/20 bg-brand-500/[0.06] text-brand-300"
+                  : analyze.data.rating === "bad"
+                    ? "border-rose-500/20 bg-rose-500/[0.06] text-rose-300"
+                    : "border-amber-500/20 bg-amber-500/[0.06] text-amber-200"
+              }`}
+            >
+              {analyze.data.verdict || "—"}
+            </div>
+            {analyze.data.assessment && (
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-300">{analyze.data.assessment}</p>
+            )}
+            {analyze.data.proposed_config && (
+              <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
+                <div className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Suggested improved version
+                </div>
+                {analyze.data.proposed_changes && (
+                  <p className="whitespace-pre-wrap text-sm text-slate-300">{analyze.data.proposed_changes}</p>
+                )}
+                <Button
+                  className="mt-3"
+                  size="sm"
+                  onClick={() => saveAi.mutate(analyze.data!.proposed_config)}
+                  loading={saveAi.isPending}
+                >
+                  <Save className="h-3.5 w-3.5" /> Save as new strategy
+                </Button>
+              </div>
+            )}
+            <p className="text-xs text-slate-500">
+              AI suggestions are based on past data and can be wrong — backtest the saved version and start in paper mode.
+            </p>
+          </div>
+        </Card>
+      )}
 
       {optimize.isPending && (
         <Card className="mt-6 flex items-center justify-center gap-3 p-12 text-slate-400">
