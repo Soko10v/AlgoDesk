@@ -1,4 +1,4 @@
-import type { EntryRule, EntryType, HedgeConfig, StrategyConfig } from "../api/endpoints";
+import type { EntryRule, EntryType, FilterType, HedgeConfig, StrategyConfig, StrategyFilter } from "../api/endpoints";
 
 export const SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT"];
 export const TIMEFRAMES = ["5m", "15m", "1h", "4h", "1d"];
@@ -43,6 +43,29 @@ export function defaultEntry(type: EntryType): EntryRule {
   }
 }
 
+export const FILTER_TYPES: { id: FilterType; label: string }[] = [
+  { id: "trend", label: "Trend (price vs MA)" },
+  { id: "rsi", label: "RSI (skip extremes)" },
+];
+
+export function defaultFilter(type: FilterType): StrategyFilter {
+  return type === "rsi"
+    ? { type: "rsi", period: 14, max: 70, min: 30 }
+    : { type: "trend", ma: "ema", period: 200 };
+}
+
+export function describeFilters(config: StrategyConfig): string {
+  const fs = config.filters ?? [];
+  if (!fs.length) return "";
+  return fs
+    .map((f) =>
+      f.type === "trend"
+        ? `${f.ma.toUpperCase()}${f.period} trend`
+        : `RSI${f.period}${f.max != null ? ` <${f.max}` : ""}${f.min != null ? ` >${f.min}` : ""}`
+    )
+    .join(" + ");
+}
+
 export function defaultHedge(): HedgeConfig {
   return { enabled: false, mode: "auto_squeeze", ratio: 1.0, trigger_pct: 3, window_sec: 60, release_pct: 1.5 };
 }
@@ -59,6 +82,7 @@ export function normalizeConfig(config: Partial<StrategyConfig>): StrategyConfig
   merged.leverage = merged.leverage ?? 3;
   merged.hedge = { ...defaultHedge(), ...(merged.hedge ?? {}) };
   if (!merged.entry?.length) merged.entry = [defaultEntry("ma_cross")];
+  merged.filters = Array.isArray(merged.filters) ? merged.filters : [];
   merged.trailing_stop = merged.trailing_stop ?? { type: "pct", value: 0 };
   return merged;
 }
@@ -69,6 +93,7 @@ export function defaultConfig(): StrategyConfig {
     timeframe: "1h",
     position_size_usdt: DEFAULT_POSITION_USDT,
     entry: [{ type: "ma_cross", fast: 9, slow: 21 }],
+    filters: [],
     exit: [{ type: "rsi", op: ">", value: 70 }],
     stop_loss: { type: "pct", value: 2 },
     take_profit: { type: "pct", value: 5 },
@@ -123,6 +148,14 @@ export function presets(): Preset[] {
       blurb: "MACD cross · both ways · trailing",
       config: { ...base, timeframe: "4h", market: "futures", direction: "both", leverage: 3,
         entry: [defaultEntry("macd")], stop_loss: pct(3), take_profit: off, trailing_stop: pct(4) },
+    },
+    {
+      id: "trendpull",
+      name: "Trend Pullback",
+      blurb: "Buy RSI dips, only above the 200 EMA",
+      config: { ...base, timeframe: "1h", entry: [defaultEntry("rsi")],
+        filters: [{ type: "trend", ma: "ema", period: 200 }],
+        stop_loss: pct(2), take_profit: pct(4), trailing_stop: off },
     },
   ];
 }

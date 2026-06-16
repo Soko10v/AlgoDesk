@@ -39,7 +39,9 @@ from app.services.telegram_alerts import send_admin_alert, send_telegram_alert
 
 logger = logging.getLogger(__name__)
 
-SEED_CANDLES = 200
+# Enough history for a 200-period trend filter (+ the dropped forming candle and
+# a safety margin) to evaluate live the same way it does in the backtest.
+SEED_CANDLES = 350
 LOOP_INTERVAL = 2.0
 # Signals run on real OHLCV candles for the strategy's timeframe, not the 2s
 # price ticks. Candles are cached in Redis and refreshed at most this often

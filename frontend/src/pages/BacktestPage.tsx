@@ -18,7 +18,7 @@ import {
 import { toast } from "../store/toast";
 import { Badge, Button, Card, EmptyState, Field, PageHeader, Select, Spinner, StatCard } from "../components/ui";
 import { dateTime, pct, pnlTone, price, signedPct } from "../lib/formatters";
-import { describeEntry } from "../lib/strategy";
+import { describeEntry, describeFilters } from "../lib/strategy";
 
 export function BacktestPage() {
   const strategies = useQuery({ queryKey: ["strategies"], queryFn: listStrategies });
@@ -558,7 +558,12 @@ export function BacktestPage() {
                   {optimize.data.results.map((r, i) => (
                     <tr key={i} className="hover:bg-white/[0.02]">
                       <td className="px-4 py-2.5 text-slate-500">{i + 1}</td>
-                      <td className="px-4 py-2.5 text-slate-300">{describeEntry(r.config)}</td>
+                      <td className="px-4 py-2.5 text-slate-300">
+                        {describeEntry(r.config)}
+                        {describeFilters(r.config) && (
+                          <span className="ml-1 text-xs text-violet-300">+ {describeFilters(r.config)}</span>
+                        )}
+                      </td>
                       <td className="px-4 py-2.5 font-mono text-xs text-slate-400">
                         {r.config.stop_loss.value}% / {r.config.take_profit.value || "—"}
                         {r.config.take_profit.value ? "%" : ""} / {r.config.trailing_stop?.value || "—"}
