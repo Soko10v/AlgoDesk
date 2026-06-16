@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -490,19 +491,19 @@ class BotSupervisor:
         for strategy_id in list(self.tasks):
             await self.stop(strategy_id)
 
-    async def _candle_closes(self, config: dict[str, Any]) -> list[float]:
-        """Return recent OHLCV closes for the strategy's symbol/timeframe.
+    async def _recent_candles(self, config: dict[str, Any]) -> list[list[float]]:
+        """Return recent OHLCV rows ([ts,o,h,l,c,v]) for the strategy's symbol/timeframe.
 
-        Indicators must run on real candles, so the bot pulls OHLCV and caches it
-        in Redis — refreshed at most once per ``CANDLE_REFRESH_SEC`` and shared
-        across bots — instead of feeding raw 2s price ticks into the indicator
-        history (which collapsed the series into near-identical values and made
-        every signal whipsaw)."""
+        Indicators (and the volume/ATR/ADX filters) must run on real candles, so the
+        bot pulls full OHLCV and caches it in Redis — refreshed at most once per
+        ``CANDLE_REFRESH_SEC`` and shared across bots — instead of feeding raw 2s
+        price ticks into the indicator history (which collapsed the series into
+        near-identical values and made every signal whipsaw)."""
         symbol = config.get("symbol", "BTC/USDT")
         timeframe = config.get("timeframe", "1h")
         skey = symbol.replace("/", "_")
-        closes_key = f"closes:{skey}:{timeframe}"
-        stamp_key = f"closes_at:{skey}:{timeframe}"
+        ohlcv_key = f"ohlcv:{skey}:{timeframe}"
+        stamp_key = f"ohlcv_at:{skey}:{timeframe}"
 
         last = await redis_client.get(stamp_key)
         if last is None or (time.time() - float(last)) >= CANDLE_REFRESH_SEC:
@@ -512,17 +513,21 @@ class BotSupervisor:
             except Exception as exc:  # noqa: BLE001 - refresh is best-effort; keep the cache
                 logger.warning("could not refresh candles for %s %s: %s", symbol, timeframe, exc)
                 candles = None
-            finally:
+            if candles:
+                await redis_client.set(ohlcv_key, json.dumps(candles))
+                await redis_client.set(stamp_key, time.time())
+            try:
                 await client.close()
-            closes = [str(c[4]) for c in (candles or []) if c and c[4] is not None]
-            if closes:
-                async with redis_client.pipeline(transaction=True) as pipe:
-                    pipe.delete(closes_key)
-                    pipe.rpush(closes_key, *closes)
-                    pipe.set(stamp_key, time.time())
-                    await pipe.execute()
+            except Exception:  # noqa: BLE001
+                pass
 
-        return [float(v) for v in await redis_client.lrange(closes_key, 0, -1)]
+        raw = await redis_client.get(ohlcv_key)
+        if not raw:
+            return []
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return []
 
     async def _run_loop(self, session_factory, strategy_id: int) -> None:
         while True:
@@ -556,12 +561,14 @@ class BotSupervisor:
         # Signals run on real timeframe candles; the live tick only drives SL/TP,
         # trailing and fills. Evaluate on closed candles (drop the forming last
         # one) so a signal flips when a candle closes, not on intra-candle noise.
-        candles = await self._candle_closes(strategy.config_json)
-        closes = candles[:-1] if len(candles) > 1 else candles
+        candles = await self._recent_candles(strategy.config_json)
+        rows = candles[:-1] if len(candles) > 1 else candles
+        rows = [c for c in rows if c and len(c) > 4 and c[4] is not None]
+        closes = [float(c[4]) for c in rows]
         if not closes:
             return
 
-        signal = evaluate_signal(strategy.config_json, closes, state.position_side)
+        signal = evaluate_signal(strategy.config_json, closes, state.position_side, rows)
 
         # Track the best price since entry for the trailing stop.
         if state.has_position and state.extreme_price is not None:

@@ -1,7 +1,7 @@
 from typing import Any
 
 from app.engine.risk import allow_short
-from app.services.indicators import ema, macd, rsi, sma
+from app.services.indicators import adx, atr, ema, macd, rsi, sma
 
 
 def _entry_trend(config: dict[str, Any], closes: list[float]) -> tuple[bool, bool]:
@@ -58,16 +58,23 @@ def _rsi_exit(config: dict[str, Any], closes: list[float]) -> bool:
     return False
 
 
-def _passes_filters(config: dict[str, Any], closes: list[float], want_side: str) -> bool:
+def _passes_filters(
+    config: dict[str, Any], closes: list[float], want_side: str, candles: list[list[float]] | None = None
+) -> bool:
     """Every configured entry filter must allow `want_side` ("long"/"short").
 
     Filters are extra conditions layered on top of the entry signal (the entry
     block decides the side; filters can veto it). Supported:
-      - trend: price must be above the MA for longs, below it for shorts
-        (e.g. only trade with the 200-EMA trend)
-      - rsi:   skip longs when RSI is overbought (>= max), skip shorts when
-        oversold (<= min)
-    Not enough history for a filter's indicator vetoes the entry (conservative)."""
+      - trend:  price above the MA for longs, below it for shorts (trade with the trend)
+      - rsi:    skip longs when RSI >= max (overbought), shorts when <= min (oversold)
+      - volume: current bar's volume must beat mult × its average (confirm the move)
+      - atr:    ATR% (volatility) must sit within [min_pct, max_pct] (skip flat/too wild)
+      - adx:    ADX (trend strength) must be >= min (skip choppy ranges)
+    volume/atr/adx need OHLCV (``candles``, aligned with ``closes``) and apply to both
+    sides. Not enough history for a filter's indicator vetoes the entry (conservative)."""
+    highs = [float(c[2]) for c in candles] if candles else []
+    lows = [float(c[3]) for c in candles] if candles else []
+
     for f in config.get("filters") or []:
         if not isinstance(f, dict):
             continue
@@ -92,10 +99,44 @@ def _passes_filters(config: dict[str, Any], closes: list[float], want_side: str)
                 return False
             if want_side == "short" and lo is not None and value <= float(lo):
                 return False
+        elif ftype == "volume":
+            if not candles:
+                return False
+            period = int(f.get("period", 20))
+            vols = [float(c[5]) for c in candles if len(c) > 5 and c[5] is not None]
+            if len(vols) <= period:
+                return False
+            avg = sum(vols[-period:]) / period
+            if avg <= 0 or vols[-1] < float(f.get("mult", 1.5)) * avg:
+                return False
+        elif ftype == "atr":
+            if not candles:
+                return False
+            value = atr(highs, lows, closes, int(f.get("period", 14)))
+            price = closes[-1]
+            if value is None or not price:
+                return False
+            atr_pct = value / price * 100
+            lo, hi = f.get("min_pct"), f.get("max_pct")
+            if lo is not None and atr_pct < float(lo):
+                return False
+            if hi is not None and atr_pct > float(hi):
+                return False
+        elif ftype == "adx":
+            if not candles:
+                return False
+            value = adx(highs, lows, closes, int(f.get("period", 14)))
+            if value is None or value < float(f.get("min", 20)):
+                return False
     return True
 
 
-def evaluate_signal(config: dict[str, Any], closes: list[float], position_side: str | None) -> str | None:
+def evaluate_signal(
+    config: dict[str, Any],
+    closes: list[float],
+    position_side: str | None,
+    candles: list[list[float]] | None = None,
+) -> str | None:
     """Decide the next action given the open position.
 
     `position_side` is None (flat), "long" or "short". Returns one of:
@@ -116,15 +157,15 @@ def evaluate_signal(config: dict[str, Any], closes: list[float], position_side: 
 
     if allow_short(config):
         # Flip model: always sit on the trend side.
-        if bullish and position_side != "long" and _passes_filters(config, closes, "long"):
+        if bullish and position_side != "long" and _passes_filters(config, closes, "long", candles):
             return "long"
-        if bearish and position_side != "short" and _passes_filters(config, closes, "short"):
+        if bearish and position_side != "short" and _passes_filters(config, closes, "short", candles):
             return "short"
         return None
 
     # Long-only (unchanged semantics, plus entry filters).
     if position_side is None:
-        return "long" if (bullish and _passes_filters(config, closes, "long")) else None
+        return "long" if (bullish and _passes_filters(config, closes, "long", candles)) else None
     if position_side == "long" and _rsi_exit(config, closes):
         return "close"
     return None

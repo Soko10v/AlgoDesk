@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactFlow, { Background, Controls, MarkerType, type Edge, type Node } from "reactflow";
 import "reactflow/dist/style.css";
-import { Anchor, ArrowDownUp, Crosshair, Filter, LogIn, LogOut, Pencil, Plus, Save, Shield, Sparkles, Target, Trash2, Umbrella, X, Zap } from "lucide-react";
+import { Anchor, ArrowDownUp, Coins, Crosshair, Filter, LogIn, LogOut, Pencil, Plus, Save, Shield, SlidersHorizontal, Sparkles, Target, Trash2, Umbrella, X, Zap } from "lucide-react";
 import {
   createStrategy,
   deleteStrategy,
@@ -62,6 +62,14 @@ function accentNode(border: string): React.CSSProperties {
   return { ...NODE_BASE, border: `1px solid ${border}` };
 }
 
+type BuilderTab = "setup" | "entry" | "risk" | "advanced";
+const BUILDER_TABS: { id: BuilderTab; label: string; icon: typeof Shield }[] = [
+  { id: "setup", label: "Setup", icon: Coins },
+  { id: "entry", label: "Entry", icon: LogIn },
+  { id: "risk", label: "Risk", icon: Shield },
+  { id: "advanced", label: "Advanced", icon: SlidersHorizontal },
+];
+
 export function StrategyBuilderPage() {
   const qc = useQueryClient();
   const strategies = useQuery({ queryKey: ["strategies"], queryFn: listStrategies });
@@ -71,6 +79,7 @@ export function StrategyBuilderPage() {
   const [cfg, setCfg] = useState<StrategyConfig>(defaultConfig());
   const [liveEnabled, setLiveEnabled] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [tab, setTab] = useState<BuilderTab>("setup");
 
   // Minimum order size on the exchange for the chosen symbol/market. Size is
   // margin, so the minimum to enter is min_notional / leverage — warn below it.
@@ -209,265 +218,309 @@ export function StrategyBuilderPage() {
             </div>
           )}
 
+          {/* Tabs keep the form from becoming one endless column of inputs. */}
+          <div className="mb-5 flex gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+            {BUILDER_TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-medium transition",
+                  tab === t.id
+                    ? "bg-brand-500/15 text-brand-200 shadow-sm"
+                    : "text-slate-400 hover:text-slate-200"
+                )}
+              >
+                <t.icon className="h-3.5 w-3.5" /> {t.label}
+              </button>
+            ))}
+          </div>
+
           <div className="space-y-4">
-            <Field label="Strategy name">
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. BTC momentum" />
-            </Field>
-
-            <Field label="Bot type">
-              <div className="grid grid-cols-2 gap-2">
-                {(["spot", "futures"] as const).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setMarket(m)}
-                    className={cn(
-                      "flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition",
-                      cfg.market === m
-                        ? "border-brand-500/60 bg-brand-500/10 text-brand-200"
-                        : "border-white/[0.06] bg-white/[0.02] text-slate-400 hover:text-slate-200"
-                    )}
-                  >
-                    {m === "futures" && <Zap className="h-3.5 w-3.5" />}
-                    {m === "spot" ? "Spot" : "Futures"}
-                  </button>
-                ))}
-              </div>
-            </Field>
-
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Symbol">
-                <Select value={cfg.symbol} onChange={(e) => setCfg((c) => ({ ...c, symbol: e.target.value }))}>
-                  {SYMBOLS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Timeframe">
-                <Select value={cfg.timeframe} onChange={(e) => setCfg((c) => ({ ...c, timeframe: e.target.value }))}>
-                  {TIMEFRAMES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            </div>
-
-            <div className={cn("grid gap-3", isFutures(cfg) ? "grid-cols-2" : "grid-cols-1")}>
-              <Field label="Position size ($)">
-                <NumberField
-                  min={1}
-                  value={positionUsdt(cfg)}
-                  onValueChange={(v) => setCfg((c) => ({ ...c, position_size_usdt: v, position_size_pct: undefined }))}
-                  className={sizeBelowMin ? "border-rose-500/60 focus:ring-rose-500/40" : ""}
-                />
-                {sizeBelowMin ? (
-                  <p className="mt-1 text-xs text-rose-400">
-                    Below {cfg.symbol} minimum (${minSize.toFixed(2)}{minLev > 1 ? ` at ${minLev}x` : ""}) — live orders will be rejected. Raise the size.
-                  </p>
-                ) : minSize > 0 ? (
-                  <p className="mt-1 text-xs text-slate-500">
-                    Min size for {cfg.symbol}: ${minSize.toFixed(2)}{minLev > 1 ? ` at ${minLev}x (position ≈ $${(minSize * minLev).toFixed(0)})` : ""}
-                  </p>
-                ) : null}
-              </Field>
-              {isFutures(cfg) && (
-                <Field label={`Leverage (max ${MAX_LEVERAGE}x)`}>
-                  <NumberField
-                    min={1}
-                    max={MAX_LEVERAGE}
-                    value={cfg.leverage ?? 1}
-                    onValueChange={(v) => setCfg((c) => ({ ...c, leverage: v }))}
-                  />
+            {tab === "setup" && (
+              <>
+                <Field label="Strategy name">
+                  <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. BTC momentum" />
                 </Field>
-              )}
-            </div>
 
-            {isFutures(cfg) && (
-              <Field label="Trade direction" hint="Long & Short flips on the entry signal — long on the bullish signal, short on the bearish one.">
-                <div className="grid grid-cols-2 gap-2">
-                  {([["long", "Long only"], ["both", "Long & Short"]] as const).map(([val, label]) => (
-                    <button
-                      key={val}
-                      type="button"
-                      onClick={() => setDirection(val)}
-                      className={cn(
-                        "flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition",
-                        (cfg.direction ?? "long") === val
-                          ? "border-brand-500/60 bg-brand-500/10 text-brand-200"
-                          : "border-white/[0.06] bg-white/[0.02] text-slate-400 hover:text-slate-200"
-                      )}
-                    >
-                      {val === "both" && <ArrowDownUp className="h-3.5 w-3.5" />}
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </Field>
-            )}
+                <Field label="Bot type">
+                  <div className="grid grid-cols-2 gap-2">
+                    {(["spot", "futures"] as const).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setMarket(m)}
+                        className={cn(
+                          "flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition",
+                          cfg.market === m
+                            ? "border-brand-500/60 bg-brand-500/10 text-brand-200"
+                            : "border-white/[0.06] bg-white/[0.02] text-slate-400 hover:text-slate-200"
+                        )}
+                      >
+                        {m === "futures" && <Zap className="h-3.5 w-3.5" />}
+                        {m === "spot" ? "Spot" : "Futures"}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
 
-            <Block icon={LogIn} title="Entry signal" tone="text-brand-300">
-              <Field label="Indicator">
-                <Select value={cfg.entry[0].type} onChange={(e) => setEntryType(e.target.value as EntryType)}>
-                  {ENTRY_TYPES.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.label}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <div className="mt-3">
-                <EntryParams rule={cfg.entry[0]} set={setEntry} />
-              </div>
-            </Block>
-
-            <Block icon={Filter} title="Entry filters (optional)" tone="text-violet-300">
-              <p className="mb-3 text-xs leading-relaxed text-slate-500">
-                Extra conditions that must hold to open a trade. The entry signal picks the side; a
-                filter can veto it — e.g. only go long while price is above the 200 EMA, or skip
-                buying when RSI is overbought.
-              </p>
-              <div className="space-y-2.5">
-                {(cfg.filters ?? []).map((f, i) => (
-                  <FilterRow
-                    key={i}
-                    filter={f}
-                    onType={(t) => changeFilterType(i, t)}
-                    onPatch={(p) => patchFilter(i, p)}
-                    onRemove={() => removeFilter(i)}
-                  />
-                ))}
-              </div>
-              <Button className="mt-3" size="sm" variant="ghost" onClick={addFilter}>
-                <Plus className="h-3.5 w-3.5" /> Add filter
-              </Button>
-            </Block>
-
-            <Block icon={LogOut} title="Exit" tone="text-sky-300">
-              {isBidirectional(cfg) ? (
-                <p className="text-xs leading-relaxed text-slate-400">
-                  In Long &amp; Short the position exits on the opposite entry signal
-                  (the bot flips long↔short), or on Stop loss / Take profit / Trailing
-                  stop below. There's no separate RSI exit in this mode — it applies to
-                  Long only.
-                </p>
-              ) : (
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="Condition">
-                    <Select value={cfg.exit[0].op} onChange={(e) => setExit({ op: e.target.value as ">" | "<" })}>
-                      <option value=">">RSI above</option>
-                      <option value="<">RSI below</option>
+                  <Field label="Symbol">
+                    <Select value={cfg.symbol} onChange={(e) => setCfg((c) => ({ ...c, symbol: e.target.value }))}>
+                      {SYMBOLS.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
                     </Select>
                   </Field>
-                  <Field label="Value">
-                    <NumberField
-                      min={0}
-                      max={100}
-                      value={cfg.exit[0].value}
-                      onValueChange={(v) => setExit({ value: v })}
-                    />
+                  <Field label="Timeframe">
+                    <Select value={cfg.timeframe} onChange={(e) => setCfg((c) => ({ ...c, timeframe: e.target.value }))}>
+                      {TIMEFRAMES.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </Select>
                   </Field>
                 </div>
-              )}
-            </Block>
 
-            <div className="grid grid-cols-2 gap-3">
-              <Block icon={Shield} title="Stop loss" tone="text-rose-300">
-                <Field label="Percent">
-                  <NumberField
-                    min={0}
-                    value={cfg.stop_loss.value}
-                    onValueChange={(v) => setCfg((c) => ({ ...c, stop_loss: { type: "pct", value: v } }))}
-                  />
-                </Field>
-              </Block>
-              <Block icon={Target} title="Take profit" tone="text-amber-300">
-                <Field label="Percent">
-                  <NumberField
-                    min={0}
-                    value={cfg.take_profit.value}
-                    onValueChange={(v) => setCfg((c) => ({ ...c, take_profit: { type: "pct", value: v } }))}
-                  />
-                </Field>
-              </Block>
-            </div>
-
-            <Block icon={Anchor} title="Trailing stop" tone="text-emerald-300">
-              <Field label="Percent" hint="Locks in profit by trailing the peak. 0 = off.">
-                <NumberField
-                  min={0}
-                  value={cfg.trailing_stop?.value ?? 0}
-                  onValueChange={(v) => setCfg((c) => ({ ...c, trailing_stop: { type: "pct", value: v } }))}
-                />
-              </Field>
-            </Block>
-
-            <Block icon={Shield} title="Daily loss limit" tone="text-rose-300">
-              <Field label="Percent" hint="Pause new entries after this much realized loss in a day. 0 = off.">
-                <NumberField
-                  min={0}
-                  value={cfg.daily_loss_limit_pct ?? 0}
-                  onValueChange={(v) => setCfg((c) => ({ ...c, daily_loss_limit_pct: v }))}
-                />
-              </Field>
-            </Block>
-
-            {isFutures(cfg) && (
-              <Block icon={Umbrella} title="Hedge — squeeze protection" tone="text-indigo-300">
-                <div className="flex items-center justify-between">
-                  <p className="pr-3 text-xs text-slate-500">
-                    Opens a short leg to offset sudden adverse moves on the futures position.
-                  </p>
-                  <Toggle checked={cfg.hedge?.enabled ?? false} onChange={(v) => setHedge({ enabled: v })} />
+                <div className={cn("grid gap-3", isFutures(cfg) ? "grid-cols-2" : "grid-cols-1")}>
+                  <Field label="Position size ($)">
+                    <NumberField
+                      min={1}
+                      value={positionUsdt(cfg)}
+                      onValueChange={(v) => setCfg((c) => ({ ...c, position_size_usdt: v, position_size_pct: undefined }))}
+                      className={sizeBelowMin ? "border-rose-500/60 focus:ring-rose-500/40" : ""}
+                    />
+                    {sizeBelowMin ? (
+                      <p className="mt-1 text-xs text-rose-400">
+                        Below {cfg.symbol} minimum (${minSize.toFixed(2)}{minLev > 1 ? ` at ${minLev}x` : ""}) — live orders will be rejected. Raise the size.
+                      </p>
+                    ) : minSize > 0 ? (
+                      <p className="mt-1 text-xs text-slate-500">
+                        Min size for {cfg.symbol}: ${minSize.toFixed(2)}{minLev > 1 ? ` at ${minLev}x (position ≈ $${(minSize * minLev).toFixed(0)})` : ""}
+                      </p>
+                    ) : null}
+                  </Field>
+                  {isFutures(cfg) && (
+                    <Field label={`Leverage (max ${MAX_LEVERAGE}x)`}>
+                      <NumberField
+                        min={1}
+                        max={MAX_LEVERAGE}
+                        value={cfg.leverage ?? 1}
+                        onValueChange={(v) => setCfg((c) => ({ ...c, leverage: v }))}
+                      />
+                    </Field>
+                  )}
                 </div>
 
-                {cfg.hedge?.enabled && (
-                  <div className="mt-4 space-y-3">
-                    <Field label="When to hedge">
-                      <Select
-                        value={cfg.hedge.mode}
-                        onChange={(e) => setHedge({ mode: e.target.value as HedgeMode })}
-                      >
-                        <option value="auto_squeeze">Auto on squeeze (open on a fast drop)</option>
-                        <option value="constant_partial">Constant partial (always hold a share)</option>
-                      </Select>
-                    </Field>
-
-                    {cfg.hedge.mode === "auto_squeeze" ? (
-                      <div className="grid grid-cols-2 gap-3">
-                        <Field label="Trigger drop %" hint="Drop that opens the hedge">
-                          <NumberField
-                            min={0.1}
-                            value={cfg.hedge.trigger_pct}
-                            onValueChange={(v) => setHedge({ trigger_pct: v })}
-                          />
-                        </Field>
-                        <Field label="Release rebound %" hint="Recovery that closes it">
-                          <NumberField
-                            min={0.1}
-                            value={cfg.hedge.release_pct}
-                            onValueChange={(v) => setHedge({ release_pct: v })}
-                          />
-                        </Field>
-                      </div>
-                    ) : (
-                      <Field label="Hedge ratio (% of position)" hint="Share of the position held short at all times">
-                        <NumberField
-                          min={1}
-                          max={100}
-                          value={Math.round((cfg.hedge.ratio ?? 0) * 100)}
-                          onValueChange={(v) => setHedge({ ratio: v / 100 })}
-                        />
-                      </Field>
-                    )}
-                  </div>
+                {isFutures(cfg) && (
+                  <Field label="Trade direction" hint="Long & Short flips on the entry signal — long on the bullish signal, short on the bearish one.">
+                    <div className="grid grid-cols-2 gap-2">
+                      {([["long", "Long only"], ["both", "Long & Short"]] as const).map(([val, label]) => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => setDirection(val)}
+                          className={cn(
+                            "flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition",
+                            (cfg.direction ?? "long") === val
+                              ? "border-brand-500/60 bg-brand-500/10 text-brand-200"
+                              : "border-white/[0.06] bg-white/[0.02] text-slate-400 hover:text-slate-200"
+                          )}
+                        >
+                          {val === "both" && <ArrowDownUp className="h-3.5 w-3.5" />}
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
                 )}
-              </Block>
+              </>
             )}
 
+            {tab === "entry" && (
+              <>
+                <Block icon={LogIn} title="Entry signal" tone="text-brand-300">
+                  <Field label="Indicator">
+                    <Select value={cfg.entry[0].type} onChange={(e) => setEntryType(e.target.value as EntryType)}>
+                      {ENTRY_TYPES.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <div className="mt-3">
+                    <EntryParams rule={cfg.entry[0]} set={setEntry} />
+                  </div>
+                </Block>
+
+                <Block icon={Filter} title="Entry filters (optional)" tone="text-violet-300">
+                  <p className="mb-3 text-xs leading-relaxed text-slate-500">
+                    Extra conditions that must hold to open a trade. The entry signal picks the side; a
+                    filter can veto it — e.g. only go long while price is above the 200 EMA, only trade
+                    when ADX shows a real trend, or require a volume spike.
+                  </p>
+                  <div className="space-y-2.5">
+                    {(cfg.filters ?? []).map((f, i) => (
+                      <FilterRow
+                        key={i}
+                        filter={f}
+                        onType={(t) => changeFilterType(i, t)}
+                        onPatch={(p) => patchFilter(i, p)}
+                        onRemove={() => removeFilter(i)}
+                      />
+                    ))}
+                  </div>
+                  <Button className="mt-3" size="sm" variant="ghost" onClick={addFilter}>
+                    <Plus className="h-3.5 w-3.5" /> Add filter
+                  </Button>
+                </Block>
+              </>
+            )}
+
+            {tab === "risk" && (
+              <>
+                <Block icon={LogOut} title="Exit signal" tone="text-sky-300">
+                  {isBidirectional(cfg) ? (
+                    <p className="text-xs leading-relaxed text-slate-400">
+                      In Long &amp; Short the position exits on the opposite entry signal
+                      (the bot flips long↔short), or on Stop loss / Take profit / Trailing
+                      stop below. There's no separate RSI exit in this mode — it applies to
+                      Long only.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Condition">
+                        <Select value={cfg.exit[0].op} onChange={(e) => setExit({ op: e.target.value as ">" | "<" })}>
+                          <option value=">">RSI above</option>
+                          <option value="<">RSI below</option>
+                        </Select>
+                      </Field>
+                      <Field label="Value">
+                        <NumberField
+                          min={0}
+                          max={100}
+                          value={cfg.exit[0].value}
+                          onValueChange={(v) => setExit({ value: v })}
+                        />
+                      </Field>
+                    </div>
+                  )}
+                </Block>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Block icon={Shield} title="Stop loss" tone="text-rose-300">
+                    <Field label="Percent">
+                      <NumberField
+                        min={0}
+                        value={cfg.stop_loss.value}
+                        onValueChange={(v) => setCfg((c) => ({ ...c, stop_loss: { type: "pct", value: v } }))}
+                      />
+                    </Field>
+                  </Block>
+                  <Block icon={Target} title="Take profit" tone="text-amber-300">
+                    <Field label="Percent">
+                      <NumberField
+                        min={0}
+                        value={cfg.take_profit.value}
+                        onValueChange={(v) => setCfg((c) => ({ ...c, take_profit: { type: "pct", value: v } }))}
+                      />
+                    </Field>
+                  </Block>
+                </div>
+
+                <Block icon={Anchor} title="Trailing stop" tone="text-emerald-300">
+                  <Field label="Percent" hint="Locks in profit by trailing the peak. 0 = off.">
+                    <NumberField
+                      min={0}
+                      value={cfg.trailing_stop?.value ?? 0}
+                      onValueChange={(v) => setCfg((c) => ({ ...c, trailing_stop: { type: "pct", value: v } }))}
+                    />
+                  </Field>
+                </Block>
+
+                <Block icon={Shield} title="Daily loss limit" tone="text-rose-300">
+                  <Field label="Percent" hint="Pause new entries after this much realized loss in a day. 0 = off.">
+                    <NumberField
+                      min={0}
+                      value={cfg.daily_loss_limit_pct ?? 0}
+                      onValueChange={(v) => setCfg((c) => ({ ...c, daily_loss_limit_pct: v }))}
+                    />
+                  </Field>
+                </Block>
+              </>
+            )}
+
+            {tab === "advanced" && (
+              <>
+                {isFutures(cfg) ? (
+                  <Block icon={Umbrella} title="Hedge — squeeze protection" tone="text-indigo-300">
+                    <div className="flex items-center justify-between">
+                      <p className="pr-3 text-xs text-slate-500">
+                        Opens a short leg to offset sudden adverse moves on the futures position.
+                      </p>
+                      <Toggle checked={cfg.hedge?.enabled ?? false} onChange={(v) => setHedge({ enabled: v })} />
+                    </div>
+
+                    {cfg.hedge?.enabled && (
+                      <div className="mt-4 space-y-3">
+                        <Field label="When to hedge">
+                          <Select
+                            value={cfg.hedge.mode}
+                            onChange={(e) => setHedge({ mode: e.target.value as HedgeMode })}
+                          >
+                            <option value="auto_squeeze">Auto on squeeze (open on a fast drop)</option>
+                            <option value="constant_partial">Constant partial (always hold a share)</option>
+                          </Select>
+                        </Field>
+
+                        {cfg.hedge.mode === "auto_squeeze" ? (
+                          <div className="grid grid-cols-2 gap-3">
+                            <Field label="Trigger drop %" hint="Drop that opens the hedge">
+                              <NumberField
+                                min={0.1}
+                                value={cfg.hedge.trigger_pct}
+                                onValueChange={(v) => setHedge({ trigger_pct: v })}
+                              />
+                            </Field>
+                            <Field label="Release rebound %" hint="Recovery that closes it">
+                              <NumberField
+                                min={0.1}
+                                value={cfg.hedge.release_pct}
+                                onValueChange={(v) => setHedge({ release_pct: v })}
+                              />
+                            </Field>
+                          </div>
+                        ) : (
+                          <Field label="Hedge ratio (% of position)" hint="Share of the position held short at all times">
+                            <NumberField
+                              min={1}
+                              max={100}
+                              value={Math.round((cfg.hedge.ratio ?? 0) * 100)}
+                              onValueChange={(v) => setHedge({ ratio: v / 100 })}
+                            />
+                          </Field>
+                        )}
+                      </div>
+                    )}
+                  </Block>
+                ) : (
+                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5 text-center text-sm text-slate-500">
+                    <Umbrella className="mx-auto mb-2 h-5 w-5 text-slate-600" />
+                    Hedging is a futures feature. Switch the bot type to Futures in the Setup tab to
+                    enable squeeze protection.
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Footer: always visible regardless of the active tab. */}
+          <div className="mt-5 space-y-3 border-t border-white/[0.06] pt-4">
             <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5">
               <div>
                 <div className="text-sm font-medium text-slate-200">Enable live trading</div>
@@ -580,7 +633,32 @@ function Block({
   );
 }
 
-type FilterPatch = { ma?: "ema" | "sma"; period?: number; min?: number; max?: number };
+type FilterPatch = {
+  ma?: "ema" | "sma";
+  period?: number;
+  min?: number;
+  max?: number;
+  mult?: number;
+  min_pct?: number;
+  max_pct?: number;
+};
+
+function filterHint(f: StrategyFilter): string {
+  switch (f.type) {
+    case "trend":
+      return `Only long above the ${f.ma.toUpperCase()} ${f.period}, only short below it.`;
+    case "rsi":
+      return `Skip longs when RSI ≥ ${f.max ?? "—"}, skip shorts when RSI ≤ ${f.min ?? "—"}.`;
+    case "volume":
+      return `Enter only when this candle's volume ≥ ${f.mult}× the ${f.period}-bar average.`;
+    case "atr":
+      return `Trade only when volatility (ATR%) is ≥ ${f.min_pct ?? 0}%${f.max_pct ? ` and ≤ ${f.max_pct}%` : ""} — skips dead markets.`;
+    case "adx":
+      return `Trade only when ADX ≥ ${f.min} (a real trend, not chop).`;
+    default:
+      return "";
+  }
+}
 
 function FilterRow({
   filter,
@@ -614,7 +692,7 @@ function FilterRow({
         </Button>
       </div>
       <div className="mt-3">
-        {filter.type === "trend" ? (
+        {filter.type === "trend" && (
           <div className="grid grid-cols-2 gap-3">
             <Field label="MA type">
               <Select value={filter.ma} onChange={(e) => onPatch({ ma: e.target.value as "ema" | "sma" })}>
@@ -626,7 +704,8 @@ function FilterRow({
               <NumberField min={2} max={400} value={filter.period} onValueChange={(v) => onPatch({ period: v })} />
             </Field>
           </div>
-        ) : (
+        )}
+        {filter.type === "rsi" && (
           <div className="grid grid-cols-3 gap-3">
             <Field label="Period">
               <NumberField min={2} max={100} value={filter.period} onValueChange={(v) => onPatch({ period: v })} />
@@ -639,12 +718,41 @@ function FilterRow({
             </Field>
           </div>
         )}
+        {filter.type === "volume" && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Avg period">
+              <NumberField min={2} max={200} value={filter.period} onValueChange={(v) => onPatch({ period: v })} />
+            </Field>
+            <Field label="× average">
+              <NumberField min={1} value={filter.mult} onValueChange={(v) => onPatch({ mult: v })} />
+            </Field>
+          </div>
+        )}
+        {filter.type === "atr" && (
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Period">
+              <NumberField min={2} max={100} value={filter.period} onValueChange={(v) => onPatch({ period: v })} />
+            </Field>
+            <Field label="Min %">
+              <NumberField min={0} value={filter.min_pct ?? 0} onValueChange={(v) => onPatch({ min_pct: v })} />
+            </Field>
+            <Field label="Max % (0=off)">
+              <NumberField min={0} value={filter.max_pct ?? 0} onValueChange={(v) => onPatch({ max_pct: v || undefined })} />
+            </Field>
+          </div>
+        )}
+        {filter.type === "adx" && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Period">
+              <NumberField min={2} max={100} value={filter.period} onValueChange={(v) => onPatch({ period: v })} />
+            </Field>
+            <Field label="Min ADX">
+              <NumberField min={0} max={100} value={filter.min} onValueChange={(v) => onPatch({ min: v })} />
+            </Field>
+          </div>
+        )}
       </div>
-      <p className="mt-2 text-xs text-slate-500">
-        {filter.type === "trend"
-          ? `Only long above the ${filter.ma.toUpperCase()} ${filter.period}, only short below it.`
-          : `Skip longs when RSI ≥ ${filter.max ?? "—"}, skip shorts when RSI ≤ ${filter.min ?? "—"}.`}
-      </p>
+      <p className="mt-2 text-xs text-slate-500">{filterHint(filter)}</p>
     </div>
   );
 }

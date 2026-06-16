@@ -46,24 +46,46 @@ export function defaultEntry(type: EntryType): EntryRule {
 export const FILTER_TYPES: { id: FilterType; label: string }[] = [
   { id: "trend", label: "Trend (price vs MA)" },
   { id: "rsi", label: "RSI (skip extremes)" },
+  { id: "volume", label: "Volume (confirm move)" },
+  { id: "atr", label: "Volatility (ATR%)" },
+  { id: "adx", label: "Trend strength (ADX)" },
 ];
 
 export function defaultFilter(type: FilterType): StrategyFilter {
-  return type === "rsi"
-    ? { type: "rsi", period: 14, max: 70, min: 30 }
-    : { type: "trend", ma: "ema", period: 200 };
+  switch (type) {
+    case "rsi":
+      return { type: "rsi", period: 14, max: 70, min: 30 };
+    case "volume":
+      return { type: "volume", period: 20, mult: 1.5 };
+    case "atr":
+      return { type: "atr", period: 14, min_pct: 0.5 };
+    case "adx":
+      return { type: "adx", period: 14, min: 20 };
+    case "trend":
+    default:
+      return { type: "trend", ma: "ema", period: 200 };
+  }
+}
+
+export function describeFilter(f: StrategyFilter): string {
+  switch (f.type) {
+    case "trend":
+      return `${f.ma.toUpperCase()}${f.period} trend`;
+    case "rsi":
+      return `RSI${f.period}${f.max != null ? ` <${f.max}` : ""}${f.min != null ? ` >${f.min}` : ""}`;
+    case "volume":
+      return `Vol ×${f.mult}`;
+    case "atr":
+      return `ATR%${f.min_pct != null ? ` ≥${f.min_pct}` : ""}${f.max_pct != null ? ` ≤${f.max_pct}` : ""}`;
+    case "adx":
+      return `ADX ≥${f.min}`;
+    default:
+      return "";
+  }
 }
 
 export function describeFilters(config: StrategyConfig): string {
-  const fs = config.filters ?? [];
-  if (!fs.length) return "";
-  return fs
-    .map((f) =>
-      f.type === "trend"
-        ? `${f.ma.toUpperCase()}${f.period} trend`
-        : `RSI${f.period}${f.max != null ? ` <${f.max}` : ""}${f.min != null ? ` >${f.min}` : ""}`
-    )
-    .join(" + ");
+  return (config.filters ?? []).map(describeFilter).join(" + ");
 }
 
 export function defaultHedge(): HedgeConfig {
