@@ -70,24 +70,23 @@ export function BacktestPage() {
       result.equity_curve.map((p) => ({ time: Math.floor(p.x) as UTCTimestamp, value: p.y }))
     );
 
-    const priceSeries = priceChart.addCandlestickSeries({
-      upColor: "#10b981",
-      downColor: "#f43f5e",
-      borderVisible: false,
-      wickUpColor: "#10b981",
-      wickDownColor: "#f43f5e",
+    // A clean close-price line reads far better than thousands of tiny candles
+    // on a phone; trade markers sit clearly on top of it.
+    const priceSeries = priceChart.addAreaSeries({
+      lineColor: "#7c8aa5",
+      topColor: "rgba(124,138,165,0.12)",
+      bottomColor: "rgba(124,138,165,0)",
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: true,
     });
     priceSeries.setData(
-      result.price_series.map((p) => ({
-        time: Math.floor(p.x) as UTCTimestamp,
-        open: p.o,
-        high: p.h,
-        low: p.l,
-        close: p.c,
-      }))
+      result.price_series.map((p) => ({ time: Math.floor(p.x) as UTCTimestamp, value: p.c }))
     );
 
-    // Buy/sell markers; exits are coloured by P&L and labelled with the %.
+    // Markers without text labels (those were the visual noise): entries are quiet
+    // slate dots, exits are green/red arrows so wins vs losses pop. Exact P&L per
+    // trade lives in the Trades table below and on hover.
     const markers: SeriesMarker<Time>[] = [];
     for (const t of result.trades) {
       if (typeof t.time !== "number") continue;
@@ -96,7 +95,7 @@ export function BacktestPage() {
       const buyish = side === "buy" || side === "long";
       const isExit = typeof t.pnl_pct === "number";
       if (t.leg === "hedge") {
-        markers.push({ time, position: buyish ? "belowBar" : "aboveBar", color: "#818cf8", shape: "circle", text: "H" });
+        markers.push({ time, position: "inBar", color: "#6366f1", shape: "circle" });
       } else if (isExit) {
         const p = t.pnl_pct as number;
         markers.push({
@@ -104,15 +103,13 @@ export function BacktestPage() {
           position: buyish ? "belowBar" : "aboveBar",
           color: p >= 0 ? "#10b981" : "#f43f5e",
           shape: buyish ? "arrowUp" : "arrowDown",
-          text: signedPct(p),
         });
       } else {
         markers.push({
           time,
           position: buyish ? "belowBar" : "aboveBar",
-          color: "#60a5fa",
-          shape: buyish ? "arrowUp" : "arrowDown",
-          text: buyish ? "Buy" : "Sell",
+          color: "#64748b",
+          shape: "circle",
         });
       }
     }
@@ -311,8 +308,8 @@ export function BacktestPage() {
             <div className="mb-2 mt-5 flex flex-wrap items-center justify-between gap-2">
               <span className="text-sm font-semibold text-slate-300">Price &amp; trades</span>
               <span className="text-xs text-slate-500">
-                <span className="text-brand-400">▲</span> buy ·{" "}
-                <span className="text-rose-400">▼</span> sell — exit markers show P&amp;L; axes are time-aligned with the equity curve
+                <span className="text-slate-400">●</span> entry ·{" "}
+                <span className="text-brand-400">▲</span>/<span className="text-rose-400">▼</span> exit (green = profit, red = loss) — P&amp;L per trade in the table below
               </span>
             </div>
             <div ref={priceEl} className="w-full" />
