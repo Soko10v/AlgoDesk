@@ -186,7 +186,7 @@ export function StrategyBuilderPage() {
   const [genChat, setGenChat] = useState<GenItem[]>([]);
   const [genText, setGenText] = useState("");
   const [genJobId, setGenJobId] = useState<string | null>(null);
-  const genEndRef = useRef<HTMLDivElement | null>(null);
+  const genBoxRef = useRef<HTMLDivElement | null>(null);
 
   const startGen = useMutation({
     mutationFn: (history: ChatMessage[]) => startGenerate(history),
@@ -235,8 +235,10 @@ export function StrategyBuilderPage() {
     );
     startGen.mutate(history);
   }
+  // Scroll only the chat box to the latest message — never the whole page.
   useEffect(() => {
-    genEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = genBoxRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [genChat, genPending]);
 
   const { nodes, edges } = useMemo(() => buildGraph(cfg), [cfg]);
@@ -263,7 +265,7 @@ export function StrategyBuilderPage() {
             <span className="ml-auto text-xs font-normal text-slate-500">describe it → get 3 backtested bots</span>
           </div>
           <div className="p-5">
-            <div className="max-h-[460px] space-y-4 overflow-y-auto">
+            <div ref={genBoxRef} className="max-h-[460px] space-y-4 overflow-y-auto">
               {genChat.length === 0 && (
                 <p className="text-sm text-slate-500">
                   Опиши какого бота хочешь — например «консервативный бот на эфире для долгосрока» или
@@ -330,7 +332,6 @@ export function StrategyBuilderPage() {
                   <Spinner /> Собираю и тестирую трёх ботов…
                 </div>
               )}
-              <div ref={genEndRef} />
             </div>
             <div className="mt-3 flex gap-2">
               <input
