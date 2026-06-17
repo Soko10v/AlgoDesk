@@ -31,6 +31,10 @@ def validate_strategy_config(value: dict[str, Any]) -> dict[str, Any]:
     if tf not in ALLOWED_TIMEFRAMES:
         raise ValueError(f"Unsupported timeframe: {tf}")
 
+    vt = value.get("vol_target_pct")
+    if vt is not None and not (isinstance(vt, (int, float)) and not isinstance(vt, bool) and vt >= 0):
+        raise ValueError("vol_target_pct must be a number ≥ 0 (0 = off)")
+
     entry = value.get("entry") or []
     if entry:
         etype = entry[0].get("type") if isinstance(entry[0], dict) else None

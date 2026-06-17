@@ -106,6 +106,7 @@ export function normalizeConfig(config: Partial<StrategyConfig>): StrategyConfig
   if (!merged.entry?.length) merged.entry = [defaultEntry("ma_cross")];
   merged.filters = Array.isArray(merged.filters) ? merged.filters : [];
   merged.trailing_stop = merged.trailing_stop ?? { type: "pct", value: 0 };
+  merged.vol_target_pct = merged.vol_target_pct ?? 0;
   return merged;
 }
 
@@ -120,6 +121,7 @@ export function defaultConfig(): StrategyConfig {
     stop_loss: { type: "pct", value: 2 },
     take_profit: { type: "pct", value: 5 },
     trailing_stop: { type: "pct", value: 0 },
+    vol_target_pct: 0,
     market: "spot",
     direction: "long",
     leverage: 3,

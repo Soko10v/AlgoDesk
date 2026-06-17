@@ -23,6 +23,8 @@ from app.schemas.backtest import (
     GenerateStatusOut,
     OptimizeIn,
     OptimizeOut,
+    SensitivityIn,
+    SensitivityOut,
     WalkForwardIn,
     WalkForwardOut,
 )
@@ -35,6 +37,7 @@ from app.services.backtest import (
     load_candles,
     run_backtest,
     run_optimization,
+    run_sensitivity,
     run_walkforward,
     simulate_backtest,
 )
@@ -93,6 +96,23 @@ async def data_status(current_user: User = Depends(get_current_user)) -> list[Da
         )
         for c in candle_store.coverage()
     ]
+
+
+@router.post("/sensitivity", response_model=SensitivityOut)
+@limiter.limit("6/minute")
+async def sensitivity_strategy(
+    request: Request,
+    payload: SensitivityIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SensitivityOut:
+    strategy = await db.get(Strategy, payload.strategy_id)
+    if strategy is None or strategy.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    since_ms, until_ms = _date_bounds(payload.start_date, payload.end_date)
+    candles = await load_candles(strategy.config_json, since_ms, until_ms)
+    data = await asyncio.to_thread(run_sensitivity, strategy.config_json, candles)
+    return SensitivityOut(**data)
 
 
 @router.post("/walkforward", response_model=WalkForwardOut)

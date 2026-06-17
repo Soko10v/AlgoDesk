@@ -10,6 +10,26 @@ class BacktestIn(BaseModel):
     end_date: date | None = None
 
 
+class BacktestMetrics(BaseModel):
+    sharpe: float = 0.0
+    sortino: float = 0.0
+    calmar: float = 0.0
+    profit_factor: float = 0.0
+    expectancy_pct: float = 0.0
+    exposure_pct: float = 0.0
+    ann_return_pct: float = 0.0
+
+
+class MonteCarlo(BaseModel):
+    simulations: int
+    median_return_pct: float
+    p5_return_pct: float
+    p95_return_pct: float
+    prob_profit_pct: float
+    median_maxdd_pct: float
+    p95_maxdd_pct: float
+
+
 class BacktestOut(BaseModel):
     total_return_pct: float
     max_drawdown_pct: float
@@ -20,6 +40,26 @@ class BacktestOut(BaseModel):
     candles: int = 0
     start: float | None = None  # unix seconds of the first candle tested
     end: float | None = None    # unix seconds of the last candle tested
+    metrics: BacktestMetrics | None = None
+    monte_carlo: MonteCarlo | None = None
+
+
+class SensitivityIn(BaseModel):
+    strategy_id: int
+    start_date: date | None = None
+    end_date: date | None = None
+
+
+class SensitivityOut(BaseModel):
+    x_label: str
+    y_label: str
+    x_values: list[float]
+    y_values: list[float]
+    grid: list[list[float]]   # rows by y, cols by x — total_return_pct per cell
+    cur_x: float
+    cur_y: float
+    verdict: str              # "robust" | "mixed" | "fragile"
+    message: str
 
 
 class OptimizeIn(BaseModel):
