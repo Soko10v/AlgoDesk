@@ -11,8 +11,10 @@ from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.core.db import SessionLocal
 from app.core.ratelimit import limiter
+from app.services import candle_store
 from app.services.telegram_alerts import send_admin_alert
 from app.workers.bot_supervisor import bot_supervisor
+from app.workers.candle_sync import sync_candles
 from app.workers.price_stream import stream_symbols
 
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +34,9 @@ background_tasks: list[asyncio.Task] = []
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    # Local OHLCV cache: backfill history + keep it fresh in the background.
+    candle_store.init_db()
+    background_tasks.append(asyncio.create_task(sync_candles()))
     background_tasks.append(asyncio.create_task(stream_symbols(SessionLocal)))
     try:
         await bot_supervisor.recover(SessionLocal)

@@ -37,6 +37,10 @@ services:
       - .env
     environment:
       REDIS_URL: redis://redis:6379/0
+      CANDLES_DB_PATH: /data/candles.db
+    volumes:
+      # Local OHLCV cache — persists the downloaded candle history across redeploys.
+      - candles_data:/data
     expose:
       - "8000"
     depends_on:
@@ -70,3 +74,4 @@ services:
 
 volumes:
   postgres_data:
+  candles_data:

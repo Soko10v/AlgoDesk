@@ -18,6 +18,7 @@ from app.schemas.backtest import (
     AskOut,
     BacktestIn,
     BacktestOut,
+    DataCoverage,
     GenerateIn,
     GenerateStatusOut,
     OptimizeIn,
@@ -25,10 +26,12 @@ from app.schemas.backtest import (
     WalkForwardIn,
     WalkForwardOut,
 )
+from app.services import candle_store
 from app.schemas.strategy import validate_strategy_config
 from app.services.ai_analysis import ask_about_strategy, is_configured
 from app.services.ai_jobs import get_job, start_generate_job, start_job
 from app.services.backtest import (
+    WALKFORWARD_CANDLES,
     load_candles,
     run_backtest,
     run_optimization,
@@ -77,6 +80,21 @@ async def optimize_strategy(
     return OptimizeOut(**data)
 
 
+@router.get("/data-status", response_model=list[DataCoverage])
+async def data_status(current_user: User = Depends(get_current_user)) -> list[DataCoverage]:
+    """How much OHLCV history the local cache holds, per symbol/timeframe."""
+    return [
+        DataCoverage(
+            symbol=c["symbol"],
+            timeframe=c["timeframe"],
+            count=c["count"],
+            first=(c["first"] / 1000.0) if c["first"] else None,
+            last=(c["last"] / 1000.0) if c["last"] else None,
+        )
+        for c in candle_store.coverage()
+    ]
+
+
 @router.post("/walkforward", response_model=WalkForwardOut)
 @limiter.limit("4/minute")
 async def walkforward_strategy(
@@ -89,7 +107,7 @@ async def walkforward_strategy(
     if strategy is None or strategy.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Strategy not found")
     since_ms, until_ms = _date_bounds(payload.start_date, payload.end_date)
-    candles = await load_candles(strategy.config_json, since_ms, until_ms)
+    candles = await load_candles(strategy.config_json, since_ms, until_ms, limit=WALKFORWARD_CANDLES)
     # Several optimiser sweeps — run off the event loop so it doesn't stall the API.
     data = await asyncio.to_thread(run_walkforward, strategy.config_json, candles)
     return WalkForwardOut(**data)

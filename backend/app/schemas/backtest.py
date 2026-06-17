@@ -43,6 +43,14 @@ class OptimizeOut(BaseModel):
     candles: int
 
 
+class DataCoverage(BaseModel):
+    symbol: str
+    timeframe: str
+    count: int
+    first: float | None = None  # unix seconds of the earliest cached candle
+    last: float | None = None    # unix seconds of the latest cached candle
+
+
 class WalkForwardIn(BaseModel):
     strategy_id: int
     start_date: date | None = None

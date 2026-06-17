@@ -239,6 +239,18 @@ export async function walkForward(strategy_id: number, start_date?: string, end_
   return data as WalkForwardResult;
 }
 
+export type DataCoverage = {
+  symbol: string;
+  timeframe: string;
+  count: number;
+  first: number | null; // unix seconds
+  last: number | null;
+};
+export async function getDataStatus() {
+  const { data } = await api.get("/backtest/data-status");
+  return data as DataCoverage[];
+}
+
 export type AttemptInfo = {
   n: number;
   total_return_pct: number;
