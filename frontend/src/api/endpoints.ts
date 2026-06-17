@@ -257,6 +257,29 @@ export async function getAnalyzeStatus(job_id: string) {
   return data as AnalyzeStatus;
 }
 
+export type GeneratedBot = {
+  name: string;
+  approach: string;
+  config: StrategyConfig;
+  total_return_pct: number;
+  max_drawdown_pct: number;
+  win_rate: number;
+  trades: number;
+};
+export type GenerateResult = { answer: string; symbol: string; timeframe: string; bots: GeneratedBot[] };
+export type GenerateStatus = { status: "running" | "done" | "error"; result: GenerateResult | null; error: string | null };
+
+// Designs three distinct bots from a description (background job; poll the status).
+export async function startGenerate(messages: ChatMessage[]) {
+  const { data } = await api.post("/backtest/generate", { messages });
+  return data as { job_id: string };
+}
+
+export async function getGenerateStatus(job_id: string) {
+  const { data } = await api.get(`/backtest/generate/${job_id}`);
+  return data as GenerateStatus;
+}
+
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 export type AskResult = {
   answer: string;

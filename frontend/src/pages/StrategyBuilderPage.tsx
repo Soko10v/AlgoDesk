@@ -1,19 +1,24 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactFlow, { Background, Controls, MarkerType, type Edge, type Node } from "reactflow";
 import "reactflow/dist/style.css";
-import { Anchor, ArrowDownUp, Coins, Crosshair, Filter, LogIn, LogOut, Pencil, Plus, Save, Shield, SlidersHorizontal, Sparkles, Target, Trash2, Umbrella, X, Zap } from "lucide-react";
+import { Anchor, ArrowDownUp, Coins, Crosshair, Filter, LogIn, LogOut, Pencil, Plus, Save, Send, Shield, SlidersHorizontal, Sparkles, Target, Trash2, Umbrella, Wand2, X, Zap } from "lucide-react";
 import {
+  authConfig,
   createStrategy,
   deleteStrategy,
+  getGenerateStatus,
   getMinOrder,
   listStrategies,
+  startGenerate,
   updateStrategy,
+  type ChatMessage,
   type Direction,
   type EntryRule,
   type EntryType,
   type FilterType,
+  type GeneratedBot,
   type HedgeConfig,
   type HedgeMode,
   type Market,
@@ -22,8 +27,9 @@ import {
   type StrategyFilter,
 } from "../api/endpoints";
 import { toast } from "../store/toast";
-import { Badge, Button, Card, Field, Input, NumberField, PageHeader, Select, Toggle } from "../components/ui";
+import { Badge, Button, Card, Field, Input, NumberField, PageHeader, Select, Spinner, Toggle } from "../components/ui";
 import { cn } from "../lib/cn";
+import { pct, pnlTone, signedPct } from "../lib/formatters";
 import {
   ENTRY_TYPES,
   FILTER_TYPES,
@@ -43,8 +49,6 @@ import {
   isFutures,
   normalizeConfig,
   positionUsdt,
-  presets,
-  type Preset,
 } from "../lib/strategy";
 
 const NODE_BASE = {
@@ -163,13 +167,77 @@ export function StrategyBuilderPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function loadPreset(p: Preset) {
-    setName(p.name);
-    setCfg(normalizeConfig(p.config));
+  function loadGenerated(bot: GeneratedBot) {
+    setName(bot.name);
+    setCfg(normalizeConfig(bot.config));
     setLiveEnabled(false);
     setEditingId(null);
+    setTab("setup");
     window.scrollTo({ top: 0, behavior: "smooth" });
+    toast.info("Loaded into builder", "Review the blocks and save it.");
   }
+
+  // ---- AI bot generator (chat → 3 distinct bots, each backtested) ----
+  const cfgQuery = useQuery({ queryKey: ["auth-config"], queryFn: authConfig, staleTime: Infinity });
+  const aiEnabled = cfgQuery.data?.ai_enabled ?? false;
+  type GenItem =
+    | { role: "user"; content: string }
+    | { role: "assistant"; answer: string; symbol: string; timeframe: string; bots: GeneratedBot[] };
+  const [genChat, setGenChat] = useState<GenItem[]>([]);
+  const [genText, setGenText] = useState("");
+  const [genJobId, setGenJobId] = useState<string | null>(null);
+  const genEndRef = useRef<HTMLDivElement | null>(null);
+
+  const startGen = useMutation({
+    mutationFn: (history: ChatMessage[]) => startGenerate(history),
+    onSuccess: (d) => setGenJobId(d.job_id),
+    onError: (e: unknown) => {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error("AI failed", detail);
+      setGenChat((prev) => prev.slice(0, -1));
+    },
+  });
+  const genStatus = useQuery({
+    queryKey: ["gen-status", genJobId],
+    queryFn: () => getGenerateStatus(genJobId as string),
+    enabled: !!genJobId,
+    refetchInterval: (q) => {
+      const s = q.state.data?.status;
+      return s === "done" || s === "error" ? false : 2000;
+    },
+  });
+  useEffect(() => {
+    const st = genStatus.data;
+    if (!st) return;
+    if (st.status === "done" && st.result) {
+      const r = st.result;
+      setGenChat((prev) => [
+        ...prev,
+        { role: "assistant", answer: r.answer, symbol: r.symbol, timeframe: r.timeframe, bots: r.bots },
+      ]);
+      setGenJobId(null);
+    } else if (st.status === "error") {
+      toast.error("AI failed", st.error || undefined);
+      setGenJobId(null);
+    }
+  }, [genStatus.data?.status]);
+  const genPending =
+    startGen.isPending || (!!genJobId && genStatus.data?.status !== "done" && genStatus.data?.status !== "error");
+
+  function sendGen() {
+    const text = genText.trim();
+    if (!text || genPending) return;
+    const next: GenItem[] = [...genChat, { role: "user", content: text }];
+    setGenChat(next);
+    setGenText("");
+    const history: ChatMessage[] = next.map((m) =>
+      m.role === "user" ? { role: "user", content: m.content } : { role: "assistant", content: m.answer }
+    );
+    startGen.mutate(history);
+  }
+  useEffect(() => {
+    genEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [genChat, genPending]);
 
   const { nodes, edges } = useMemo(() => buildGraph(cfg), [cfg]);
   const canSave = name.trim().length >= 2;
@@ -188,24 +256,107 @@ export function StrategyBuilderPage() {
         }
       />
 
-      <Card className="mb-6 animate-slide-up p-4">
-        <div className="mb-2.5 flex items-center gap-2 text-sm font-semibold text-slate-300">
-          <Sparkles className="h-4 w-4 text-brand-400" /> Quick start — presets
-        </div>
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {presets().map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => loadPreset(p)}
-              className="w-48 shrink-0 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-2.5 text-left transition hover:border-brand-500/40 hover:bg-brand-500/5"
-            >
-              <div className="text-sm font-medium text-slate-200">{p.name}</div>
-              <div className="mt-0.5 text-xs text-slate-500">{p.blurb}</div>
-            </button>
-          ))}
-        </div>
-      </Card>
+      {aiEnabled && (
+        <Card className="mb-6 animate-slide-up p-0">
+          <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-3 text-sm font-semibold text-slate-200">
+            <Sparkles className="h-4 w-4 text-brand-400" /> AI bot builder
+            <span className="ml-auto text-xs font-normal text-slate-500">describe it → get 3 backtested bots</span>
+          </div>
+          <div className="p-5">
+            <div className="max-h-[460px] space-y-4 overflow-y-auto">
+              {genChat.length === 0 && (
+                <p className="text-sm text-slate-500">
+                  Опиши какого бота хочешь — например «консервативный бот на эфире для долгосрока» или
+                  «агрессивный скальпер по биткоину». ИИ соберёт <b className="text-slate-300">3 разных по сути</b>{" "}
+                  стратегии и сразу прогонит каждую на последних 2000 свечах. Можно дорабатывать словами.
+                </p>
+              )}
+              {genChat.map((m, i) =>
+                m.role === "user" ? (
+                  <div key={i} className="ml-auto max-w-[85%] rounded-2xl bg-brand-600/20 px-3 py-2 text-sm text-slate-100">
+                    {m.content}
+                  </div>
+                ) : (
+                  <div key={i} className="space-y-3">
+                    {m.answer && (
+                      <div className="rounded-2xl bg-white/[0.04] px-3 py-2 text-sm leading-relaxed text-slate-200">
+                        {m.answer}
+                        {m.symbol && (
+                          <span className="text-slate-500">
+                            {" "}
+                            · {m.symbol} · {m.timeframe}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {m.bots.length === 0 ? (
+                      <p className="text-sm text-slate-500">Не получилось собрать ботов — переформулируй запрос.</p>
+                    ) : (
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        {m.bots.map((b, bi) => (
+                          <div
+                            key={bi}
+                            className="flex flex-col rounded-xl border border-white/[0.08] bg-white/[0.02] p-3"
+                          >
+                            <div className="text-sm font-semibold text-slate-100">{b.name}</div>
+                            {b.approach && (
+                              <div className="mt-0.5 text-xs text-violet-300">{b.approach}</div>
+                            )}
+                            <div className="mt-1 text-xs text-slate-500">
+                              {describeEntry(b.config)}
+                              {describeFilters(b.config) ? ` · ${describeFilters(b.config)}` : ""}
+                            </div>
+                            <div className="mt-2 flex items-baseline justify-between">
+                              <span className="text-xs text-slate-500">Return</span>
+                              <span className={`text-sm font-semibold ${pnlTone(b.total_return_pct)}`}>
+                                {signedPct(b.total_return_pct)}
+                              </span>
+                            </div>
+                            <div className="mt-0.5 text-xs text-slate-500">
+                              DD {pct(b.max_drawdown_pct)} · Win {pct(b.win_rate)} · {b.trades} trades
+                            </div>
+                            <Button className="mt-3" size="sm" variant="secondary" onClick={() => loadGenerated(b)}>
+                              <Wand2 className="h-3.5 w-3.5" /> Use this bot
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              )}
+              {genPending && (
+                <div className="flex items-center gap-2 rounded-2xl bg-white/[0.04] px-3 py-2 text-sm text-slate-400">
+                  <Spinner /> Собираю и тестирую трёх ботов…
+                </div>
+              )}
+              <div ref={genEndRef} />
+            </div>
+            <div className="mt-3 flex gap-2">
+              <input
+                className="input flex-1"
+                placeholder="Опиши бота, которого хочешь…"
+                value={genText}
+                onChange={(e) => setGenText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendGen();
+                  }
+                }}
+                disabled={genPending}
+              />
+              <Button onClick={sendGen} loading={genPending} disabled={!genText.trim()}>
+                <Send className="h-4 w-4" />
+              </Button>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              ИИ подбирает по описанию, бэктест на прошлых данных не гарантирует будущих результатов —
+              сохрани бота и протестируй в paper-режиме.
+            </p>
+          </div>
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-5">
         {/* Form */}
