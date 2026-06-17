@@ -1,5 +1,7 @@
 from datetime import datetime, time
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,11 +22,19 @@ from app.schemas.backtest import (
     GenerateStatusOut,
     OptimizeIn,
     OptimizeOut,
+    WalkForwardIn,
+    WalkForwardOut,
 )
 from app.schemas.strategy import validate_strategy_config
 from app.services.ai_analysis import ask_about_strategy, is_configured
 from app.services.ai_jobs import get_job, start_generate_job, start_job
-from app.services.backtest import load_candles, run_backtest, run_optimization, simulate_backtest
+from app.services.backtest import (
+    load_candles,
+    run_backtest,
+    run_optimization,
+    run_walkforward,
+    simulate_backtest,
+)
 
 router = APIRouter()
 
@@ -65,6 +75,24 @@ async def optimize_strategy(
     since_ms, until_ms = _date_bounds(payload.start_date, payload.end_date)
     data = await run_optimization(strategy.config_json, since_ms=since_ms, until_ms=until_ms)
     return OptimizeOut(**data)
+
+
+@router.post("/walkforward", response_model=WalkForwardOut)
+@limiter.limit("4/minute")
+async def walkforward_strategy(
+    request: Request,
+    payload: WalkForwardIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> WalkForwardOut:
+    strategy = await db.get(Strategy, payload.strategy_id)
+    if strategy is None or strategy.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    since_ms, until_ms = _date_bounds(payload.start_date, payload.end_date)
+    candles = await load_candles(strategy.config_json, since_ms, until_ms)
+    # Several optimiser sweeps — run off the event loop so it doesn't stall the API.
+    data = await asyncio.to_thread(run_walkforward, strategy.config_json, candles)
+    return WalkForwardOut(**data)
 
 
 @router.post("/analyze", response_model=AnalyzeStartOut)

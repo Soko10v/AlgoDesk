@@ -362,3 +362,96 @@ async def run_optimization(
     results = await asyncio.to_thread(_run_grid, config, candles)
     ranked = [r for r in results if r["score"] != float("-inf")] or results
     return {"results": ranked[:OPTIMIZE_TOP_N], "tested": len(results), "candles": len(candles)}
+
+
+# ---- walk-forward (out-of-sample) validation -------------------------------
+
+
+def _describe_config(cfg: dict[str, Any]) -> str:
+    e = (cfg.get("entry") or [{}])[0]
+    t = e.get("type", "?")
+    if t in ("ma_cross", "ema_cross"):
+        s = f"{t} {e.get('fast')}/{e.get('slow')}"
+    elif t == "rsi":
+        s = f"rsi {e.get('low')}/{e.get('high')}"
+    elif t == "breakout":
+        s = f"breakout {e.get('period')}"
+    elif t == "macd":
+        s = f"macd {e.get('fast')}/{e.get('slow')}"
+    else:
+        s = str(t)
+    sl = (cfg.get("stop_loss") or {}).get("value")
+    tp = (cfg.get("take_profit") or {}).get("value")
+    tr = (cfg.get("trailing_stop") or {}).get("value")
+    s += f" · SL{sl}/TP{tp}" + (f"/Tr{tr}" if tr else "")
+    if cfg.get("filters"):
+        s += " +filter"
+    return s
+
+
+def run_walkforward(config: dict[str, Any], candles: list[list[float]]) -> dict[str, Any]:
+    """Rolling out-of-sample test. For each window: optimise on the training slice,
+    then measure that winning config on the *next, unseen* slice. The stitched
+    out-of-sample result is the realistic expectation; a big gap vs the in-sample
+    numbers means the optimisation was overfit."""
+    n = len(candles)
+    test_size = min(300, max(120, n // 8))
+    train_size = min(800, max(300, n // 3))
+
+    folds: list[dict[str, Any]] = []
+    start = 0
+    while start + train_size + test_size <= n:
+        train = candles[start : start + train_size]
+        test = candles[start + train_size : start + train_size + test_size]
+        ranked = _run_grid(config, train)
+        pool = [r for r in ranked if r["score"] != float("-inf")] or ranked
+        if not pool:
+            break
+        best = pool[0]
+        oos = _simulate(best["config"], test, include_series=False)
+        folds.append({
+            "n": len(folds) + 1,
+            "in_return_pct": round(best["total_return_pct"], 2),
+            "out_return_pct": round(oos["total_return_pct"], 2),
+            "out_drawdown_pct": round(oos["max_drawdown_pct"], 2),
+            "out_trades": _closed_trades(oos),
+            "summary": _describe_config(best["config"]),
+        })
+        start += test_size
+
+    empty = {
+        "folds": [], "avg_in_return_pct": 0.0, "avg_out_return_pct": 0.0,
+        "combined_out_return_pct": 0.0, "profitable_folds": 0, "total_folds": len(folds), "candles": n,
+    }
+    if len(folds) < 2:
+        return {**empty, "verdict": "insufficient",
+                "message": "Мало истории для walk-forward — выбери период подлиннее или таймфрейм помельче."}
+
+    total = len(folds)
+    avg_in = round(sum(f["in_return_pct"] for f in folds) / total, 2)
+    avg_out = round(sum(f["out_return_pct"] for f in folds) / total, 2)
+    compounded = 1.0
+    for f in folds:
+        compounded *= 1 + f["out_return_pct"] / 100
+    combined_out = round((compounded - 1) * 100, 2)
+    profitable = sum(1 for f in folds if f["out_return_pct"] > 0)
+
+    if combined_out > 0 and profitable / total >= 0.5:
+        verdict = "robust"
+        message = (f"Похоже на реальный эдж: на новых данных суммарно {combined_out:+.1f}%, "
+                   f"прибыльных окон {profitable} из {total}.")
+    elif combined_out <= 0:
+        verdict = "overfit"
+        message = (f"Переподгонка: на обучении в среднем {avg_in:+.1f}%, а на новых данных суммарно "
+                   f"{combined_out:+.1f}%. В реальной торговле такой подбор, скорее всего, сольёт.")
+    else:
+        verdict = "mixed"
+        message = (f"Неустойчиво: на новых данных суммарно {combined_out:+.1f}%, но прибыльных окон "
+                   f"лишь {profitable} из {total} — результат держится на отдельных периодах.")
+
+    return {
+        "verdict": verdict, "message": message, "folds": folds,
+        "avg_in_return_pct": avg_in, "avg_out_return_pct": avg_out,
+        "combined_out_return_pct": combined_out, "profitable_folds": profitable,
+        "total_folds": total, "candles": n,
+    }
