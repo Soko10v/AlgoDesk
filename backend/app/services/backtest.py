@@ -675,6 +675,7 @@ def run_walkforward(config: dict[str, Any], candles: list[list[float]]) -> dict[
             "out_drawdown_pct": round(oos["max_drawdown_pct"], 2),
             "out_trades": _closed_trades(oos),
             "summary": _describe_config(best["config"]),
+            "config": best["config"],
         })
 
     empty = {

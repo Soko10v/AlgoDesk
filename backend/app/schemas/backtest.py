@@ -104,6 +104,7 @@ class WalkForwardFold(BaseModel):
     out_drawdown_pct: float
     out_trades: int
     summary: str               # short label of the config the optimizer picked
+    config: dict[str, Any] | None = None  # the winning config (saveable)
 
 
 class WalkForwardOut(BaseModel):

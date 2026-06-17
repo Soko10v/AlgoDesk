@@ -156,6 +156,15 @@ export function BacktestPage() {
     },
     onError: () => toast.error("Could not save strategy"),
   });
+  const saveWalkFold = useMutation({
+    mutationFn: (v: { config: StrategyConfig; n: number }) =>
+      createStrategy({ name: `${stratName} (WF fold #${v.n})`, config_json: v.config }),
+    onSuccess: (s) => {
+      toast.success("Saved strategy", s.name);
+      qc.invalidateQueries({ queryKey: ["strategies"] });
+    },
+    onError: () => toast.error("Could not save strategy"),
+  });
 
   // ---- Ask AI (constrained chat about the selected strategy) ----
   type ChatItem = {
@@ -466,7 +475,7 @@ export function BacktestPage() {
                   />
                 </div>
 
-                <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]">
+                <div className="overflow-x-auto overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]">
                   <table className="min-w-full text-sm">
                     <thead className="text-left text-xs uppercase tracking-wider text-slate-500">
                       <tr>
@@ -476,6 +485,7 @@ export function BacktestPage() {
                         <th className="px-3 py-2 text-right font-medium">Out-of-sample</th>
                         <th className="px-3 py-2 text-right font-medium">Drawdown</th>
                         <th className="px-3 py-2 text-right font-medium">Trades</th>
+                        <th className="px-3 py-2" />
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/[0.05]">
@@ -491,6 +501,19 @@ export function BacktestPage() {
                           </td>
                           <td className="px-3 py-2 text-right text-rose-400">{pct(f.out_drawdown_pct)}</td>
                           <td className="px-3 py-2 text-right text-slate-400">{f.out_trades}</td>
+                          <td className="px-3 py-2 text-right">
+                            {f.config && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => saveWalkFold.mutate({ config: f.config!, n: f.n })}
+                                disabled={saveWalkFold.isPending}
+                                title="Save this fold's config as a new strategy"
+                              >
+                                <Save className="h-3.5 w-3.5" /> Save
+                              </Button>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
