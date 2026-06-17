@@ -5,6 +5,7 @@ verdict and an improved config. Iterative mode backtests each proposal and retri
 (up to 3 times) when the suggestion doesn't beat the original.
 """
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -263,7 +264,7 @@ async def analyze_strategy_iterative(
             continue
 
         try:
-            prop_result = simulate_backtest(proposed, candles, include_series=False)
+            prop_result = await asyncio.to_thread(simulate_backtest, proposed, candles, False)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Backtest of proposed config attempt %d failed: %s", attempt_n, exc)
             messages.append({"role": "assistant", "content": raw})
@@ -429,7 +430,7 @@ async def ask_about_strategy(
     proposed = _parse_proposed(parsed, config)
     out["proposed_config"] = proposed
     if proposed:
-        res = simulate_backtest(proposed, candles, include_series=False)
+        res = await asyncio.to_thread(simulate_backtest, proposed, candles, False)
         out["proposed_return_pct"] = round(float(res.get("total_return_pct", 0.0)), 2)
         out["proposed_drawdown_pct"] = round(float(res.get("max_drawdown_pct", 0.0)), 2)
         out["proposed_win_rate"] = round(float(res.get("win_rate", 0.0)), 2)

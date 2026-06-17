@@ -1,7 +1,23 @@
 from typing import Any
 
+import numpy as np
+import pandas as pd
+
 from app.engine.risk import allow_short
-from app.services.indicators import adx, atr, ema, macd, rsi, sma
+from app.services.indicators import (
+    adx,
+    adx_series,
+    atr,
+    atr_series,
+    ema,
+    ema_series,
+    macd,
+    macd_series,
+    rsi,
+    rsi_series,
+    sma,
+    sma_series,
+)
 
 
 def _entry_trend(config: dict[str, Any], closes: list[float]) -> tuple[bool, bool]:
@@ -131,6 +147,159 @@ def _passes_filters(
     return True
 
 
+def _decide(
+    allow_short_flag: bool,
+    position_side: str | None,
+    bullish: bool,
+    bearish: bool,
+    long_ok: bool,
+    short_ok: bool,
+    rsi_exit_flag: bool,
+) -> str | None:
+    """The position-aware decision, shared by the live (per-bar) and backtest
+    (precomputed) paths so they can never diverge."""
+    if allow_short_flag:
+        if bullish and position_side != "long" and long_ok:
+            return "long"
+        if bearish and position_side != "short" and short_ok:
+            return "short"
+        return None
+    if position_side is None:
+        return "long" if (bullish and long_ok) else None
+    if position_side == "long" and rsi_exit_flag:
+        return "close"
+    return None
+
+
+def _entry_trend_series(config: dict[str, Any], closes: list[float]) -> tuple["np.ndarray", "np.ndarray"]:
+    """(bullish, bearish) boolean arrays for every bar — same rules as _entry_trend."""
+    n = len(closes)
+    false = np.zeros(n, dtype=bool)
+    rule = (config.get("entry") or [{}])[0]
+    rtype = rule.get("type", "ma_cross")
+
+    if rtype in ("ma_cross", "ema_cross"):
+        fn = sma_series if rtype == "ma_cross" else ema_series
+        fast = fn(closes, int(rule.get("fast", 9)))
+        slow = fn(closes, int(rule.get("slow", 21)))
+        return fast > slow, fast < slow
+    if rtype == "rsi":
+        val = rsi_series(closes, int(rule.get("period", 14)))
+        return val < float(rule.get("low", 30)), val > float(rule.get("high", 70))
+    if rtype == "breakout":
+        period = int(rule.get("period", 20))
+        c = pd.Series(closes, dtype=float)
+        roll_max = c.shift(1).rolling(period).max().to_numpy()
+        roll_min = c.shift(1).rolling(period).min().to_numpy()
+        arr = c.to_numpy()
+        return arr > roll_max, arr < roll_min
+    if rtype == "macd":
+        line, sig = macd_series(closes, int(rule.get("fast", 12)), int(rule.get("slow", 26)), int(rule.get("signal", 9)))
+        return line > sig, line < sig
+    return false, false
+
+
+def _filter_series(
+    config: dict[str, Any], closes: list[float], candles: list[list[float]]
+) -> tuple["np.ndarray", "np.ndarray"]:
+    """(long_ok, short_ok) boolean arrays — same vetoes as _passes_filters."""
+    n = len(closes)
+    long_ok = np.ones(n, dtype=bool)
+    short_ok = np.ones(n, dtype=bool)
+    arr = np.asarray(closes, dtype=float)
+    highs = [float(c[2]) for c in candles]
+    lows = [float(c[3]) for c in candles]
+
+    for f in config.get("filters") or []:
+        if not isinstance(f, dict):
+            continue
+        ftype = f.get("type")
+        if ftype == "trend":
+            ma = (sma_series if f.get("ma") == "sma" else ema_series)(closes, int(f.get("period", 200)))
+            long_ok &= arr > ma
+            short_ok &= arr < ma
+        elif ftype == "rsi":
+            val = rsi_series(closes, int(f.get("period", 14)))
+            valid = ~np.isnan(val)
+            long_ok &= valid
+            short_ok &= valid
+            if f.get("max") is not None:
+                long_ok &= val < float(f["max"])
+            if f.get("min") is not None:
+                short_ok &= val > float(f["min"])
+        elif ftype == "volume":
+            period = int(f.get("period", 20))
+            vols = pd.Series([float(c[5]) if len(c) > 5 and c[5] is not None else np.nan for c in candles], dtype=float)
+            avg = vols.rolling(period).mean().to_numpy()
+            ok = np.zeros(n, dtype=bool)
+            idx = np.arange(n)
+            with np.errstate(invalid="ignore"):
+                ok = (idx >= period) & (avg > 0) & (vols.to_numpy() >= float(f.get("mult", 1.5)) * avg)
+            long_ok &= ok
+            short_ok &= ok
+        elif ftype == "atr":
+            a = atr_series(highs, lows, closes, int(f.get("period", 14)))
+            with np.errstate(invalid="ignore", divide="ignore"):
+                atr_pct = np.where(arr != 0, a / arr * 100, np.nan)
+            ok = ~np.isnan(atr_pct)
+            if f.get("min_pct") is not None:
+                ok &= atr_pct >= float(f["min_pct"])
+            if f.get("max_pct") is not None:
+                ok &= atr_pct <= float(f["max_pct"])
+            long_ok &= ok
+            short_ok &= ok
+        elif ftype == "adx":
+            v = adx_series(highs, lows, closes, int(f.get("period", 14)))
+            ok = ~np.isnan(v) & (v >= float(f.get("min", 20)))
+            long_ok &= ok
+            short_ok &= ok
+    return long_ok, short_ok
+
+
+def _rsi_exit_series(config: dict[str, Any], closes: list[float]) -> "np.ndarray":
+    n = len(closes)
+    out = np.zeros(n, dtype=bool)
+    for rule in config.get("exit", []):
+        if rule.get("type") == "rsi":
+            val = rsi_series(closes, 14)
+            thr = float(rule.get("value", 70))
+            if rule.get("op", ">") == ">":
+                out |= val > thr
+            else:
+                out |= val < thr
+    return out
+
+
+def build_signals(config: dict[str, Any], candles: list[list[float]]) -> dict[str, Any]:
+    """Precompute per-bar signal/filter/exit booleans for a whole candle set, so a
+    backtest can decide each bar with an array lookup instead of recomputing every
+    indicator over a growing slice (O(n) vs O(n²))."""
+    closes = [c[4] for c in candles]
+    bullish, bearish = _entry_trend_series(config, closes)
+    long_ok, short_ok = _filter_series(config, closes, candles)
+    return {
+        "allow_short": allow_short(config),
+        "bullish": bullish,
+        "bearish": bearish,
+        "long_ok": long_ok,
+        "short_ok": short_ok,
+        "rsi_exit": _rsi_exit_series(config, closes),
+    }
+
+
+def signal_at(sig: dict[str, Any], idx: int, position_side: str | None) -> str | None:
+    """Decision for bar ``idx`` from precomputed ``build_signals`` output."""
+    return _decide(
+        sig["allow_short"],
+        position_side,
+        bool(sig["bullish"][idx]),
+        bool(sig["bearish"][idx]),
+        bool(sig["long_ok"][idx]),
+        bool(sig["short_ok"][idx]),
+        bool(sig["rsi_exit"][idx]),
+    )
+
+
 def evaluate_signal(
     config: dict[str, Any],
     closes: list[float],
@@ -150,22 +319,17 @@ def evaluate_signal(
     direction "both" follow the trend and flip on the opposite signal (RSI is
     not used — the entry block drives the side, SL/TP/trailing still protect).
 
-    Entry filters (config["filters"]) can veto an entry on either side."""
+    Entry filters (config["filters"]) can veto an entry on either side. Used live
+    (once per tick); the backtest uses build_signals/signal_at for the same logic."""
     if not closes:
         return None
     bullish, bearish = _entry_trend(config, closes)
-
-    if allow_short(config):
-        # Flip model: always sit on the trend side.
-        if bullish and position_side != "long" and _passes_filters(config, closes, "long", candles):
-            return "long"
-        if bearish and position_side != "short" and _passes_filters(config, closes, "short", candles):
-            return "short"
-        return None
-
-    # Long-only (unchanged semantics, plus entry filters).
-    if position_side is None:
-        return "long" if (bullish and _passes_filters(config, closes, "long", candles)) else None
-    if position_side == "long" and _rsi_exit(config, closes):
-        return "close"
-    return None
+    return _decide(
+        allow_short(config),
+        position_side,
+        bullish,
+        bearish,
+        _passes_filters(config, closes, "long", candles),
+        _passes_filters(config, closes, "short", candles),
+        _rsi_exit(config, closes),
+    )

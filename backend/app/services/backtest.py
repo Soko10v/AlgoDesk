@@ -3,7 +3,7 @@ import copy
 from typing import Any
 
 from app.engine.risk import funding_cost, hedge_params, leverage, pct_value, round_trip_fee, trailing_pct
-from app.engine.strategy_evaluator import evaluate_signal
+from app.engine.strategy_evaluator import build_signals, signal_at
 from app.services.exchange import exchange_client
 
 
@@ -90,7 +90,9 @@ async def run_backtest(
     until_ms: int | None = None,
 ) -> dict[str, Any]:
     candles = await load_candles(config, since_ms, until_ms)
-    return _simulate(config, candles)
+    # Simulation is CPU-bound (hundreds of ms+); run it off the event loop so it
+    # doesn't stall every other request while it crunches.
+    return await asyncio.to_thread(_simulate, config, candles)
 
 
 def _simulate(config: dict[str, Any], candles: list[list[float]], include_series: bool = True) -> dict[str, Any]:
@@ -100,6 +102,9 @@ def _simulate(config: dict[str, Any], candles: list[list[float]], include_series
     ``include_series`` controls whether the (heavier) price series + per-trade
     timestamps are built — the optimizer doesn't need them, so it passes False."""
     closes = [c[4] for c in candles]
+    # Precompute every indicator once over the whole series (O(n)); the loop then
+    # decides each bar with an array lookup instead of recomputing per bar (O(n²)).
+    signals = build_signals(config, candles)
     lev = leverage(config)
     sl_val = pct_value(config.get("stop_loss"))
     tp_val = pct_value(config.get("take_profit"))
@@ -132,8 +137,7 @@ def _simulate(config: dict[str, Any], candles: list[list[float]], include_series
     for idx, candle in enumerate(candles):
         # candle = [ts, open, high, low, close, volume]
         open_, high, low, close = candle[1], candle[2], candle[3], candle[4]
-        sample = closes[: idx + 1]
-        sig = evaluate_signal(config, sample, side, candles[: idx + 1])
+        sig = signal_at(signals, idx, side)
 
         if side is None:
             if sig in ("long", "short"):
