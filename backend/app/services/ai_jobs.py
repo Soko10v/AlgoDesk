@@ -43,7 +43,7 @@ async def _run(job_id: str, config: dict[str, Any], since_ms: int | None, until_
         candles = await load_candles(config, since_ms, until_ms)
         if not candles:
             raise RuntimeError("No market data returned by the exchange — try again")
-        original = simulate_backtest(config, candles)
+        original = await asyncio.to_thread(simulate_backtest, config, candles)
 
         def progress(n: int) -> None:
             job["attempt"] = n
@@ -83,7 +83,7 @@ async def _run_generate(job_id: str, history: list[dict[str, str]]) -> None:
             # All three share one symbol/timeframe, so fetch candles once and reuse.
             candles = await load_candles({"symbol": gen["symbol"], "timeframe": gen["timeframe"]})
             for b in bots:
-                res = simulate_backtest(b["config"], candles, include_series=False) if candles else {}
+                res = await asyncio.to_thread(simulate_backtest, b["config"], candles, False) if candles else {}
                 out_bots.append({
                     "name": b["name"],
                     "approach": b["approach"],
