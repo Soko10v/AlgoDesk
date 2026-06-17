@@ -43,6 +43,33 @@ class OptimizeOut(BaseModel):
     candles: int
 
 
+class WalkForwardIn(BaseModel):
+    strategy_id: int
+    start_date: date | None = None
+    end_date: date | None = None
+
+
+class WalkForwardFold(BaseModel):
+    n: int
+    in_return_pct: float       # best result on the training window (optimistic)
+    out_return_pct: float      # that config on the next, unseen window (honest)
+    out_drawdown_pct: float
+    out_trades: int
+    summary: str               # short label of the config the optimizer picked
+
+
+class WalkForwardOut(BaseModel):
+    verdict: str               # "robust" | "overfit" | "mixed" | "insufficient"
+    message: str
+    folds: list[WalkForwardFold] = []
+    avg_in_return_pct: float = 0.0
+    avg_out_return_pct: float = 0.0
+    combined_out_return_pct: float = 0.0  # compounded out-of-sample (realistic) result
+    profitable_folds: int = 0
+    total_folds: int = 0
+    candles: int = 0
+
+
 class AnalyzeIn(BaseModel):
     strategy_id: int
     start_date: date | None = None

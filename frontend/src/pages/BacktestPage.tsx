@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createChart, type IChartApi, type SeriesMarker, type Time, type UTCTimestamp } from "lightweight-charts";
-import { Activity, MessageSquare, Play, Percent, Save, Send, Sparkles, TrendingDown, Trophy, Wand2 } from "lucide-react";
+import { Activity, MessageSquare, Play, Percent, Save, Send, ShieldCheck, Sparkles, TrendingDown, Trophy, Wand2 } from "lucide-react";
 import {
   askAi,
   authConfig,
@@ -11,6 +11,7 @@ import {
   optimizeStrategy,
   runBacktest,
   startAnalyze,
+  walkForward,
   type ChatMessage,
   type OptimizeResult,
   type StrategyConfig,
@@ -38,6 +39,11 @@ export function BacktestPage() {
   const optimize = useMutation({
     mutationFn: () => optimizeStrategy(strategyId as number, startDate || undefined, endDate || undefined),
     onError: () => toast.error("Optimization failed", "Try a shorter period."),
+  });
+
+  const walkfwd = useMutation({
+    mutationFn: () => walkForward(strategyId as number, startDate || undefined, endDate || undefined),
+    onError: () => toast.error("Walk-forward failed", "Try a longer period."),
   });
 
   const cfg = useQuery({ queryKey: ["auth-config"], queryFn: authConfig, staleTime: Infinity });
@@ -310,6 +316,15 @@ export function BacktestPage() {
           >
             <Wand2 className="h-4 w-4" /> Optimize
           </Button>
+          <Button
+            variant="secondary"
+            onClick={() => walkfwd.mutate()}
+            loading={walkfwd.isPending}
+            disabled={!strategyId}
+            title="Optimise on past windows, validate on the next unseen ones — checks for overfitting"
+          >
+            <ShieldCheck className="h-4 w-4" /> Walk-forward
+          </Button>
           {aiEnabled && (
             <Button
               variant="secondary"
@@ -327,6 +342,93 @@ export function BacktestPage() {
           strategy's timeframe). The exact period and candle count are shown with the results.
         </p>
       </Card>
+
+      {walkfwd.isPending && (
+        <Card className="mt-6 flex items-center justify-center gap-3 p-12 text-slate-400">
+          <Spinner /> Walk-forward: optimising windows and validating out-of-sample…
+        </Card>
+      )}
+
+      {walkfwd.data && !walkfwd.isPending && (
+        <Card className="mt-6 p-0">
+          <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-3 text-sm font-semibold text-slate-200">
+            <ShieldCheck className="h-4 w-4 text-brand-400" /> Walk-forward (out-of-sample)
+          </div>
+          <div className="space-y-4 p-5">
+            <div
+              className={`rounded-xl border p-3 text-sm font-medium ${
+                walkfwd.data.verdict === "robust"
+                  ? "border-brand-500/20 bg-brand-500/[0.06] text-brand-300"
+                  : walkfwd.data.verdict === "overfit"
+                    ? "border-rose-500/20 bg-rose-500/[0.06] text-rose-300"
+                    : "border-amber-500/20 bg-amber-500/[0.06] text-amber-200"
+              }`}
+            >
+              {walkfwd.data.message}
+            </div>
+
+            {walkfwd.data.folds.length > 0 && (
+              <>
+                <div className="grid grid-cols-3 gap-3">
+                  <StatCard
+                    icon={Wand2}
+                    label="Avg in-sample"
+                    value={signedPct(walkfwd.data.avg_in_return_pct)}
+                    valueClassName={pnlTone(walkfwd.data.avg_in_return_pct)}
+                  />
+                  <StatCard
+                    icon={ShieldCheck}
+                    label="Out-of-sample (real)"
+                    value={signedPct(walkfwd.data.combined_out_return_pct)}
+                    valueClassName={pnlTone(walkfwd.data.combined_out_return_pct)}
+                  />
+                  <StatCard
+                    icon={Trophy}
+                    label="Profitable windows"
+                    value={`${walkfwd.data.profitable_folds}/${walkfwd.data.total_folds}`}
+                  />
+                </div>
+
+                <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]">
+                  <table className="min-w-full text-sm">
+                    <thead className="text-left text-xs uppercase tracking-wider text-slate-500">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">#</th>
+                        <th className="px-3 py-2 font-medium">Picked on training</th>
+                        <th className="px-3 py-2 text-right font-medium">In-sample</th>
+                        <th className="px-3 py-2 text-right font-medium">Out-of-sample</th>
+                        <th className="px-3 py-2 text-right font-medium">Drawdown</th>
+                        <th className="px-3 py-2 text-right font-medium">Trades</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/[0.05]">
+                      {walkfwd.data.folds.map((f) => (
+                        <tr key={f.n} className="hover:bg-white/[0.02]">
+                          <td className="px-3 py-2 text-slate-500">{f.n}</td>
+                          <td className="px-3 py-2 font-mono text-xs text-slate-400">{f.summary}</td>
+                          <td className={`px-3 py-2 text-right ${pnlTone(f.in_return_pct)}`}>
+                            {signedPct(f.in_return_pct)}
+                          </td>
+                          <td className={`px-3 py-2 text-right font-semibold ${pnlTone(f.out_return_pct)}`}>
+                            {signedPct(f.out_return_pct)}
+                          </td>
+                          <td className="px-3 py-2 text-right text-rose-400">{pct(f.out_drawdown_pct)}</td>
+                          <td className="px-3 py-2 text-right text-slate-400">{f.out_trades}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+            <p className="text-xs text-slate-500">
+              Каждое окно: параметры подбираются на «обучении», затем проверяются на следующем, невиданном
+              отрезке. «Out-of-sample (real)» — реалистичный результат; большой разрыв с in-sample = переподгонка.
+            </p>
+          </div>
+        </Card>
+      )}
 
       {aiEnabled && (
         <Card className="mt-6 p-0">

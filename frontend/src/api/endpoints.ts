@@ -214,6 +214,31 @@ export async function optimizeStrategy(strategy_id: number, start_date?: string,
   return data as OptimizeResponse;
 }
 
+export type WalkForwardFold = {
+  n: number;
+  in_return_pct: number;
+  out_return_pct: number;
+  out_drawdown_pct: number;
+  out_trades: number;
+  summary: string;
+};
+export type WalkForwardResult = {
+  verdict: "robust" | "overfit" | "mixed" | "insufficient";
+  message: string;
+  folds: WalkForwardFold[];
+  avg_in_return_pct: number;
+  avg_out_return_pct: number;
+  combined_out_return_pct: number;
+  profitable_folds: number;
+  total_folds: number;
+  candles: number;
+};
+
+export async function walkForward(strategy_id: number, start_date?: string, end_date?: string) {
+  const { data } = await api.post("/backtest/walkforward", { strategy_id, start_date, end_date });
+  return data as WalkForwardResult;
+}
+
 export type AttemptInfo = {
   n: number;
   total_return_pct: number;
