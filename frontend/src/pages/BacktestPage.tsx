@@ -111,7 +111,7 @@ export function BacktestPage() {
   const [askText, setAskText] = useState("");
   // The config the chat is iterating on; follow-up requests build on the last proposal.
   const [workingConfig, setWorkingConfig] = useState<StrategyConfig | null>(null);
-  const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const chatBoxRef = useRef<HTMLDivElement | null>(null);
 
   // Reset the conversation when the user picks a different strategy.
   useEffect(() => {
@@ -165,8 +165,11 @@ export function BacktestPage() {
     ask.mutate(next.map((m) => ({ role: m.role, content: m.content })));
   }
 
+  // Keep the chat scrolled to the latest message — but only the chat box itself,
+  // never the whole page (scrollIntoView would yank the window to the bottom).
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = chatBoxRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [chat, ask.isPending]);
 
   useEffect(() => {
@@ -332,7 +335,7 @@ export function BacktestPage() {
             <span className="ml-auto text-xs font-normal text-slate-500">about this strategy</span>
           </div>
           <div className="p-5">
-            <div className="max-h-[420px] space-y-3 overflow-y-auto">
+            <div ref={chatBoxRef} className="max-h-[420px] space-y-3 overflow-y-auto">
               {chat.length === 0 && (
                 <p className="text-sm text-slate-500">
                   Задай вопрос или попроси словами что-то изменить — например «сделай стоп уже и торгуй
@@ -386,7 +389,6 @@ export function BacktestPage() {
                   <Spinner /> Думаю…
                 </div>
               )}
-              <div ref={chatEndRef} />
             </div>
             <div className="mt-3 flex gap-2">
               <input
