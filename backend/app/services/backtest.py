@@ -15,6 +15,10 @@ def _opposite(side: str) -> str:
     return "short" if side == "long" else "long"
 
 
+# Fixed seed for the Monte-Carlo bootstrap so a backtest is reproducible.
+_MC_SEED = 12345
+
+
 _PERIODS_PER_YEAR = {"5m": 105120, "15m": 35040, "1h": 8760, "4h": 2190, "1d": 365}
 
 
@@ -70,6 +74,9 @@ def _monte_carlo(trade_returns: list[float], sims: int = 1000) -> dict[str, Any]
     n = len(trade_returns)
     if n < 8:
         return None
+    # Local seeded RNG: the bootstrap stays reproducible (same trades -> same
+    # numbers on every run) without disturbing the global random stream.
+    rng = random.Random(_MC_SEED)
     finals: list[float] = []
     maxdds: list[float] = []
     for _ in range(sims):
@@ -77,7 +84,7 @@ def _monte_carlo(trade_returns: list[float], sims: int = 1000) -> dict[str, Any]
         peak = 1.0
         mdd = 0.0
         for _ in range(n):
-            eq *= 1 + trade_returns[random.randrange(n)]
+            eq *= 1 + trade_returns[rng.randrange(n)]
             if eq <= 0:
                 eq = 1e-9
             peak = max(peak, eq)
@@ -111,6 +118,9 @@ MAX_SERIES_POINTS = 2500
 # Walk-forward spans more history than a single backtest (many regimes), but is
 # capped so the multiple optimiser sweeps finish in well under the request timeout.
 WALKFORWARD_CANDLES = 12000
+# Candles fed in before each out-of-sample window purely to warm the indicators
+# (covers up to a 200-period filter); no trades are taken during them.
+WALKFORWARD_WARMUP = 250
 
 
 async def _fetch_candles(
@@ -199,12 +209,19 @@ async def run_backtest(
     return await asyncio.to_thread(_simulate, config, candles)
 
 
-def _simulate(config: dict[str, Any], candles: list[list[float]], include_series: bool = True) -> dict[str, Any]:
+def _simulate(
+    config: dict[str, Any], candles: list[list[float]], include_series: bool = True, warmup: int = 0
+) -> dict[str, Any]:
     """Run the strategy over already-fetched candles. Pure/CPU-only so the
     optimizer can reuse one candle set across many parameter combinations.
 
     ``include_series`` controls whether the (heavier) price series + per-trade
-    timestamps are built — the optimizer doesn't need them, so it passes False."""
+    timestamps are built — the optimizer doesn't need them, so it passes False.
+
+    ``warmup`` bars at the front are used only to warm the indicators (computed
+    over the whole slice): no position is opened and nothing is counted there, so
+    the result reflects only candles[warmup:]. Walk-forward uses this so a
+    long-period filter doesn't start cold (and trade-free) on each test window."""
     closes = [c[4] for c in candles]
     # Precompute every indicator once over the whole series (O(n)); the loop then
     # decides each bar with an array lookup instead of recomputing per bar (O(n²)).
@@ -261,6 +278,10 @@ def _simulate(config: dict[str, Any], candles: list[list[float]], include_series
         return (exit_price - entry_price) / entry_price if open_side == "long" else (entry_price - exit_price) / entry_price
 
     for idx, candle in enumerate(candles):
+        # Warmup bars only prime the indicators (already computed over the whole
+        # slice); take no trades and record no equity until the real window starts.
+        if idx < warmup:
+            continue
         # candle = [ts, open, high, low, close, volume]
         open_, high, low, close = candle[1], candle[2], candle[3], candle[4]
         sig = signal_at(signals, idx, side)
@@ -392,10 +413,12 @@ def _simulate(config: dict[str, Any], candles: list[list[float]], include_series
             price_series = price_series[::step]
             equity_curve = equity_curve[::step]
 
+    # Everything below reflects only the measured window (candles after warmup).
+    eff = candles[warmup:] if warmup else candles
     total_trades = max(wins + loss, 1)
     max_dd = max((p["dd"] for p in curve), default=0.0)
-    start_s = (float(candles[0][0]) / 1000.0) if candles else None
-    end_s = (float(candles[-1][0]) / 1000.0) if candles else None
+    start_s = (float(eff[0][0]) / 1000.0) if eff else None
+    end_s = (float(eff[-1][0]) / 1000.0) if eff else None
     result: dict[str, Any] = {
         "total_return_pct": (equity - 1000.0) / 1000.0 * 100,
         "max_drawdown_pct": max_dd,
@@ -403,7 +426,7 @@ def _simulate(config: dict[str, Any], candles: list[list[float]], include_series
         "trades": trades,
         "equity_curve": equity_curve,
         "price_series": price_series,
-        "candles": len(candles),
+        "candles": len(eff),
         "start": start_s,
         "end": end_s,
     }
@@ -412,7 +435,7 @@ def _simulate(config: dict[str, Any], candles: list[list[float]], include_series
     if include_series:
         result["metrics"] = _extended_metrics(
             [p["y"] for p in curve], trade_returns, config.get("timeframe", "1h"),
-            bars_in_pos, len(candles), max_dd, start_s, end_s,
+            bars_in_pos, len(eff), max_dd, start_s, end_s,
         )
         result["monte_carlo"] = _monte_carlo(trade_returns)
     return result
@@ -616,18 +639,35 @@ def run_walkforward(config: dict[str, Any], candles: list[list[float]]) -> dict[
     # the run stays responsive and the table readable.
     test_size = max(150, n // 13)
     train_size = max(400, test_size * 3)
+    # Trust only configs that traded enough in-sample to mean something — a 3-trade
+    # fluke that tops the training board can't be expected to hold up out-of-sample.
+    # Scale the floor with the window so longer histories demand more evidence.
+    wf_min_trades = max(OPTIMIZE_MIN_TRADES, train_size // 300)
 
     folds: list[dict[str, Any]] = []
+    windows = 0   # candidate windows walked over
+    thin = 0      # windows skipped because no in-sample config traded enough to trust
     start = 0
     while start + train_size + test_size <= n:
-        train = candles[start : start + train_size]
-        test = candles[start + train_size : start + train_size + test_size]
+        windows += 1
+        test_start = start + train_size
+        train = candles[start:test_start]
+        # Warm the indicators on the candles right before the test window (prior,
+        # already-seen data — no look-ahead) so a long-period filter isn't cold and
+        # trade-free on a short window; trades are only taken from test_start on.
+        warm = min(WALKFORWARD_WARMUP, test_start)
+        test = candles[test_start - warm : test_start + test_size]
+        start += test_size
+
         ranked = _run_grid(config, train)
-        pool = [r for r in ranked if r["score"] != float("-inf")] or ranked
-        if not pool:
-            break
-        best = pool[0]
-        oos = _simulate(best["config"], test, include_series=False)
+        # Pick the best *reliable* config, not the single highest return/drawdown
+        # (usually the luckiest, smallest-sample one that fails out-of-sample).
+        qualifying = [r for r in ranked if r["trades"] >= wf_min_trades]
+        if not qualifying:
+            thin += 1
+            continue
+        best = max(qualifying, key=lambda r: r["score"])
+        oos = _simulate(best["config"], test, include_series=False, warmup=warm)
         folds.append({
             "n": len(folds) + 1,
             "in_return_pct": round(best["total_return_pct"], 2),
@@ -636,15 +676,18 @@ def run_walkforward(config: dict[str, Any], candles: list[list[float]]) -> dict[
             "out_trades": _closed_trades(oos),
             "summary": _describe_config(best["config"]),
         })
-        start += test_size
 
     empty = {
         "folds": [], "avg_in_return_pct": 0.0, "avg_out_return_pct": 0.0,
         "combined_out_return_pct": 0.0, "profitable_folds": 0, "total_folds": len(folds), "candles": n,
     }
     if len(folds) < 2:
-        return {**empty, "verdict": "insufficient",
-                "message": "Мало истории для walk-forward — выбери период подлиннее или таймфрейм помельче."}
+        if windows >= 2 and thin >= windows // 2:
+            message = ("Стратегия торгует слишком редко для walk-forward — на обучающих окнах почти нет "
+                       "сделок, чтобы доверять подбору. Возьми таймфрейм помельче или более активный вход.")
+        else:
+            message = "Мало истории для walk-forward — выбери период подлиннее или таймфрейм помельче."
+        return {**empty, "verdict": "insufficient", "message": message}
 
     total = len(folds)
     avg_in = round(sum(f["in_return_pct"] for f in folds) / total, 2)

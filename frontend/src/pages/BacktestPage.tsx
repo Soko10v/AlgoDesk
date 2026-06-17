@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createChart, type IChartApi, type SeriesMarker, type Time, type UTCTimestamp } from "lightweight-charts";
-import { Activity, Grid3x3, MessageSquare, Play, Percent, Save, Send, ShieldCheck, Sparkles, TrendingDown, Trophy, Wand2 } from "lucide-react";
+import { Activity, ChevronDown, Grid3x3, MessageSquare, Play, Percent, Save, Send, ShieldCheck, Sparkles, TrendingDown, Trophy, Wand2, type LucideIcon } from "lucide-react";
 import {
   askAi,
   authConfig,
@@ -22,6 +22,48 @@ import { toast } from "../store/toast";
 import { Badge, Button, Card, EmptyState, Field, PageHeader, Select, Spinner, StatCard } from "../components/ui";
 import { dateTime, pct, pnlTone, price, signedPct } from "../lib/formatters";
 import { describeEntry, describeFilters } from "../lib/strategy";
+
+/** A Card with a clickable header that collapses its body. Running every test on
+ *  the page stacks up a lot of panels, so each result block can be folded away.
+ *  The body is hidden with CSS (not unmounted) so chart canvases and chat scroll
+ *  state survive a collapse/expand. */
+function CollapsibleCard({
+  icon: Icon,
+  title,
+  meta,
+  defaultOpen = true,
+  className = "",
+  children,
+}: {
+  icon?: LucideIcon;
+  title: ReactNode;
+  meta?: ReactNode;
+  defaultOpen?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Card className={`overflow-hidden p-0 ${className}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 px-5 py-3 text-left text-sm font-semibold text-slate-200 transition-colors hover:bg-white/[0.03]"
+      >
+        {Icon && <Icon className="h-4 w-4 shrink-0 text-brand-400" />}
+        <span>{title}</span>
+        {meta && <span className="ml-auto text-xs font-normal text-slate-500">{meta}</span>}
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${meta ? "ml-2" : "ml-auto"} ${
+            open ? "" : "-rotate-90"
+          }`}
+        />
+      </button>
+      <div className={`border-t border-white/[0.06] ${open ? "" : "hidden"}`}>{children}</div>
+    </Card>
+  );
+}
 
 export function BacktestPage() {
   const strategies = useQuery({ queryKey: ["strategies"], queryFn: listStrategies });
@@ -281,8 +323,10 @@ export function BacktestPage() {
     link(priceChart, equityChart);
 
     const onResize = () => {
-      equityChart.applyOptions({ width: eEl.clientWidth });
-      priceChart.applyOptions({ width: pEl.clientWidth });
+      // Skip when the panel is collapsed (clientWidth 0) — otherwise the chart
+      // would be resized to nothing and stay blank after it's expanded again.
+      if (eEl.clientWidth) equityChart.applyOptions({ width: eEl.clientWidth });
+      if (pEl.clientWidth) priceChart.applyOptions({ width: pEl.clientWidth });
     };
     window.addEventListener("resize", onResize);
     return () => {
@@ -386,10 +430,7 @@ export function BacktestPage() {
       )}
 
       {walkfwd.data && !walkfwd.isPending && (
-        <Card className="mt-6 p-0">
-          <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-3 text-sm font-semibold text-slate-200">
-            <ShieldCheck className="h-4 w-4 text-brand-400" /> Walk-forward (out-of-sample)
-          </div>
+        <CollapsibleCard className="mt-6" icon={ShieldCheck} title="Walk-forward (out-of-sample)">
           <div className="space-y-4 p-5">
             <div
               className={`rounded-xl border p-3 text-sm font-medium ${
@@ -463,7 +504,7 @@ export function BacktestPage() {
               отрезке. «Out-of-sample (real)» — реалистичный результат; большой разрыв с in-sample = переподгонка.
             </p>
           </div>
-        </Card>
+        </CollapsibleCard>
       )}
 
       {sensit.isPending && (
@@ -473,10 +514,7 @@ export function BacktestPage() {
       )}
 
       {sensit.data && !sensit.isPending && (
-        <Card className="mt-6 p-0">
-          <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-3 text-sm font-semibold text-slate-200">
-            <Grid3x3 className="h-4 w-4 text-brand-400" /> Parameter sensitivity
-          </div>
+        <CollapsibleCard className="mt-6" icon={Grid3x3} title="Parameter sensitivity">
           <div className="space-y-4 p-5">
             <div
               className={`rounded-xl border p-3 text-sm font-medium ${
@@ -543,15 +581,11 @@ export function BacktestPage() {
               переподгонка под конкретные значения.
             </p>
           </div>
-        </Card>
+        </CollapsibleCard>
       )}
 
       {aiEnabled && (
-        <Card className="mt-6 p-0">
-          <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-3 text-sm font-semibold text-slate-200">
-            <MessageSquare className="h-4 w-4 text-brand-400" /> Ask AI
-            <span className="ml-auto text-xs font-normal text-slate-500">about this strategy</span>
-          </div>
+        <CollapsibleCard className="mt-6" icon={MessageSquare} title="Ask AI" meta="about this strategy">
           <div className="p-5">
             <div ref={chatBoxRef} className="max-h-[420px] space-y-3 overflow-y-auto">
               {chat.length === 0 && (
@@ -631,7 +665,7 @@ export function BacktestPage() {
               периоде — но прошлые результаты не гарантируют будущих. Сохрани и протестируй в paper-режиме.
             </p>
           </div>
-        </Card>
+        </CollapsibleCard>
       )}
 
       {aiPending && (
@@ -641,10 +675,7 @@ export function BacktestPage() {
       )}
 
       {aiData && !aiPending && (
-        <Card className="mt-6 p-0">
-          <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-3 text-sm font-semibold text-slate-200">
-            <Sparkles className="h-4 w-4 text-brand-400" /> AI analysis
-          </div>
+        <CollapsibleCard className="mt-6" icon={Sparkles} title="AI analysis">
           <div className="space-y-4 p-5">
             {/* Verdict */}
             <div
@@ -739,7 +770,7 @@ export function BacktestPage() {
               AI suggestions are based on past data and can be wrong — backtest the saved version and start in paper mode.
             </p>
           </div>
-        </Card>
+        </CollapsibleCard>
       )}
 
       {optimize.isPending && (
@@ -749,13 +780,12 @@ export function BacktestPage() {
       )}
 
       {optimize.data && !optimize.isPending && (
-        <Card className="mt-6 overflow-hidden p-0">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.06] px-5 py-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-200">
-              <Wand2 className="h-4 w-4 text-brand-400" /> Optimizer — top results
-            </div>
-            <span className="text-xs text-slate-500">{optimize.data.tested} combos · ranked by return ÷ drawdown</span>
-          </div>
+        <CollapsibleCard
+          className="mt-6"
+          icon={Wand2}
+          title="Optimizer — top results"
+          meta={`${optimize.data.tested} combos · ranked by return ÷ drawdown`}
+        >
           {optimize.data.results.length === 0 ? (
             <div className="p-6 text-sm text-slate-500">No combination produced enough trades in this period.</div>
           ) : (
@@ -815,7 +845,7 @@ export function BacktestPage() {
           <div className="border-t border-white/[0.06] px-5 py-2.5 text-xs text-slate-500">
             ⚠️ Ranked on past data — high scores can be overfit. Prefer many trades + low drawdown, and re-test on another period.
           </div>
-        </Card>
+        </CollapsibleCard>
       )}
 
       {run.isPending && (
@@ -880,13 +910,12 @@ export function BacktestPage() {
           )}
 
           {result.monte_carlo && (
-            <Card className="p-5">
-              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-300">
-                <Activity className="h-4 w-4 text-brand-400" /> Monte Carlo — got lucky or real?
-                <span className="ml-auto text-xs font-normal text-slate-500">
-                  {result.monte_carlo.simulations.toLocaleString()} resamples of your trades
-                </span>
-              </div>
+            <CollapsibleCard
+              icon={Activity}
+              title="Monte Carlo — got lucky or real?"
+              meta={`${result.monte_carlo.simulations.toLocaleString()} resamples of your trades`}
+            >
+              <div className="p-5">
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
                 <StatCard
                   icon={Trophy}
@@ -913,33 +942,34 @@ export function BacktestPage() {
                 медиана у нуля — результат держался на удаче и порядке сделок (типичная просадка ~
                 {pct(result.monte_carlo.median_maxdd_pct)}, в худших ~{pct(result.monte_carlo.p95_maxdd_pct)}).
               </p>
-            </Card>
+              </div>
+            </CollapsibleCard>
           )}
 
-          <Card className="p-5">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm font-semibold text-slate-300">Equity curve</span>
-              {result.candles > 0 && result.start && result.end && (
+          <CollapsibleCard
+            icon={Activity}
+            title="Equity & price"
+            meta={
+              result.candles > 0 && result.start && result.end
+                ? `${result.candles} candles · ${dateTime(result.start * 1000)} → ${dateTime(result.end * 1000)}`
+                : undefined
+            }
+          >
+            <div className="p-5">
+              <div className="mb-3 text-sm font-semibold text-slate-300">Equity curve</div>
+              <div ref={equityEl} className="w-full" />
+              <div className="mb-2 mt-5 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-slate-300">Price &amp; trades</span>
                 <span className="text-xs text-slate-500">
-                  {result.candles} candles · {dateTime(result.start * 1000)} → {dateTime(result.end * 1000)}
+                  <span className="text-slate-400">●</span> entry ·{" "}
+                  <span className="text-brand-400">▲</span>/<span className="text-rose-400">▼</span> exit (green = profit, red = loss) — P&amp;L per trade in the table below
                 </span>
-              )}
+              </div>
+              <div ref={priceEl} className="w-full" />
             </div>
-            <div ref={equityEl} className="w-full" />
-            <div className="mb-2 mt-5 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm font-semibold text-slate-300">Price &amp; trades</span>
-              <span className="text-xs text-slate-500">
-                <span className="text-slate-400">●</span> entry ·{" "}
-                <span className="text-brand-400">▲</span>/<span className="text-rose-400">▼</span> exit (green = profit, red = loss) — P&amp;L per trade in the table below
-              </span>
-            </div>
-            <div ref={priceEl} className="w-full" />
-          </Card>
+          </CollapsibleCard>
 
-          <Card className="overflow-hidden p-0">
-            <div className="border-b border-white/[0.06] px-5 py-3 text-sm font-semibold text-slate-300">
-              Trades ({trades.length})
-            </div>
+          <CollapsibleCard title={`Trades (${trades.length})`}>
             {trades.length === 0 ? (
               <div className="p-6 text-sm text-slate-500">No trades were generated for this period.</div>
             ) : (
@@ -974,7 +1004,7 @@ export function BacktestPage() {
                 </table>
               </div>
             )}
-          </Card>
+          </CollapsibleCard>
         </div>
       )}
     </div>
