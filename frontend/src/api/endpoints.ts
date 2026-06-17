@@ -242,6 +242,7 @@ export type WalkForwardFold = {
   out_drawdown_pct: number;
   out_trades: number;
   summary: string;
+  config?: StrategyConfig | null;
 };
 export type WalkForwardResult = {
   verdict: "robust" | "overfit" | "mixed" | "insufficient";
