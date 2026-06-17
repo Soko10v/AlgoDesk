@@ -13,7 +13,7 @@ from typing import Any
 import httpx
 
 from app.core.config import get_settings
-from app.engine.risk import leverage
+from app.engine.risk import MAX_LEVERAGE, leverage
 from app.schemas.strategy import validate_strategy_config
 
 logger = logging.getLogger(__name__)
@@ -132,18 +132,60 @@ async def _call_deepseek_raw(messages: list[dict[str, str]]) -> str:
     return data["choices"][0]["message"]["content"]
 
 
+def _pos(v: Any) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
+
+
+def _coerce_config(cfg: dict[str, Any], symbol: str | None, timeframe: str | None, base: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Fill in safe defaults for fields the model commonly omits (e.g. ``exit`` on a
+    flip strategy, or ``position_size_usdt``) so a otherwise-valid config isn't
+    dropped. Inherits from ``base`` (the strategy being edited) when available."""
+    base = base or {}
+    cfg = dict(cfg)
+    cfg["symbol"] = symbol
+    cfg["timeframe"] = timeframe
+    if not isinstance(cfg.get("entry"), list) or not cfg["entry"]:
+        cfg["entry"] = base.get("entry") or [{"type": "ema_cross", "fast": 9, "slow": 21}]
+    if not isinstance(cfg.get("exit"), list):
+        cfg["exit"] = base.get("exit") or []
+    for k in ("stop_loss", "take_profit"):
+        if not isinstance(cfg.get(k), dict):
+            cfg[k] = base.get(k) or {"type": "pct", "value": 0}
+    if not (_pos(cfg.get("position_size_usdt")) or _pos(cfg.get("position_size_pct"))):
+        cfg["position_size_usdt"] = base.get("position_size_usdt") or 50
+    if cfg.get("market") == "futures":
+        try:
+            cfg["leverage"] = max(1, min(MAX_LEVERAGE, int(cfg.get("leverage", base.get("leverage", 1)))))
+        except (TypeError, ValueError):
+            cfg["leverage"] = base.get("leverage", 1)
+    return cfg
+
+
+def _validate_or_drop(cfg: dict[str, Any]) -> dict[str, Any] | None:
+    """Validate a config; if only the (optional) filters are bad, drop them and
+    keep the bot instead of throwing the whole thing away."""
+    try:
+        validate_strategy_config(cfg)
+        return cfg
+    except Exception as exc:  # noqa: BLE001
+        if cfg.get("filters"):
+            stripped = dict(cfg)
+            stripped["filters"] = []
+            try:
+                validate_strategy_config(stripped)
+                return stripped
+            except Exception:  # noqa: BLE001
+                pass
+        logger.warning("AI config rejected: %s", exc)
+        return None
+
+
 def _parse_proposed(parsed: dict[str, Any], config: dict[str, Any]) -> dict[str, Any] | None:
-    """Extract and validate the proposed_config from a DeepSeek response."""
+    """Extract, coerce and validate the proposed_config from a DeepSeek response."""
     proposed = parsed.get("proposed_config")
     if not isinstance(proposed, dict):
         return None
-    proposed["symbol"] = config.get("symbol")
-    proposed["timeframe"] = config.get("timeframe")
-    try:
-        validate_strategy_config(proposed)
-        return proposed
-    except Exception:  # noqa: BLE001
-        return None
+    return _validate_or_drop(_coerce_config(proposed, config.get("symbol"), config.get("timeframe"), base=config))
 
 
 async def analyze_strategy(config: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
@@ -500,13 +542,12 @@ async def generate_strategies(history: list[dict[str, str]]) -> dict[str, Any]:
     for b in (parsed.get("bots") or [])[:3]:
         if not isinstance(b, dict) or not isinstance(b.get("config"), dict):
             continue
-        cfg = b["config"]
-        cfg["symbol"] = symbol  # pin all three to the same market for a fair comparison
-        cfg["timeframe"] = timeframe
-        try:
-            validate_strategy_config(cfg)
-        except Exception:  # noqa: BLE001 - skip an invalid bot, keep the rest
+        # Pin all three to the same market for a fair comparison, fill safe defaults.
+        cfg = _validate_or_drop(_coerce_config(b["config"], symbol, timeframe))
+        if cfg is None:
             continue
         bots.append({"name": str(b.get("name") or "Bot"), "approach": str(b.get("approach") or ""), "config": cfg})
 
+    if not bots:
+        logger.warning("generate_strategies produced no valid bots from %d candidates", len(parsed.get("bots") or []))
     return {"answer": str(parsed.get("answer") or ""), "symbol": symbol, "timeframe": timeframe, "bots": bots}
