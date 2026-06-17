@@ -435,3 +435,77 @@ async def ask_about_strategy(
         out["proposed_win_rate"] = round(float(res.get("win_rate", 0.0)), 2)
         out["proposed_trades"] = len([t for t in res.get("trades", []) if isinstance(t.get("pnl_pct"), (int, float))])
     return out
+
+
+# ---- generate strategies from a description --------------------------------
+
+GEN_SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT"]
+GEN_TIMEFRAMES = ["5m", "15m", "1h", "4h", "1d"]
+
+_GENERATE_SYSTEM = """\
+Ты — конструктор торговых ботов AlgoDesk. По описанию пользователя собери ТРИ
+рабочие стратегии, которые подходят под запрос, но РАЗНЫЕ ПО СУТИ — разный подход,
+например: трендследящая, возврат к среднему (контртренд), пробойная.
+
+Выбери ОДНУ монету и ОДИН таймфрейм для всех трёх (чтобы их можно было честно
+сравнить на одних данных), только из разрешённых:
+- symbol: BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT
+- timeframe: 5m, 15m, 1h, 4h, 1d
+
+Поля конфига:
+- market ("spot"|"futures"), direction ("long"|"both"), leverage (1-10)
+- position_size_usdt — МАРЖА в USD; объём позиции = маржа × leverage
+- entry: массив правил (ma_cross/ema_cross/rsi/breakout/macd) — движок берёт ПЕРВОЕ
+- filters: доп. условия входа (реальные): trend {ma,period}, rsi {period,max,min},
+  volume {period,mult}, atr {period,min_pct,max_pct}, adx {period,min}
+- exit: правила RSI; stop_loss/take_profit/trailing_stop: {type:"pct", value:n} (0=выкл)
+- hedge: защитный шорт (только фьючерс); daily_loss_limit_pct: дневной лимит убытка
+
+Делай подходы реально разными (разные entry/filters/риск/направление). Учитывай
+запрос: «консервативный» → меньше плечо, шире стоп, фильтр тренда; «агрессивный» →
+выше плечо, чаще сделки. Имя (name) и approach — на русском, коротко.
+
+Отвечай ТОЛЬКО валидным JSON:
+{
+ "answer": "1-2 фразы: что собрал и чем боты отличаются",
+ "symbol": "BTC/USDT",
+ "timeframe": "1h",
+ "bots": [
+   {"name": "...", "approach": "трендследящая", "config": { ...полный конфиг... }},
+   {"name": "...", "approach": "возврат к среднему", "config": { ... }},
+   {"name": "...", "approach": "пробой", "config": { ... }}
+ ]
+}
+"""
+
+
+async def generate_strategies(history: list[dict[str, str]]) -> dict[str, Any]:
+    """Design three distinct strategies from a free-form description. Picks one
+    symbol+timeframe for all three (fair comparison) and returns validated configs;
+    the caller backtests them. Raises RuntimeError on transport errors."""
+    if not is_configured():
+        raise RuntimeError("AI analysis is not configured")
+
+    raw = await _call_deepseek_raw([{"role": "system", "content": _GENERATE_SYSTEM}, *history])
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {"answer": str(raw), "symbol": "", "timeframe": "", "bots": []}
+
+    symbol = parsed.get("symbol") if parsed.get("symbol") in GEN_SYMBOLS else "BTC/USDT"
+    timeframe = parsed.get("timeframe") if parsed.get("timeframe") in GEN_TIMEFRAMES else "1h"
+
+    bots: list[dict[str, Any]] = []
+    for b in (parsed.get("bots") or [])[:3]:
+        if not isinstance(b, dict) or not isinstance(b.get("config"), dict):
+            continue
+        cfg = b["config"]
+        cfg["symbol"] = symbol  # pin all three to the same market for a fair comparison
+        cfg["timeframe"] = timeframe
+        try:
+            validate_strategy_config(cfg)
+        except Exception:  # noqa: BLE001 - skip an invalid bot, keep the rest
+            continue
+        bots.append({"name": str(b.get("name") or "Bot"), "approach": str(b.get("approach") or ""), "config": cfg})
+
+    return {"answer": str(parsed.get("answer") or ""), "symbol": symbol, "timeframe": timeframe, "bots": bots}

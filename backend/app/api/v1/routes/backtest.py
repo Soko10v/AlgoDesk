@@ -16,12 +16,14 @@ from app.schemas.backtest import (
     AskOut,
     BacktestIn,
     BacktestOut,
+    GenerateIn,
+    GenerateStatusOut,
     OptimizeIn,
     OptimizeOut,
 )
 from app.schemas.strategy import validate_strategy_config
 from app.services.ai_analysis import ask_about_strategy, is_configured
-from app.services.ai_jobs import get_job, start_job
+from app.services.ai_jobs import get_job, start_generate_job, start_job
 from app.services.backtest import load_candles, run_backtest, run_optimization, simulate_backtest
 
 router = APIRouter()
@@ -148,3 +150,33 @@ async def ask_ai(
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=f"AI request failed: {exc}")
     return AskOut(**data)
+
+
+@router.post("/generate", response_model=AnalyzeStartOut)
+@limiter.limit("8/minute")
+async def generate_bots(
+    request: Request,
+    payload: GenerateIn,
+    current_user: User = Depends(get_current_user),
+) -> AnalyzeStartOut:
+    """Design three distinct bots from a description (background job: one DeepSeek
+    call + three backtests). Poll /generate/{job_id} for the result."""
+    if not is_configured():
+        raise HTTPException(status_code=503, detail="AI is not configured (set DEEPSEEK_API_KEY)")
+    msgs = [m for m in payload.messages if m.role in ("user", "assistant") and m.content.strip()][-20:]
+    if not msgs or msgs[-1].role != "user":
+        raise HTTPException(status_code=400, detail="Describe the bot you want")
+    history = [{"role": m.role, "content": m.content[:2000]} for m in msgs]
+    job_id = start_generate_job(current_user.id, history)
+    return AnalyzeStartOut(job_id=job_id)
+
+
+@router.get("/generate/{job_id}", response_model=GenerateStatusOut)
+async def generate_status(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+) -> GenerateStatusOut:
+    job = get_job(job_id)
+    if job is None or job.get("user_id") != current_user.id:
+        raise HTTPException(status_code=404, detail="Generation job not found")
+    return GenerateStatusOut(status=job["status"], result=job.get("result"), error=job.get("error"))

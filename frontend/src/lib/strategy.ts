@@ -127,61 +127,6 @@ export function defaultConfig(): StrategyConfig {
   };
 }
 
-export type Preset = { id: string; name: string; blurb: string; config: StrategyConfig };
-
-/** Curated starting points so users don't build from scratch. Each uses the new
- *  blocks + trailing so they're decent baselines to backtest and tune. */
-export function presets(): Preset[] {
-  const base = defaultConfig();
-  const off = { type: "pct" as const, value: 0 };
-  const pct = (value: number) => ({ type: "pct" as const, value });
-  return [
-    {
-      id: "trend",
-      name: "Trend Rider",
-      blurb: "EMA trend · both directions · trailing exit",
-      config: { ...base, timeframe: "1h", market: "futures", direction: "both", leverage: 3,
-        entry: [defaultEntry("ema_cross")], stop_loss: pct(3), take_profit: off, trailing_stop: pct(4) },
-    },
-    {
-      id: "scalp",
-      name: "Scalper",
-      blurb: "Fast MA + RSI exit · tight risk · spot",
-      config: { ...base, timeframe: "5m", entry: [defaultEntry("ma_cross")],
-        exit: [{ type: "rsi", op: ">", value: 70 }], stop_loss: pct(1), take_profit: pct(1.5), trailing_stop: off },
-    },
-    {
-      id: "breakout",
-      name: "Breakout Hunter",
-      blurb: "Donchian breakout · both ways · trailing",
-      config: { ...base, timeframe: "1h", market: "futures", direction: "both", leverage: 3,
-        entry: [defaultEntry("breakout")], stop_loss: pct(3), take_profit: off, trailing_stop: pct(5) },
-    },
-    {
-      id: "meanrev",
-      name: "Mean Reversion",
-      blurb: "Buy oversold RSI · take profit · spot",
-      config: { ...base, timeframe: "15m", entry: [defaultEntry("rsi")],
-        stop_loss: pct(2), take_profit: pct(3), trailing_stop: off },
-    },
-    {
-      id: "macd",
-      name: "MACD Momentum",
-      blurb: "MACD cross · both ways · trailing",
-      config: { ...base, timeframe: "4h", market: "futures", direction: "both", leverage: 3,
-        entry: [defaultEntry("macd")], stop_loss: pct(3), take_profit: off, trailing_stop: pct(4) },
-    },
-    {
-      id: "trendpull",
-      name: "Trend Pullback",
-      blurb: "Buy RSI dips, only above the 200 EMA",
-      config: { ...base, timeframe: "1h", entry: [defaultEntry("rsi")],
-        filters: [{ type: "trend", ma: "ema", period: 200 }],
-        stop_loss: pct(2), take_profit: pct(4), trailing_stop: off },
-    },
-  ];
-}
-
 export function describeEntry(config: StrategyConfig): string {
   const r = config.entry?.[0];
   if (!r) return "—";

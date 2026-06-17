@@ -108,3 +108,30 @@ class AskOut(BaseModel):
     proposed_drawdown_pct: float | None = None
     proposed_win_rate: float | None = None
     proposed_trades: int | None = None
+
+
+class GenerateIn(BaseModel):
+    messages: list[ChatMessage]
+
+
+class GeneratedBot(BaseModel):
+    name: str
+    approach: str
+    config: dict[str, Any]
+    total_return_pct: float = 0.0
+    max_drawdown_pct: float = 0.0
+    win_rate: float = 0.0
+    trades: int = 0
+
+
+class GenerateResult(BaseModel):
+    answer: str
+    symbol: str = ""
+    timeframe: str = ""
+    bots: list[GeneratedBot] = []
+
+
+class GenerateStatusOut(BaseModel):
+    status: str  # "running" | "done" | "error"
+    result: GenerateResult | None = None
+    error: str | None = None
