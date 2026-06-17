@@ -630,91 +630,71 @@ def _describe_config(cfg: dict[str, Any]) -> str:
 
 
 def run_walkforward(config: dict[str, Any], candles: list[list[float]]) -> dict[str, Any]:
-    """Rolling out-of-sample test. For each window: optimise on the training slice,
-    then measure that winning config on the *next, unseen* slice. The stitched
-    out-of-sample result is the realistic expectation; a big gap vs the in-sample
-    numbers means the optimisation was overfit."""
+    """Roll the user's own strategy across sequential time windows (no re-optimising).
+
+    Each window runs *this exact config* on a different stretch of history, so the
+    table answers the real question: is the overall return spread across most
+    periods (a consistent edge), or did it come from one or two lucky windows?
+    Indicators are warmed on the candles right before each window, so a long-period
+    filter is never cold. Compounding the windows ≈ the full backtest return."""
     n = len(candles)
-    # Aim for ~10 out-of-sample windows regardless of how much history we have, so
-    # the run stays responsive and the table readable.
-    test_size = max(150, n // 13)
-    train_size = max(400, test_size * 3)
-    # Trust only configs that traded enough in-sample to mean something — a 3-trade
-    # fluke that tops the training board can't be expected to hold up out-of-sample.
-    # Scale the floor with the window so longer histories demand more evidence.
-    wf_min_trades = max(OPTIMIZE_MIN_TRADES, train_size // 300)
-
-    folds: list[dict[str, Any]] = []
-    windows = 0   # candidate windows walked over
-    thin = 0      # windows skipped because no in-sample config traded enough to trust
-    start = 0
-    while start + train_size + test_size <= n:
-        windows += 1
-        test_start = start + train_size
-        train = candles[start:test_start]
-        # Warm the indicators on the candles right before the test window (prior,
-        # already-seen data — no look-ahead) so a long-period filter isn't cold and
-        # trade-free on a short window; trades are only taken from test_start on.
-        warm = min(WALKFORWARD_WARMUP, test_start)
-        test = candles[test_start - warm : test_start + test_size]
-        start += test_size
-
-        ranked = _run_grid(config, train)
-        # Pick the best *reliable* config, not the single highest return/drawdown
-        # (usually the luckiest, smallest-sample one that fails out-of-sample).
-        qualifying = [r for r in ranked if r["trades"] >= wf_min_trades]
-        if not qualifying:
-            thin += 1
-            continue
-        best = max(qualifying, key=lambda r: r["score"])
-        oos = _simulate(best["config"], test, include_series=False, warmup=warm)
-        folds.append({
-            "n": len(folds) + 1,
-            "in_return_pct": round(best["total_return_pct"], 2),
-            "out_return_pct": round(oos["total_return_pct"], 2),
-            "out_drawdown_pct": round(oos["max_drawdown_pct"], 2),
-            "out_trades": _closed_trades(oos),
-            "summary": _describe_config(best["config"]),
-            "config": best["config"],
-        })
+    warm = min(WALKFORWARD_WARMUP, n // 4)
+    usable = n - warm
+    min_window = 150  # need enough candles per window for a few trades
+    # Aim for ~10 windows, but never so many that each is too short to be meaningful.
+    k = min(10, usable // min_window)
 
     empty = {
-        "folds": [], "avg_in_return_pct": 0.0, "avg_out_return_pct": 0.0,
-        "combined_out_return_pct": 0.0, "profitable_folds": 0, "total_folds": len(folds), "candles": n,
+        "folds": [], "avg_return_pct": 0.0, "combined_return_pct": 0.0,
+        "profitable_folds": 0, "total_folds": 0, "candles": n,
     }
-    if len(folds) < 2:
-        if windows >= 2 and thin >= windows // 2:
-            message = ("Стратегия торгует слишком редко для walk-forward — на обучающих окнах почти нет "
-                       "сделок, чтобы доверять подбору. Возьми таймфрейм помельче или более активный вход.")
-        else:
-            message = "Мало истории для walk-forward — выбери период подлиннее или таймфрейм помельче."
-        return {**empty, "verdict": "insufficient", "message": message}
+    if k < 2:
+        return {**empty, "verdict": "insufficient",
+                "message": "Мало истории для walk-forward — выбери период подлиннее или таймфрейм помельче."}
+
+    window = usable // k
+    folds: list[dict[str, Any]] = []
+    start = warm
+    for i in range(k):
+        # The last window absorbs any remainder so all history is used.
+        end = n if i == k - 1 else start + window
+        seg = candles[start - warm : end]
+        res = _simulate(config, seg, include_series=False, warmup=warm)
+        folds.append({
+            "n": i + 1,
+            "return_pct": round(res["total_return_pct"], 2),
+            "drawdown_pct": round(res["max_drawdown_pct"], 2),
+            "trades": _closed_trades(res),
+            "start": res["start"],
+            "end": res["end"],
+        })
+        start = end
 
     total = len(folds)
-    avg_in = round(sum(f["in_return_pct"] for f in folds) / total, 2)
-    avg_out = round(sum(f["out_return_pct"] for f in folds) / total, 2)
+    avg_return = round(sum(f["return_pct"] for f in folds) / total, 2)
     compounded = 1.0
     for f in folds:
-        compounded *= 1 + f["out_return_pct"] / 100
-    combined_out = round((compounded - 1) * 100, 2)
-    profitable = sum(1 for f in folds if f["out_return_pct"] > 0)
+        compounded *= 1 + f["return_pct"] / 100
+    combined = round((compounded - 1) * 100, 2)
+    profitable = sum(1 for f in folds if f["return_pct"] > 0)
+    frac = profitable / total
 
-    if combined_out > 0 and profitable / total >= 0.5:
+    if frac >= 0.6 and combined > 0:
         verdict = "robust"
-        message = (f"Похоже на реальный эдж: на новых данных суммарно {combined_out:+.1f}%, "
-                   f"прибыльных окон {profitable} из {total}.")
-    elif combined_out <= 0:
-        verdict = "overfit"
-        message = (f"Переподгонка: на обучении в среднем {avg_in:+.1f}%, а на новых данных суммарно "
-                   f"{combined_out:+.1f}%. В реальной торговле такой подбор, скорее всего, сольёт.")
-    else:
+        message = (f"Стабильно: твоя стратегия в плюсе в {profitable} из {total} периодов, суммарно "
+                   f"{combined:+.1f}%. Похоже на устойчивый эдж, а не один удачный отрезок.")
+    elif frac >= 0.4:
         verdict = "mixed"
-        message = (f"Неустойчиво: на новых данных суммарно {combined_out:+.1f}%, но прибыльных окон "
-                   f"лишь {profitable} из {total} — результат держится на отдельных периодах.")
+        message = (f"Неравномерно: прибыльных {profitable} из {total} периодов, суммарно {combined:+.1f}%. "
+                   f"Эдж есть, но заметно зависит от рынка — держись скромного плеча.")
+    else:
+        verdict = "fragile"
+        message = (f"Держится на отдельных периодах: прибыльных лишь {profitable} из {total}, суммарно "
+                   f"{combined:+.1f}%. Общий результат тянут один-два окна — на других рынок её ломает.")
 
     return {
         "verdict": verdict, "message": message, "folds": folds,
-        "avg_in_return_pct": avg_in, "avg_out_return_pct": avg_out,
-        "combined_out_return_pct": combined_out, "profitable_folds": profitable,
-        "total_folds": total, "candles": n,
+        "avg_return_pct": avg_return, "combined_return_pct": combined,
+        "profitable_folds": profitable, "total_folds": total, "candles": n,
     }
+

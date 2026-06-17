@@ -237,20 +237,18 @@ export async function optimizeStrategy(strategy_id: number, start_date?: string,
 
 export type WalkForwardFold = {
   n: number;
-  in_return_pct: number;
-  out_return_pct: number;
-  out_drawdown_pct: number;
-  out_trades: number;
-  summary: string;
-  config?: StrategyConfig | null;
+  return_pct: number;
+  drawdown_pct: number;
+  trades: number;
+  start?: number | null;
+  end?: number | null;
 };
 export type WalkForwardResult = {
-  verdict: "robust" | "overfit" | "mixed" | "insufficient";
+  verdict: "robust" | "mixed" | "fragile" | "insufficient";
   message: string;
   folds: WalkForwardFold[];
-  avg_in_return_pct: number;
-  avg_out_return_pct: number;
-  combined_out_return_pct: number;
+  avg_return_pct: number;
+  combined_return_pct: number;
   profitable_folds: number;
   total_folds: number;
   candles: number;

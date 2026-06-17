@@ -23,6 +23,11 @@ import { Badge, Button, Card, EmptyState, Field, PageHeader, Select, Spinner, St
 import { dateTime, pct, pnlTone, price, signedPct } from "../lib/formatters";
 import { describeEntry, describeFilters } from "../lib/strategy";
 
+/** Compact "Mon 'YY" label for a unix-seconds timestamp (walk-forward windows). */
+function shortDate(unixSeconds: number): string {
+  return new Date(unixSeconds * 1000).toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+}
+
 /** A Card with a clickable header that collapses its body. Running every test on
  *  the page stacks up a lot of panels, so each result block can be folded away.
  *  The body is hidden with CSS (not unmounted) so chart canvases and chat scroll
@@ -150,15 +155,6 @@ export function BacktestPage() {
   const saveAi = useMutation({
     mutationFn: (v: { config: StrategyConfig; n: number }) =>
       createStrategy({ name: `${stratName} (AI #${v.n})`, config_json: v.config }),
-    onSuccess: (s) => {
-      toast.success("Saved strategy", s.name);
-      qc.invalidateQueries({ queryKey: ["strategies"] });
-    },
-    onError: () => toast.error("Could not save strategy"),
-  });
-  const saveWalkFold = useMutation({
-    mutationFn: (v: { config: StrategyConfig; n: number }) =>
-      createStrategy({ name: `${stratName} (WF fold #${v.n})`, config_json: v.config }),
     onSuccess: (s) => {
       toast.success("Saved strategy", s.name);
       qc.invalidateQueries({ queryKey: ["strategies"] });
@@ -434,18 +430,18 @@ export function BacktestPage() {
 
       {walkfwd.isPending && (
         <Card className="mt-6 flex items-center justify-center gap-3 p-12 text-slate-400">
-          <Spinner /> Walk-forward: optimising windows and validating out-of-sample…
+          <Spinner /> Walk-forward: running your strategy across time windows…
         </Card>
       )}
 
       {walkfwd.data && !walkfwd.isPending && (
-        <CollapsibleCard className="mt-6" icon={ShieldCheck} title="Walk-forward (out-of-sample)">
+        <CollapsibleCard className="mt-6" icon={ShieldCheck} title="Walk-forward (across time)">
           <div className="space-y-4 p-5">
             <div
               className={`rounded-xl border p-3 text-sm font-medium ${
                 walkfwd.data.verdict === "robust"
                   ? "border-brand-500/20 bg-brand-500/[0.06] text-brand-300"
-                  : walkfwd.data.verdict === "overfit"
+                  : walkfwd.data.verdict === "fragile"
                     ? "border-rose-500/20 bg-rose-500/[0.06] text-rose-300"
                     : "border-amber-500/20 bg-amber-500/[0.06] text-amber-200"
               }`}
@@ -457,21 +453,21 @@ export function BacktestPage() {
               <>
                 <div className="grid grid-cols-3 gap-3">
                   <StatCard
-                    icon={Wand2}
-                    label="Avg in-sample"
-                    value={signedPct(walkfwd.data.avg_in_return_pct)}
-                    valueClassName={pnlTone(walkfwd.data.avg_in_return_pct)}
+                    icon={ShieldCheck}
+                    label="Profitable windows"
+                    value={`${walkfwd.data.profitable_folds}/${walkfwd.data.total_folds}`}
                   />
                   <StatCard
-                    icon={ShieldCheck}
-                    label="Out-of-sample (real)"
-                    value={signedPct(walkfwd.data.combined_out_return_pct)}
-                    valueClassName={pnlTone(walkfwd.data.combined_out_return_pct)}
+                    icon={Percent}
+                    label="Avg per window"
+                    value={signedPct(walkfwd.data.avg_return_pct)}
+                    valueClassName={pnlTone(walkfwd.data.avg_return_pct)}
                   />
                   <StatCard
                     icon={Trophy}
-                    label="Profitable windows"
-                    value={`${walkfwd.data.profitable_folds}/${walkfwd.data.total_folds}`}
+                    label="Combined (all windows)"
+                    value={signedPct(walkfwd.data.combined_return_pct)}
+                    valueClassName={pnlTone(walkfwd.data.combined_return_pct)}
                   />
                 </div>
 
@@ -480,40 +476,24 @@ export function BacktestPage() {
                     <thead className="text-left text-xs uppercase tracking-wider text-slate-500">
                       <tr>
                         <th className="px-3 py-2 font-medium">#</th>
-                        <th className="px-3 py-2 font-medium">Picked on training</th>
-                        <th className="px-3 py-2 text-right font-medium">In-sample</th>
-                        <th className="px-3 py-2 text-right font-medium">Out-of-sample</th>
+                        <th className="px-3 py-2 font-medium">Period</th>
+                        <th className="px-3 py-2 text-right font-medium">Return</th>
                         <th className="px-3 py-2 text-right font-medium">Drawdown</th>
                         <th className="px-3 py-2 text-right font-medium">Trades</th>
-                        <th className="px-3 py-2" />
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/[0.05]">
                       {walkfwd.data.folds.map((f) => (
                         <tr key={f.n} className="hover:bg-white/[0.02]">
                           <td className="px-3 py-2 text-slate-500">{f.n}</td>
-                          <td className="px-3 py-2 font-mono text-xs text-slate-400">{f.summary}</td>
-                          <td className={`px-3 py-2 text-right ${pnlTone(f.in_return_pct)}`}>
-                            {signedPct(f.in_return_pct)}
+                          <td className="px-3 py-2 text-xs text-slate-400">
+                            {f.start && f.end ? `${shortDate(f.start)} → ${shortDate(f.end)}` : "—"}
                           </td>
-                          <td className={`px-3 py-2 text-right font-semibold ${pnlTone(f.out_return_pct)}`}>
-                            {signedPct(f.out_return_pct)}
+                          <td className={`px-3 py-2 text-right font-semibold ${pnlTone(f.return_pct)}`}>
+                            {signedPct(f.return_pct)}
                           </td>
-                          <td className="px-3 py-2 text-right text-rose-400">{pct(f.out_drawdown_pct)}</td>
-                          <td className="px-3 py-2 text-right text-slate-400">{f.out_trades}</td>
-                          <td className="px-3 py-2 text-right">
-                            {f.config && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => saveWalkFold.mutate({ config: f.config!, n: f.n })}
-                                disabled={saveWalkFold.isPending}
-                                title="Save this fold's config as a new strategy"
-                              >
-                                <Save className="h-3.5 w-3.5" /> Save
-                              </Button>
-                            )}
-                          </td>
+                          <td className="px-3 py-2 text-right text-rose-400">{pct(f.drawdown_pct)}</td>
+                          <td className="px-3 py-2 text-right text-slate-400">{f.trades}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -523,8 +503,9 @@ export function BacktestPage() {
             )}
 
             <p className="text-xs text-slate-500">
-              Каждое окно: параметры подбираются на «обучении», затем проверяются на следующем, невиданном
-              отрезке. «Out-of-sample (real)» — реалистичный результат; большой разрыв с in-sample = переподгонка.
+              Твоя стратегия (как есть, без переподбора) прогоняется на {walkfwd.data.total_folds || "нескольких"}{" "}
+              последовательных отрезках истории. Если она в плюсе в большинстве окон — эдж устойчив. Если общий
+              плюс держится на одном-двух окнах — это была удача периода. Сумма по окнам ≈ полному бэктесту.
             </p>
           </div>
         </CollapsibleCard>
