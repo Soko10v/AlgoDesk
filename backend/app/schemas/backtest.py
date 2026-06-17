@@ -99,21 +99,19 @@ class WalkForwardIn(BaseModel):
 
 class WalkForwardFold(BaseModel):
     n: int
-    in_return_pct: float       # best result on the training window (optimistic)
-    out_return_pct: float      # that config on the next, unseen window (honest)
-    out_drawdown_pct: float
-    out_trades: int
-    summary: str               # short label of the config the optimizer picked
-    config: dict[str, Any] | None = None  # the winning config (saveable)
+    return_pct: float          # this strategy's result on the window
+    drawdown_pct: float
+    trades: int
+    start: float | None = None  # unix seconds of the window's first traded candle
+    end: float | None = None    # unix seconds of the window's last traded candle
 
 
 class WalkForwardOut(BaseModel):
-    verdict: str               # "robust" | "overfit" | "mixed" | "insufficient"
+    verdict: str               # "robust" | "mixed" | "fragile" | "insufficient"
     message: str
     folds: list[WalkForwardFold] = []
-    avg_in_return_pct: float = 0.0
-    avg_out_return_pct: float = 0.0
-    combined_out_return_pct: float = 0.0  # compounded out-of-sample (realistic) result
+    avg_return_pct: float = 0.0
+    combined_return_pct: float = 0.0  # compounded across windows (≈ the full backtest)
     profitable_folds: int = 0
     total_folds: int = 0
     candles: int = 0
