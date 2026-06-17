@@ -49,6 +49,7 @@ export type StrategyConfig = {
   stop_loss: PctRule;
   take_profit: PctRule;
   trailing_stop?: PctRule; // 0 = off; trails the high/low-water mark
+  vol_target_pct?: number; // 0 = off; scale position size inversely to ATR volatility
   // Futures-only fields; spot strategies omit them and the backend defaults market to "spot".
   market?: Market;
   direction?: Direction; // "long" (default) or "both" — futures can trade both ways
@@ -117,6 +118,24 @@ export type Trade = {
   timestamp: string;
 };
 
+export type BacktestMetrics = {
+  sharpe: number;
+  sortino: number;
+  calmar: number;
+  profit_factor: number;
+  expectancy_pct: number;
+  exposure_pct: number;
+  ann_return_pct: number;
+};
+export type MonteCarlo = {
+  simulations: number;
+  median_return_pct: number;
+  p5_return_pct: number;
+  p95_return_pct: number;
+  prob_profit_pct: number;
+  median_maxdd_pct: number;
+  p95_maxdd_pct: number;
+};
 export type BacktestResult = {
   total_return_pct: number;
   max_drawdown_pct: number;
@@ -127,6 +146,8 @@ export type BacktestResult = {
   candles: number;
   start: number | null; // unix seconds of first candle
   end: number | null; // unix seconds of last candle
+  metrics?: BacktestMetrics | null;
+  monte_carlo?: MonteCarlo | null;
 };
 
 export async function me() {
@@ -237,6 +258,22 @@ export type WalkForwardResult = {
 export async function walkForward(strategy_id: number, start_date?: string, end_date?: string) {
   const { data } = await api.post("/backtest/walkforward", { strategy_id, start_date, end_date });
   return data as WalkForwardResult;
+}
+
+export type SensitivityResult = {
+  x_label: string;
+  y_label: string;
+  x_values: number[];
+  y_values: number[];
+  grid: number[][]; // rows by y, cols by x — return % per cell
+  cur_x: number;
+  cur_y: number;
+  verdict: "robust" | "mixed" | "fragile";
+  message: string;
+};
+export async function sensitivity(strategy_id: number, start_date?: string, end_date?: string) {
+  const { data } = await api.post("/backtest/sensitivity", { strategy_id, start_date, end_date });
+  return data as SensitivityResult;
 }
 
 export type DataCoverage = {

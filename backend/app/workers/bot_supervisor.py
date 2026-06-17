@@ -31,6 +31,7 @@ from app.engine.risk import (
     trailing_pct,
 )
 from app.engine.strategy_evaluator import evaluate_signal
+from app.services.indicators import atr
 from app.models.strategy import Strategy
 from app.models.trade import Trade
 from app.models.user import User
@@ -583,7 +584,8 @@ class BotSupervisor:
                     return
                 if await self._entry_blocked_by_risk(db, user, strategy):
                     return
-                amount = await self._entry_amount(user, strategy, state, current_price)
+                size_mult = self._vol_size_mult(strategy.config_json, rows)
+                amount = await self._entry_amount(user, strategy, state, current_price, size_mult)
                 if amount is None:
                     await self._cooldown_and_warn(user, strategy, "size")
                     return
@@ -625,15 +627,34 @@ class BotSupervisor:
                 return float(cfg_usdt) * lev / price
         return float(strategy.config_json.get("position_size_pct", 10)) / 100
 
+    def _vol_size_mult(self, config: dict[str, Any], rows: list[list[float]]) -> float:
+        """Volatility-sizing multiplier (1.0 = off), matching the backtest: scale
+        position size inversely to current ATR%, clamped to a sane range."""
+        target = float(config.get("vol_target_pct") or 0)
+        if target <= 0 or len(rows) < 20:
+            return 1.0
+        highs = [float(c[2]) for c in rows]
+        lows = [float(c[3]) for c in rows]
+        closes = [float(c[4]) for c in rows]
+        a = atr(highs, lows, closes, 14)
+        price = closes[-1] if closes else 0.0
+        if not a or not price:
+            return 1.0
+        atr_pct = a / price * 100
+        if atr_pct <= 0:
+            return 1.0
+        return max(0.25, min(3.0, target / atr_pct))
+
     async def _entry_amount(
-        self, user: User, strategy: Strategy, state: BotState, price: float
+        self, user: User, strategy: Strategy, state: BotState, price: float, size_mult: float = 1.0
     ) -> float | None:
         """Order size for a new entry. Paper keeps the simple config sizing; live
         sizes from the real account balance and returns None when it's below the
-        exchange minimum (so the bot warns instead of spamming failed orders)."""
+        exchange minimum (so the bot warns instead of spamming failed orders).
+        ``size_mult`` applies volatility sizing (1.0 = off)."""
         if state.mode != "live":
-            return self._fallback_amount(strategy, state, price)
-        return await live_order_amount(user, strategy, price, state.position_size_usdt)
+            return self._fallback_amount(strategy, state, price) * size_mult
+        return await live_order_amount(user, strategy, price, state.position_size_usdt, size_mult)
 
     async def _entry_on_cooldown(self, strategy: Strategy) -> bool:
         return bool(await redis_client.get(f"entry_cd:{strategy.id}"))

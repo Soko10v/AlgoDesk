@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createChart, type IChartApi, type SeriesMarker, type Time, type UTCTimestamp } from "lightweight-charts";
-import { Activity, MessageSquare, Play, Percent, Save, Send, ShieldCheck, Sparkles, TrendingDown, Trophy, Wand2 } from "lucide-react";
+import { Activity, Grid3x3, MessageSquare, Play, Percent, Save, Send, ShieldCheck, Sparkles, TrendingDown, Trophy, Wand2 } from "lucide-react";
 import {
   askAi,
   authConfig,
@@ -11,6 +11,7 @@ import {
   listStrategies,
   optimizeStrategy,
   runBacktest,
+  sensitivity,
   startAnalyze,
   walkForward,
   type ChatMessage,
@@ -45,6 +46,11 @@ export function BacktestPage() {
   const walkfwd = useMutation({
     mutationFn: () => walkForward(strategyId as number, startDate || undefined, endDate || undefined),
     onError: () => toast.error("Walk-forward failed", "Try a longer period."),
+  });
+
+  const sensit = useMutation({
+    mutationFn: () => sensitivity(strategyId as number, startDate || undefined, endDate || undefined),
+    onError: () => toast.error("Sensitivity failed", "Try another strategy or period."),
   });
 
   // How much history the local cache holds for the selected strategy's symbol/tf.
@@ -333,6 +339,15 @@ export function BacktestPage() {
           >
             <ShieldCheck className="h-4 w-4" /> Walk-forward
           </Button>
+          <Button
+            variant="secondary"
+            onClick={() => sensit.mutate()}
+            loading={sensit.isPending}
+            disabled={!strategyId}
+            title="Sweep parameters around the current values — a broad green area means robust, a lone bright cell means overfit"
+          >
+            <Grid3x3 className="h-4 w-4" /> Sensitivity
+          </Button>
           {aiEnabled && (
             <Button
               variant="secondary"
@@ -446,6 +461,86 @@ export function BacktestPage() {
             <p className="text-xs text-slate-500">
               Каждое окно: параметры подбираются на «обучении», затем проверяются на следующем, невиданном
               отрезке. «Out-of-sample (real)» — реалистичный результат; большой разрыв с in-sample = переподгонка.
+            </p>
+          </div>
+        </Card>
+      )}
+
+      {sensit.isPending && (
+        <Card className="mt-6 flex items-center justify-center gap-3 p-12 text-slate-400">
+          <Spinner /> Sensitivity: sweeping parameter combinations…
+        </Card>
+      )}
+
+      {sensit.data && !sensit.isPending && (
+        <Card className="mt-6 p-0">
+          <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-3 text-sm font-semibold text-slate-200">
+            <Grid3x3 className="h-4 w-4 text-brand-400" /> Parameter sensitivity
+          </div>
+          <div className="space-y-4 p-5">
+            <div
+              className={`rounded-xl border p-3 text-sm font-medium ${
+                sensit.data.verdict === "robust"
+                  ? "border-brand-500/20 bg-brand-500/[0.06] text-brand-300"
+                  : sensit.data.verdict === "fragile"
+                    ? "border-rose-500/20 bg-rose-500/[0.06] text-rose-300"
+                    : "border-amber-500/20 bg-amber-500/[0.06] text-amber-200"
+              }`}
+            >
+              {sensit.data.message}
+            </div>
+
+            <div className="overflow-x-auto">
+              <div className="text-xs text-slate-500">
+                {sensit.data.y_label} (rows) × {sensit.data.x_label} (cols) — return %. Your current settings are
+                outlined.
+              </div>
+              <table className="mt-2 border-separate" style={{ borderSpacing: "3px" }}>
+                <thead>
+                  <tr>
+                    <th />
+                    {sensit.data.x_values.map((xv) => (
+                      <th key={xv} className="px-1 text-center text-xs font-medium text-slate-400">
+                        {xv}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sensit.data.grid.map((row, ri) => (
+                    <tr key={ri}>
+                      <td className="pr-2 text-right text-xs font-medium text-slate-400">{sensit.data!.y_values[ri]}</td>
+                      {row.map((val, ci) => {
+                        const isCur =
+                          sensit.data!.x_values[ci] === sensit.data!.cur_x &&
+                          sensit.data!.y_values[ri] === sensit.data!.cur_y;
+                        // green for profit, red for loss, scaled by magnitude
+                        const mag = Math.min(1, Math.abs(val) / 30);
+                        const bg =
+                          val >= 0
+                            ? `rgba(16,185,129,${0.12 + mag * 0.5})`
+                            : `rgba(244,63,94,${0.12 + mag * 0.5})`;
+                        return (
+                          <td
+                            key={ci}
+                            className={`h-10 w-12 rounded text-center text-xs tabular-nums ${
+                              isCur ? "font-bold text-white ring-2 ring-white/70" : "text-slate-100"
+                            }`}
+                            style={{ background: bg }}
+                            title={`${sensit.data!.x_label} ${sensit.data!.x_values[ci]} · ${sensit.data!.y_label} ${sensit.data!.y_values[ri]} → ${signedPct(val)}`}
+                          >
+                            {Math.round(val)}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-slate-500">
+              Широкая зелёная область вокруг твоих настроек = устойчиво. Одинокая яркая клетка среди красного =
+              переподгонка под конкретные значения.
             </p>
           </div>
         </Card>
@@ -757,6 +852,69 @@ export function BacktestPage() {
             <StatCard icon={Trophy} label="Win rate" value={pct(result.win_rate)} />
             <StatCard icon={Activity} label="Trades" value={trades.length} />
           </div>
+
+          {result.metrics && (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+              <StatCard
+                icon={Activity}
+                label="Sharpe"
+                value={result.metrics.sharpe.toFixed(2)}
+                valueClassName={result.metrics.sharpe >= 1 ? "text-brand-300" : result.metrics.sharpe < 0 ? "text-rose-400" : ""}
+              />
+              <StatCard icon={Activity} label="Sortino" value={result.metrics.sortino.toFixed(2)} />
+              <StatCard icon={Activity} label="Calmar" value={result.metrics.calmar.toFixed(2)} />
+              <StatCard
+                icon={Trophy}
+                label="Profit factor"
+                value={result.metrics.profit_factor.toFixed(2)}
+                valueClassName={result.metrics.profit_factor >= 1.2 ? "text-brand-300" : result.metrics.profit_factor < 1 ? "text-rose-400" : ""}
+              />
+              <StatCard
+                icon={Percent}
+                label="Expectancy/trade"
+                value={signedPct(result.metrics.expectancy_pct)}
+                valueClassName={pnlTone(result.metrics.expectancy_pct)}
+              />
+              <StatCard icon={Activity} label="Exposure" value={pct(result.metrics.exposure_pct)} />
+            </div>
+          )}
+
+          {result.monte_carlo && (
+            <Card className="p-5">
+              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-300">
+                <Activity className="h-4 w-4 text-brand-400" /> Monte Carlo — got lucky or real?
+                <span className="ml-auto text-xs font-normal text-slate-500">
+                  {result.monte_carlo.simulations.toLocaleString()} resamples of your trades
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                <StatCard
+                  icon={Trophy}
+                  label="Chance of profit"
+                  value={pct(result.monte_carlo.prob_profit_pct)}
+                  valueClassName={result.monte_carlo.prob_profit_pct >= 60 ? "text-brand-300" : result.monte_carlo.prob_profit_pct < 50 ? "text-rose-400" : "text-amber-300"}
+                />
+                <StatCard
+                  icon={Percent}
+                  label="Median return"
+                  value={signedPct(result.monte_carlo.median_return_pct)}
+                  valueClassName={pnlTone(result.monte_carlo.median_return_pct)}
+                />
+                <StatCard
+                  icon={TrendingDown}
+                  label="Worst case (5%)"
+                  value={signedPct(result.monte_carlo.p5_return_pct)}
+                  valueClassName={pnlTone(result.monte_carlo.p5_return_pct)}
+                />
+              </div>
+              <p className="mt-3 text-xs text-slate-500">
+                Перетасовка твоих сделок {result.monte_carlo.simulations.toLocaleString()} раз. Если даже «худший
+                случай» (5-й перцентиль) в плюсе и шанс прибыли высокий — эдж реальный. Если разброс огромный и
+                медиана у нуля — результат держался на удаче и порядке сделок (типичная просадка ~
+                {pct(result.monte_carlo.median_maxdd_pct)}, в худших ~{pct(result.monte_carlo.p95_maxdd_pct)}).
+              </p>
+            </Card>
+          )}
 
           <Card className="p-5">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">

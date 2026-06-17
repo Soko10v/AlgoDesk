@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactFlow, { Background, Controls, MarkerType, type Edge, type Node } from "reactflow";
 import "reactflow/dist/style.css";
-import { Anchor, ArrowDownUp, Coins, Crosshair, Filter, LogIn, LogOut, Pencil, Plus, Save, Send, Shield, SlidersHorizontal, Sparkles, Target, Trash2, Umbrella, Wand2, X, Zap } from "lucide-react";
+import { Activity, Anchor, ArrowDownUp, Coins, Crosshair, Filter, LogIn, LogOut, Pencil, Plus, Save, Send, Shield, SlidersHorizontal, Sparkles, Target, Trash2, Umbrella, Wand2, X, Zap } from "lucide-react";
 import {
   authConfig,
   createStrategy,
@@ -601,6 +601,19 @@ export function StrategyBuilderPage() {
                       min={0}
                       value={cfg.daily_loss_limit_pct ?? 0}
                       onValueChange={(v) => setCfg((c) => ({ ...c, daily_loss_limit_pct: v }))}
+                    />
+                  </Field>
+                </Block>
+
+                <Block icon={Activity} title="Volatility sizing" tone="text-cyan-300">
+                  <Field
+                    label="Target ATR % (0 = off)"
+                    hint="Scales position size inversely to volatility — smaller in choppy/volatile periods, larger in calm ones — so risk per trade stays even. Try ~2."
+                  >
+                    <NumberField
+                      min={0}
+                      value={cfg.vol_target_pct ?? 0}
+                      onValueChange={(v) => setCfg((c) => ({ ...c, vol_target_pct: v }))}
                     />
                   </Field>
                 </Block>

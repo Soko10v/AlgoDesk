@@ -113,6 +113,7 @@ async def live_order_amount(
     strategy: Strategy,
     price: float,
     override_usdt: float | None,
+    size_mult: float = 1.0,
 ) -> float | None:
     """Resolve the order size (in base units) for a live entry, sized from the
     real account so it's actually affordable.
@@ -150,6 +151,7 @@ async def live_order_amount(
             notional = free_usdt * pct * lev
         if notional <= 0:
             return None
+        notional *= size_mult  # volatility sizing (1.0 = off)
         amount = notional / price
         try:
             amount = float(client.amount_to_precision(symbol, amount))
