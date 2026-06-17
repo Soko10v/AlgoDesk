@@ -7,6 +7,7 @@ import {
   authConfig,
   createStrategy,
   getAnalyzeStatus,
+  getDataStatus,
   listStrategies,
   optimizeStrategy,
   runBacktest,
@@ -45,6 +46,13 @@ export function BacktestPage() {
     mutationFn: () => walkForward(strategyId as number, startDate || undefined, endDate || undefined),
     onError: () => toast.error("Walk-forward failed", "Try a longer period."),
   });
+
+  // How much history the local cache holds for the selected strategy's symbol/tf.
+  const dataStatus = useQuery({ queryKey: ["data-status"], queryFn: getDataStatus, refetchInterval: 60_000 });
+  const selStrategy = strategies.data?.find((s) => s.id === strategyId);
+  const coverage = dataStatus.data?.find(
+    (c) => selStrategy && c.symbol === selStrategy.config_json.symbol && c.timeframe === selStrategy.config_json.timeframe
+  );
 
   const cfg = useQuery({ queryKey: ["auth-config"], queryFn: authConfig, staleTime: Infinity });
   const aiEnabled = cfg.data?.ai_enabled ?? false;
@@ -338,9 +346,22 @@ export function BacktestPage() {
           )}
         </div>
         <p className="mt-3 text-xs text-slate-500">
-          Leave the dates blank to backtest the most recent candles (up to ~2000 of the
-          strategy's timeframe). The exact period and candle count are shown with the results.
+          Leave the dates blank to backtest the most recent candles. Pick a date range to test over
+          years of cached history — the exact period and candle count are shown with the results.
         </p>
+        {selStrategy && (
+          <p className="mt-1 text-xs text-slate-500">
+            {coverage && coverage.count > 0 ? (
+              <>
+                <span className="text-slate-400">Cached history</span> for {coverage.symbol} {coverage.timeframe}:{" "}
+                {coverage.count.toLocaleString()} candles
+                {coverage.first ? ` · ${dateTime(coverage.first * 1000)} → ${dateTime((coverage.last ?? 0) * 1000)}` : ""}
+              </>
+            ) : (
+              <>Downloading history for {selStrategy.config_json.symbol} {selStrategy.config_json.timeframe}… (uses live data until ready)</>
+            )}
+          </p>
+        )}
       </Card>
 
       {walkfwd.isPending && (

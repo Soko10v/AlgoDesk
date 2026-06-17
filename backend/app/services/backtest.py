@@ -4,6 +4,7 @@ from typing import Any
 
 from app.engine.risk import funding_cost, hedge_params, leverage, pct_value, round_trip_fee, trailing_pct
 from app.engine.strategy_evaluator import build_signals, signal_at
+from app.services import candle_store
 from app.services.exchange import exchange_client
 
 
@@ -14,6 +15,13 @@ def _opposite(side: str) -> str:
 # backtests are stitched together from several paginated requests.
 MAX_CANDLES = 2000
 PER_REQUEST_LIMIT = 1000
+# When a date range is given the cache can serve years; cap the run and downsample
+# the chart series so the response stays small.
+MAX_DATED_CANDLES = 60000
+MAX_SERIES_POINTS = 2500
+# Walk-forward spans more history than a single backtest (many regimes), but is
+# capped so the multiple optimiser sweeps finish in well under the request timeout.
+WALKFORWARD_CANDLES = 12000
 
 
 async def _fetch_candles(
@@ -70,6 +78,12 @@ async def load_candles(
     come back empty, which silently produced 0-trade backtests."""
     symbol = config.get("symbol", "BTC/USDT")
     timeframe = config.get("timeframe", "1h")
+    # Prefer the local cache (instant, spans years); fall back to a live fetch when
+    # it's empty for this symbol/timeframe (e.g. backfill still running).
+    if candle_store.is_ready():
+        cached = await asyncio.to_thread(candle_store.get_candles, symbol, timeframe, since_ms, until_ms, limit)
+        if cached:
+            return cached
     client = exchange_client()
     try:
         return await _fetch_candles(client, symbol, timeframe, since_ms, until_ms, limit=limit)
@@ -89,9 +103,10 @@ async def run_backtest(
     since_ms: int | None = None,
     until_ms: int | None = None,
 ) -> dict[str, Any]:
-    candles = await load_candles(config, since_ms, until_ms)
-    # Simulation is CPU-bound (hundreds of ms+); run it off the event loop so it
-    # doesn't stall every other request while it crunches.
+    # With a date range the cache can serve years; without one keep the recent
+    # window. Either way the simulation runs off the event loop (CPU-bound).
+    limit = MAX_DATED_CANDLES if (since_ms is not None or until_ms is not None) else MAX_CANDLES
+    candles = await load_candles(config, since_ms, until_ms, limit=limit)
     return await asyncio.to_thread(_simulate, config, candles)
 
 
@@ -242,6 +257,7 @@ def _simulate(config: dict[str, Any], candles: list[list[float]], include_series
         curve.append({"x": float(candle[0]) / 1000.0, "y": float(equity), "dd": float(drawdown)})
 
     price_series: list[dict[str, float]] = []
+    equity_curve = [{"x": p["x"], "y": p["y"]} for p in curve]
     if include_series:
         price_series = [
             {"x": float(c[0]) / 1000.0, "o": float(c[1]), "h": float(c[2]), "l": float(c[3]), "c": float(c[4])}
@@ -253,6 +269,12 @@ def _simulate(config: dict[str, Any], candles: list[list[float]], include_series
             i = t.get("index")
             if isinstance(i, int) and 0 <= i < len(candles):
                 t["time"] = float(candles[i][0]) / 1000.0
+        # Multi-year runs have tens of thousands of points; thin the chart series
+        # (every k-th bar) so the response stays light. Metrics use the full data.
+        if len(candles) > MAX_SERIES_POINTS:
+            step = len(candles) // MAX_SERIES_POINTS + 1
+            price_series = price_series[::step]
+            equity_curve = equity_curve[::step]
 
     total_trades = max(wins + loss, 1)
     return {
@@ -260,7 +282,7 @@ def _simulate(config: dict[str, Any], candles: list[list[float]], include_series
         "max_drawdown_pct": max((p["dd"] for p in curve), default=0.0),
         "win_rate": wins / total_trades * 100,
         "trades": trades,
-        "equity_curve": [{"x": p["x"], "y": p["y"]} for p in curve],
+        "equity_curve": equity_curve,
         "price_series": price_series,
         "candles": len(candles),
         "start": (float(candles[0][0]) / 1000.0) if candles else None,
@@ -395,8 +417,10 @@ def run_walkforward(config: dict[str, Any], candles: list[list[float]]) -> dict[
     out-of-sample result is the realistic expectation; a big gap vs the in-sample
     numbers means the optimisation was overfit."""
     n = len(candles)
-    test_size = min(300, max(120, n // 8))
-    train_size = min(800, max(300, n // 3))
+    # Aim for ~10 out-of-sample windows regardless of how much history we have, so
+    # the run stays responsive and the table readable.
+    test_size = max(150, n // 13)
+    train_size = max(400, test_size * 3)
 
     folds: list[dict[str, Any]] = []
     start = 0
