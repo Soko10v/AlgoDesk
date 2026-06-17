@@ -1,23 +1,46 @@
-import { Suspense, lazy, type ReactNode } from "react";
+import { Suspense, lazy, type ComponentType, type ReactNode } from "react";
 import { createBrowserRouter } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
+// After a deploy the previous build's content-hashed chunks are gone, so an
+// already-open tab that lazy-navigates hits a 404 ("Importing a module script
+// failed"). Reload once to pull the fresh index.html + new chunk names; a short
+// sessionStorage guard prevents a reload loop if the chunk is genuinely
+// unreachable (offline / real 404).
+function lazyWithRetry<T extends ComponentType<unknown>>(factory: () => Promise<{ default: T }>) {
+  return lazy(async () => {
+    try {
+      return await factory();
+    } catch (err) {
+      const key = "chunk_reload_at";
+      const now = Date.now();
+      const last = Number(sessionStorage.getItem(key) ?? 0);
+      if (now - last > 15_000) {
+        sessionStorage.setItem(key, String(now));
+        window.location.reload();
+        return new Promise<{ default: T }>(() => {}); // hang until the reload navigates away
+      }
+      throw err;
+    }
+  });
+}
+
 // Pages are code-split: each route is fetched on demand, so heavy libraries
 // (reactflow on the builder, lightweight-charts on backtest) stay out of the
 // initial bundle and only download when that page is actually opened.
-const LandingPage = lazy(() => import("./pages/LandingPage").then((m) => ({ default: m.LandingPage })));
-const LoginPage = lazy(() => import("./pages/LoginPage").then((m) => ({ default: m.LoginPage })));
-const AuthCallbackPage = lazy(() => import("./pages/AuthCallbackPage").then((m) => ({ default: m.AuthCallbackPage })));
-const LegalPage = lazy(() => import("./pages/LegalPage").then((m) => ({ default: m.LegalPage })));
-const DashboardPage = lazy(() => import("./pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
-const StrategyBuilderPage = lazy(() => import("./pages/StrategyBuilderPage").then((m) => ({ default: m.StrategyBuilderPage })));
-const BacktestPage = lazy(() => import("./pages/BacktestPage").then((m) => ({ default: m.BacktestPage })));
-const ComparePage = lazy(() => import("./pages/ComparePage").then((m) => ({ default: m.ComparePage })));
-const TradesPage = lazy(() => import("./pages/TradesPage").then((m) => ({ default: m.TradesPage })));
-const ProfilePage = lazy(() => import("./pages/ProfilePage").then((m) => ({ default: m.ProfilePage })));
-const SettingsPage = lazy(() => import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
-const SubscriptionPage = lazy(() => import("./pages/SubscriptionPage").then((m) => ({ default: m.SubscriptionPage })));
+const LandingPage = lazyWithRetry(() => import("./pages/LandingPage").then((m) => ({ default: m.LandingPage })));
+const LoginPage = lazyWithRetry(() => import("./pages/LoginPage").then((m) => ({ default: m.LoginPage })));
+const AuthCallbackPage = lazyWithRetry(() => import("./pages/AuthCallbackPage").then((m) => ({ default: m.AuthCallbackPage })));
+const LegalPage = lazyWithRetry(() => import("./pages/LegalPage").then((m) => ({ default: m.LegalPage })));
+const DashboardPage = lazyWithRetry(() => import("./pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
+const StrategyBuilderPage = lazyWithRetry(() => import("./pages/StrategyBuilderPage").then((m) => ({ default: m.StrategyBuilderPage })));
+const BacktestPage = lazyWithRetry(() => import("./pages/BacktestPage").then((m) => ({ default: m.BacktestPage })));
+const ComparePage = lazyWithRetry(() => import("./pages/ComparePage").then((m) => ({ default: m.ComparePage })));
+const TradesPage = lazyWithRetry(() => import("./pages/TradesPage").then((m) => ({ default: m.TradesPage })));
+const ProfilePage = lazyWithRetry(() => import("./pages/ProfilePage").then((m) => ({ default: m.ProfilePage })));
+const SettingsPage = lazyWithRetry(() => import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const SubscriptionPage = lazyWithRetry(() => import("./pages/SubscriptionPage").then((m) => ({ default: m.SubscriptionPage })));
 
 function PageFallback() {
   return (
@@ -27,18 +50,40 @@ function PageFallback() {
   );
 }
 
+// Shown if a route still errors after the reload attempt (e.g. offline). Gives
+// the user a clear way to recover instead of a raw "Unexpected Application Error".
+function RouteError() {
+  return (
+    <div className="grid min-h-screen place-items-center p-6 text-center">
+      <div className="max-w-sm space-y-3">
+        <div className="text-base font-semibold text-slate-200">Не удалось загрузить страницу</div>
+        <p className="text-sm text-slate-500">
+          Возможно, вышло обновление. Обнови страницу — если не поможет, проверь соединение.
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-500"
+        >
+          Обновить
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function page(node: ReactNode) {
   return <Suspense fallback={<PageFallback />}>{node}</Suspense>;
 }
 
 export const router = createBrowserRouter([
-  { path: "/", element: page(<LandingPage />) },
-  { path: "/login", element: page(<LoginPage />) },
-  { path: "/auth/callback", element: page(<AuthCallbackPage />) },
-  { path: "/privacy", element: page(<LegalPage />) },
-  { path: "/terms", element: page(<LegalPage />) },
+  { path: "/", element: page(<LandingPage />), errorElement: <RouteError /> },
+  { path: "/login", element: page(<LoginPage />), errorElement: <RouteError /> },
+  { path: "/auth/callback", element: page(<AuthCallbackPage />), errorElement: <RouteError /> },
+  { path: "/privacy", element: page(<LegalPage />), errorElement: <RouteError /> },
+  { path: "/terms", element: page(<LegalPage />), errorElement: <RouteError /> },
   {
     element: <ProtectedRoute />,
+    errorElement: <RouteError />,
     children: [
       {
         element: <Layout />,

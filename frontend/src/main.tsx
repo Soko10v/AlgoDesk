@@ -12,9 +12,9 @@ import "./index.css";
 // unreachable (offline or a real 404).
 window.addEventListener("vite:preloadError", () => {
   const now = Date.now();
-  const last = Number(sessionStorage.getItem("vite_preload_reload_at") ?? 0);
-  if (now - last < 10_000) return;
-  sessionStorage.setItem("vite_preload_reload_at", String(now));
+  const last = Number(sessionStorage.getItem("chunk_reload_at") ?? 0);
+  if (now - last < 15_000) return;
+  sessionStorage.setItem("chunk_reload_at", String(now));
   window.location.reload();
 });
 
