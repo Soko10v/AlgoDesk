@@ -447,19 +447,16 @@ OPTIMIZE_CANDLES = 800
 OPTIMIZE_MIN_TRADES = 5
 OPTIMIZE_TOP_N = 12
 
-# Curated risk profiles: (stop_loss, take_profit, trailing_stop) in percent; 0 = off.
-_RISK_PROFILES = [
-    (2.0, 5.0, 0.0),   # fixed take-profit
-    (2.0, 0.0, 4.0),   # let it run on a trailing stop
-    (1.5, 3.0, 0.0),   # tight scalp
-]
+# The optimiser tunes ONE group at a time, holding the rest of the strategy at
+# its current values, so each concern is optimised in isolation.
+OPTIMIZE_GROUPS = frozenset({"entry", "exits", "long_filters", "short_filters"})
 
-# Entry-filter options to try: none, trade-with-the-trend, or trend-strength (ADX).
-_FILTER_SETS: list[list[dict[str, Any]]] = [
-    [],
-    [{"type": "trend", "ma": "ema", "period": 200}],
-    [{"type": "trend", "ma": "ema", "period": 50}],
-    [{"type": "adx", "period": 14, "min": 20}],
+# SL / TP / trailing combinations (percent; 0 = off) for the "exits" group.
+_RISK_GRID = [
+    (sl, tp, trail)
+    for sl in (1.5, 2.0, 3.0, 5.0)
+    for tp in (0.0, 3.0, 5.0, 8.0)
+    for trail in (0.0, 2.0, 4.0)
 ]
 
 
@@ -481,19 +478,51 @@ def _entry_variations(entry_type: str) -> list[dict[str, Any]]:
     return [{"type": entry_type}]
 
 
-def _param_grid(base: dict[str, Any]) -> list[dict[str, Any]]:
-    entry_type = (base.get("entry") or [{}])[0].get("type", "ma_cross")
+def _filter_candidates(side: str) -> list[list[dict[str, Any]]]:
+    """Per-side filter options to try for one direction. Each option is a (possibly
+    empty) filter list already tagged with ``side`` so it only gates that side."""
+    opts: list[list[dict[str, Any]]] = [
+        [],
+        [{"type": "trend", "ma": "ema", "period": 200}],
+        [{"type": "trend", "ma": "ema", "period": 50}],
+        [{"type": "adx", "period": 14, "min": 20}],
+        [{"type": "adx", "period": 14, "min": 25}],
+        [{"type": "volume", "period": 20, "mult": 1.5}],
+        # RSI: only the bound that applies to this side (skip overbought longs /
+        # oversold shorts) so the description stays honest.
+        [{"type": "rsi", "period": 14, "max": 70}] if side == "long" else [{"type": "rsi", "period": 14, "min": 30}],
+    ]
+    for opt in opts:
+        for f in opt:
+            f["side"] = side
+    return opts
+
+
+def _param_grid(base: dict[str, Any], group: str) -> list[dict[str, Any]]:
+    """Configs to try for ONE optimisation group, holding everything else at the
+    base strategy's current values (so each concern is tuned in isolation)."""
     grid: list[dict[str, Any]] = []
-    for entry in _entry_variations(entry_type):
-        for sl, tp, trail in _RISK_PROFILES:
-            for filters in _FILTER_SETS:
-                cfg = copy.deepcopy(base)
-                cfg["entry"] = [entry]
-                cfg["stop_loss"] = {"type": "pct", "value": sl}
-                cfg["take_profit"] = {"type": "pct", "value": tp}
-                cfg["trailing_stop"] = {"type": "pct", "value": trail}
-                cfg["filters"] = copy.deepcopy(filters)
-                grid.append(cfg)
+    if group == "entry":
+        entry_type = (base.get("entry") or [{}])[0].get("type", "ma_cross")
+        for entry in _entry_variations(entry_type):
+            cfg = copy.deepcopy(base)
+            cfg["entry"] = [entry]
+            grid.append(cfg)
+    elif group == "exits":
+        for sl, tp, trail in _RISK_GRID:
+            cfg = copy.deepcopy(base)
+            cfg["stop_loss"] = {"type": "pct", "value": sl}
+            cfg["take_profit"] = {"type": "pct", "value": tp}
+            cfg["trailing_stop"] = {"type": "pct", "value": trail}
+            grid.append(cfg)
+    elif group in ("long_filters", "short_filters"):
+        side = "long" if group == "long_filters" else "short"
+        # Keep the base's other-side and both-side filters; swap only this side's.
+        kept = [f for f in (base.get("filters") or []) if isinstance(f, dict) and f.get("side", "both") != side]
+        for cand in _filter_candidates(side):
+            cfg = copy.deepcopy(base)
+            cfg["filters"] = copy.deepcopy(kept) + copy.deepcopy(cand)
+            grid.append(cfg)
     return grid
 
 
@@ -509,9 +538,9 @@ def _score(result: dict[str, Any], n_trades: int) -> float:
     return result["total_return_pct"] / max(result["max_drawdown_pct"], 1.0)
 
 
-def _run_grid(config: dict[str, Any], candles: list[list[float]]) -> list[dict[str, Any]]:
+def _run_grid(config: dict[str, Any], candles: list[list[float]], group: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
-    for cfg in _param_grid(config):
+    for cfg in _param_grid(config, group):
         res = _simulate(cfg, candles, include_series=False)
         n = _closed_trades(res)
         out.append({
@@ -527,14 +556,17 @@ def _run_grid(config: dict[str, Any], candles: list[list[float]]) -> list[dict[s
 
 
 async def run_optimization(
-    config: dict[str, Any], since_ms: int | None = None, until_ms: int | None = None
+    config: dict[str, Any], group: str = "entry", since_ms: int | None = None, until_ms: int | None = None
 ) -> dict[str, Any]:
-    """Sweep parameter combinations over one candle set and rank by a
-    risk-adjusted score. CPU work runs in a thread so the event loop stays free."""
+    """Sweep ONE group's options (entry / exits / long_filters / short_filters)
+    over a candle set and rank by a risk-adjusted score, holding the rest of the
+    strategy fixed. CPU work runs in a thread so the event loop stays free."""
+    if group not in OPTIMIZE_GROUPS:
+        group = "entry"
     candles = await load_candles(config, since_ms, until_ms, limit=OPTIMIZE_CANDLES)
-    results = await asyncio.to_thread(_run_grid, config, candles)
+    results = await asyncio.to_thread(_run_grid, config, candles, group)
     ranked = [r for r in results if r["score"] != float("-inf")] or results
-    return {"results": ranked[:OPTIMIZE_TOP_N], "tested": len(results), "candles": len(candles)}
+    return {"results": ranked[:OPTIMIZE_TOP_N], "tested": len(results), "candles": len(candles), "group": group}
 
 
 # ---- parameter sensitivity (overfit detection) -----------------------------

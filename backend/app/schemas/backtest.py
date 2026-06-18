@@ -64,6 +64,7 @@ class SensitivityOut(BaseModel):
 
 class OptimizeIn(BaseModel):
     strategy_id: int
+    group: str | None = None  # "entry" | "exits" | "long_filters" | "short_filters"
     start_date: date | None = None
     end_date: date | None = None
 
@@ -81,6 +82,7 @@ class OptimizeOut(BaseModel):
     results: list[OptimizeResult]
     tested: int
     candles: int
+    group: str = ""
 
 
 class DataCoverage(BaseModel):

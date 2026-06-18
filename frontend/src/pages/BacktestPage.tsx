@@ -15,6 +15,7 @@ import {
   startAnalyze,
   walkForward,
   type ChatMessage,
+  type OptimizeGroup,
   type OptimizeResult,
   type StrategyConfig,
 } from "../api/endpoints";
@@ -27,6 +28,13 @@ import { describeEntry, describeFilters } from "../lib/strategy";
 function shortDate(unixSeconds: number): string {
   return new Date(unixSeconds * 1000).toLocaleDateString(undefined, { month: "short", year: "2-digit" });
 }
+
+const OPT_GROUP_LABELS: Record<OptimizeGroup, string> = {
+  entry: "Entry params",
+  exits: "SL / TP / Trailing",
+  long_filters: "Long filters",
+  short_filters: "Short filters",
+};
 
 /** A Card with a clickable header that collapses its body. Running every test on
  *  the page stacks up a lot of panels, so each result block can be folded away.
@@ -85,8 +93,12 @@ export function BacktestPage() {
   });
   const result = run.data;
 
+  // The optimizer tunes one group at a time (entry / exits / per-side filters),
+  // holding the rest of the strategy fixed.
+  const [optGroup, setOptGroup] = useState<OptimizeGroup>("entry");
   const optimize = useMutation({
-    mutationFn: () => optimizeStrategy(strategyId as number, startDate || undefined, endDate || undefined),
+    mutationFn: (group: OptimizeGroup) =>
+      optimizeStrategy(strategyId as number, group, startDate || undefined, endDate || undefined),
     onError: () => toast.error("Optimization failed", "Try a shorter period."),
   });
 
@@ -106,6 +118,11 @@ export function BacktestPage() {
   const coverage = dataStatus.data?.find(
     (c) => selStrategy && c.symbol === selStrategy.config_json.symbol && c.timeframe === selStrategy.config_json.timeframe
   );
+  // Short filters only matter for a long&short strategy; hide that option otherwise.
+  const optBidir = selStrategy?.config_json.market === "futures" && selStrategy?.config_json.direction === "both";
+  useEffect(() => {
+    if (!optBidir && optGroup === "short_filters") setOptGroup("entry");
+  }, [optBidir, optGroup]);
 
   const cfg = useQuery({ queryKey: ["auth-config"], queryFn: authConfig, staleTime: Infinity });
   const aiEnabled = cfg.data?.ai_enabled ?? false;
@@ -370,15 +387,28 @@ export function BacktestPage() {
           <Button onClick={() => run.mutate()} loading={run.isPending} disabled={!strategyId}>
             <Play className="h-4 w-4" /> Run
           </Button>
-          <Button
-            variant="secondary"
-            onClick={() => optimize.mutate()}
-            loading={optimize.isPending}
-            disabled={!strategyId}
-            title="Sweep parameter combinations and rank the best"
-          >
-            <Wand2 className="h-4 w-4" /> Optimize
-          </Button>
+          <div className="flex gap-2">
+            <Select
+              value={optGroup}
+              onChange={(e) => setOptGroup(e.target.value as OptimizeGroup)}
+              className="w-auto"
+              title="Pick what the optimizer tunes — the rest of the strategy stays as is"
+            >
+              <option value="entry">Entry params</option>
+              <option value="exits">SL / TP / Trailing</option>
+              <option value="long_filters">Long filters</option>
+              {optBidir && <option value="short_filters">Short filters</option>}
+            </Select>
+            <Button
+              variant="secondary"
+              onClick={() => optimize.mutate(optGroup)}
+              loading={optimize.isPending}
+              disabled={!strategyId}
+              title="Sweep options for the selected group only and rank the best"
+            >
+              <Wand2 className="h-4 w-4" /> Optimize
+            </Button>
+          </div>
           <Button
             variant="secondary"
             onClick={() => walkfwd.mutate()}
@@ -787,8 +817,8 @@ export function BacktestPage() {
         <CollapsibleCard
           className="mt-6"
           icon={Wand2}
-          title="Optimizer — top results"
-          meta={`${optimize.data.tested} combos · ranked by return ÷ drawdown`}
+          title={`Optimizer — ${OPT_GROUP_LABELS[optimize.data.group] ?? "results"}`}
+          meta={`${optimize.data.tested} options · ranked by return ÷ drawdown`}
         >
           {optimize.data.results.length === 0 ? (
             <div className="p-6 text-sm text-slate-500">No combination produced enough trades in this period.</div>
