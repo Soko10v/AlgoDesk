@@ -80,6 +80,9 @@ _SYSTEM = """\
     волатильность ATR% в диапазоне (отсекает флэт и слишком резкие рынки)
   - {"type":"adx","period":N,"min":A} — торговать только при ADX ≥ min (есть тренд)
   Хочешь добавить подтверждение по тренду/импульсу/объёму — клади его в filters.
+  У любого фильтра можно задать "side": "long"|"short"|"both" (по умолч. "both") —
+  применять только к лонгам, только к шортам или к обоим. Для бота long&short это
+  позволяет лонговать в аптренде и шортить в даунтренде, а не простаивать.
 - exit: правила RSI
 - stop_loss/take_profit/trailing_stop: {type:"pct", value:n} (0 = выключено)
 - hedge: настройки защитного шорта (фьючерс)
@@ -453,6 +456,8 @@ _ASK_SYSTEM = """\
   {"type":"atr","period":N,"min_pct":A,"max_pct":B} — только при ATR% в диапазоне;
   {"type":"adx","period":N,"min":A} — только при ADX≥min (есть тренд).
   Фильтр тренда/импульса/объёма клади сюда, НЕ вторым правилом в entry.
+  У фильтра можно указать "side":"long"|"short"|"both" (по умолч. both) — применять
+  к лонгам/шортам/обоим. Для long&short это даёт разные условия по сторонам.
 - exit: правила RSI; stop_loss/take_profit/trailing_stop: {type:"pct", value:n} (0 = выкл)
 - hedge: защитный шорт (только фьючерс); daily_loss_limit_pct: дневной лимит убытка
 - vol_target_pct: волатильностный сайзинг (0=выкл; >0 = размер обратно волатильности ATR)
@@ -549,7 +554,9 @@ _GENERATE_SYSTEM = """\
 - position_size_usdt — МАРЖА в USD; объём позиции = маржа × leverage
 - entry: массив правил (ma_cross/ema_cross/rsi/breakout/macd) — движок берёт ПЕРВОЕ
 - filters: доп. условия входа (реальные): trend {ma,period}, rsi {period,max,min},
-  volume {period,mult}, atr {period,min_pct,max_pct}, adx {period,min}
+  volume {period,mult}, atr {period,min_pct,max_pct}, adx {period,min}. У любого
+  фильтра можно задать "side":"long"|"short"|"both" — применять к лонгам/шортам/обоим
+  (для long&short бота: лонг в аптренде, шорт в даунтренде)
 - exit: правила RSI; stop_loss/take_profit/trailing_stop: {type:"pct", value:n} (0=выкл)
 - hedge: защитный шорт (только фьючерс); daily_loss_limit_pct: дневной лимит убытка
 - vol_target_pct: волатильностный сайзинг (0=выкл; >0 = размер обратно волатильности ATR)

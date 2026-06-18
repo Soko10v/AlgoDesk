@@ -94,6 +94,10 @@ def _passes_filters(
     for f in config.get("filters") or []:
         if not isinstance(f, dict):
             continue
+        # A side-specific filter only constrains its own side; skip it otherwise.
+        fside = f.get("side", "both")
+        if fside != "both" and fside != want_side:
+            continue
         ftype = f.get("type")
         if ftype == "trend":
             ma_fn = sma if f.get("ma") == "sma" else ema
@@ -202,7 +206,11 @@ def _entry_trend_series(config: dict[str, Any], closes: list[float]) -> tuple["n
 def _filter_series(
     config: dict[str, Any], closes: list[float], candles: list[list[float]]
 ) -> tuple["np.ndarray", "np.ndarray"]:
-    """(long_ok, short_ok) boolean arrays — same vetoes as _passes_filters."""
+    """(long_ok, short_ok) boolean arrays — same vetoes as _passes_filters.
+
+    Each filter can carry a ``side`` ("long"/"short"/"both", default both): its veto
+    is applied only to the matching side, so a long/short bot can use different
+    conditions per direction (e.g. long only in an uptrend, short only in a downtrend)."""
     n = len(closes)
     long_ok = np.ones(n, dtype=bool)
     short_ok = np.ones(n, dtype=bool)
@@ -214,29 +222,30 @@ def _filter_series(
         if not isinstance(f, dict):
             continue
         ftype = f.get("type")
+        # This filter's per-side allowance (True = entry permitted on that side).
+        lok = np.ones(n, dtype=bool)
+        sok = np.ones(n, dtype=bool)
         if ftype == "trend":
             ma = (sma_series if f.get("ma") == "sma" else ema_series)(closes, int(f.get("period", 200)))
-            long_ok &= arr > ma
-            short_ok &= arr < ma
+            lok = arr > ma
+            sok = arr < ma
         elif ftype == "rsi":
             val = rsi_series(closes, int(f.get("period", 14)))
             valid = ~np.isnan(val)
-            long_ok &= valid
-            short_ok &= valid
+            lok = valid.copy()
+            sok = valid.copy()
             if f.get("max") is not None:
-                long_ok &= val < float(f["max"])
+                lok &= val < float(f["max"])
             if f.get("min") is not None:
-                short_ok &= val > float(f["min"])
+                sok &= val > float(f["min"])
         elif ftype == "volume":
             period = int(f.get("period", 20))
             vols = pd.Series([float(c[5]) if len(c) > 5 and c[5] is not None else np.nan for c in candles], dtype=float)
             avg = vols.rolling(period).mean().to_numpy()
-            ok = np.zeros(n, dtype=bool)
             idx = np.arange(n)
             with np.errstate(invalid="ignore"):
                 ok = (idx >= period) & (avg > 0) & (vols.to_numpy() >= float(f.get("mult", 1.5)) * avg)
-            long_ok &= ok
-            short_ok &= ok
+            lok = sok = ok
         elif ftype == "atr":
             a = atr_series(highs, lows, closes, int(f.get("period", 14)))
             with np.errstate(invalid="ignore", divide="ignore"):
@@ -246,13 +255,19 @@ def _filter_series(
                 ok &= atr_pct >= float(f["min_pct"])
             if f.get("max_pct") is not None:
                 ok &= atr_pct <= float(f["max_pct"])
-            long_ok &= ok
-            short_ok &= ok
+            lok = sok = ok
         elif ftype == "adx":
             v = adx_series(highs, lows, closes, int(f.get("period", 14)))
             ok = ~np.isnan(v) & (v >= float(f.get("min", 20)))
-            long_ok &= ok
-            short_ok &= ok
+            lok = sok = ok
+        else:
+            continue
+
+        side = f.get("side", "both")
+        if side in ("long", "both"):
+            long_ok &= lok
+        if side in ("short", "both"):
+            short_ok &= sok
     return long_ok, short_ok
 
 

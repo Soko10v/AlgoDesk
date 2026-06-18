@@ -17,11 +17,14 @@ export type PctRule = { type: "pct"; value: number };
 
 // Entry filters layer extra conditions on top of the entry signal (it picks the
 // side; a filter can veto it). Trend = trade with the MA; RSI = skip extremes.
-export type TrendFilter = { type: "trend"; ma: "ema" | "sma"; period: number };
-export type RsiFilter = { type: "rsi"; period: number; min?: number; max?: number };
-export type VolumeFilter = { type: "volume"; period: number; mult: number };
-export type AtrFilter = { type: "atr"; period: number; min_pct?: number; max_pct?: number };
-export type AdxFilter = { type: "adx"; period: number; min: number };
+// `side` gates which direction the filter applies to (default "both"), so a
+// long/short bot can require different conditions for longs vs shorts.
+export type FilterSide = "long" | "short" | "both";
+export type TrendFilter = { type: "trend"; ma: "ema" | "sma"; period: number; side?: FilterSide };
+export type RsiFilter = { type: "rsi"; period: number; min?: number; max?: number; side?: FilterSide };
+export type VolumeFilter = { type: "volume"; period: number; mult: number; side?: FilterSide };
+export type AtrFilter = { type: "atr"; period: number; min_pct?: number; max_pct?: number; side?: FilterSide };
+export type AdxFilter = { type: "adx"; period: number; min: number; side?: FilterSide };
 export type StrategyFilter = TrendFilter | RsiFilter | VolumeFilter | AtrFilter | AdxFilter;
 export type FilterType = StrategyFilter["type"];
 
