@@ -67,18 +67,24 @@ export function defaultFilter(type: FilterType): StrategyFilter {
   }
 }
 
+/** Compact side tag for a filter: "↑" long-only, "↓" short-only, "" both. */
+export function filterSideTag(f: StrategyFilter): string {
+  return f.side === "long" ? " ↑" : f.side === "short" ? " ↓" : "";
+}
+
 export function describeFilter(f: StrategyFilter): string {
+  const tag = filterSideTag(f);
   switch (f.type) {
     case "trend":
-      return `${f.ma.toUpperCase()}${f.period} trend`;
+      return `${f.ma.toUpperCase()}${f.period} trend${tag}`;
     case "rsi":
-      return `RSI${f.period}${f.max != null ? ` <${f.max}` : ""}${f.min != null ? ` >${f.min}` : ""}`;
+      return `RSI${f.period}${f.max != null ? ` <${f.max}` : ""}${f.min != null ? ` >${f.min}` : ""}${tag}`;
     case "volume":
-      return `Vol ×${f.mult}`;
+      return `Vol ×${f.mult}${tag}`;
     case "atr":
-      return `ATR%${f.min_pct != null ? ` ≥${f.min_pct}` : ""}${f.max_pct != null ? ` ≤${f.max_pct}` : ""}`;
+      return `ATR%${f.min_pct != null ? ` ≥${f.min_pct}` : ""}${f.max_pct != null ? ` ≤${f.max_pct}` : ""}${tag}`;
     case "adx":
-      return `ADX ≥${f.min}`;
+      return `ADX ≥${f.min}${tag}`;
     default:
       return "";
   }

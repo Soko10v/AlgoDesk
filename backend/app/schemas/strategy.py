@@ -12,6 +12,7 @@ ALLOWED_DIRECTIONS = frozenset({"long", "both"})
 ALLOWED_ENTRY_TYPES = frozenset({"ma_cross", "ema_cross", "rsi", "breakout", "macd"})
 ALLOWED_FILTER_TYPES = frozenset({"trend", "rsi", "volume", "atr", "adx"})
 ALLOWED_FILTER_MA = frozenset({"ema", "sma"})
+ALLOWED_FILTER_SIDES = frozenset({"long", "short", "both"})
 
 
 def _positive_number(value: Any) -> bool:
@@ -64,6 +65,10 @@ def _validate_filters(filters: Any) -> None:
         ftype = f.get("type")
         if ftype not in ALLOWED_FILTER_TYPES:
             raise ValueError(f"Unsupported filter type: {ftype}")
+        # Optional side: gate longs, shorts, or both (default). Lets a long/short
+        # bot use different conditions per direction (e.g. long only in an uptrend).
+        if f.get("side", "both") not in ALLOWED_FILTER_SIDES:
+            raise ValueError("filter side must be 'long', 'short' or 'both'")
         period = f.get("period", 14 if ftype != "trend" else 200)
         if not _positive_number(period):
             raise ValueError("filter period must be a positive number")

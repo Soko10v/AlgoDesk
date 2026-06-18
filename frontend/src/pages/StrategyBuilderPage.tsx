@@ -17,6 +17,7 @@ import {
   type Direction,
   type EntryRule,
   type EntryType,
+  type FilterSide,
   type FilterType,
   type GeneratedBot,
   type HedgeConfig,
@@ -115,7 +116,13 @@ export function StrategyBuilderPage() {
   const removeFilter = (i: number) =>
     setCfg((c) => ({ ...c, filters: (c.filters ?? []).filter((_, idx) => idx !== i) }));
   const changeFilterType = (i: number, type: FilterType) =>
-    setCfg((c) => ({ ...c, filters: (c.filters ?? []).map((f, idx) => (idx === i ? defaultFilter(type) : f)) }));
+    setCfg((c) => ({
+      ...c,
+      // Keep the chosen side when swapping the filter's indicator type.
+      filters: (c.filters ?? []).map((f, idx) =>
+        idx === i ? ({ ...defaultFilter(type), ...(f.side ? { side: f.side } : {}) } as StrategyFilter) : f
+      ),
+    }));
   const patchFilter = (i: number, patch: FilterPatch) =>
     setCfg((c) => ({
       ...c,
@@ -515,12 +522,19 @@ export function StrategyBuilderPage() {
                     Extra conditions that must hold to open a trade. The entry signal picks the side; a
                     filter can veto it — e.g. only go long while price is above the 200 EMA, only trade
                     when ADX shows a real trend, or require a volume spike.
+                    {isBidirectional(cfg) && (
+                      <>
+                        {" "}In Long &amp; Short you can apply each filter to <b>longs only</b>, <b>shorts only</b>,
+                        or both — so the bot can long in an uptrend and short in a downtrend instead of sitting out.
+                      </>
+                    )}
                   </p>
                   <div className="space-y-2.5">
                     {(cfg.filters ?? []).map((f, i) => (
                       <FilterRow
                         key={i}
                         filter={f}
+                        allowSide={isBidirectional(cfg)}
                         onType={(t) => changeFilterType(i, t)}
                         onPatch={(p) => patchFilter(i, p)}
                         onRemove={() => removeFilter(i)}
@@ -806,20 +820,22 @@ type FilterPatch = {
   mult?: number;
   min_pct?: number;
   max_pct?: number;
+  side?: FilterSide;
 };
 
 function filterHint(f: StrategyFilter): string {
+  const where = f.side === "long" ? " (longs only)" : f.side === "short" ? " (shorts only)" : "";
   switch (f.type) {
     case "trend":
-      return `Only long above the ${f.ma.toUpperCase()} ${f.period}, only short below it.`;
+      return `Only long above the ${f.ma.toUpperCase()} ${f.period}, only short below it${where}.`;
     case "rsi":
-      return `Skip longs when RSI ≥ ${f.max ?? "—"}, skip shorts when RSI ≤ ${f.min ?? "—"}.`;
+      return `Skip longs when RSI ≥ ${f.max ?? "—"}, skip shorts when RSI ≤ ${f.min ?? "—"}${where}.`;
     case "volume":
-      return `Enter only when this candle's volume ≥ ${f.mult}× the ${f.period}-bar average.`;
+      return `Enter only when this candle's volume ≥ ${f.mult}× the ${f.period}-bar average${where}.`;
     case "atr":
-      return `Trade only when volatility (ATR%) is ≥ ${f.min_pct ?? 0}%${f.max_pct ? ` and ≤ ${f.max_pct}%` : ""} — skips dead markets.`;
+      return `Trade only when volatility (ATR%) is ≥ ${f.min_pct ?? 0}%${f.max_pct ? ` and ≤ ${f.max_pct}%` : ""} — skips dead markets${where}.`;
     case "adx":
-      return `Trade only when ADX ≥ ${f.min} (a real trend, not chop).`;
+      return `Trade only when ADX ≥ ${f.min} (a real trend, not chop)${where}.`;
     default:
       return "";
   }
@@ -827,11 +843,13 @@ function filterHint(f: StrategyFilter): string {
 
 function FilterRow({
   filter,
+  allowSide,
   onType,
   onPatch,
   onRemove,
 }: {
   filter: StrategyFilter;
+  allowSide: boolean;
   onType: (t: FilterType) => void;
   onPatch: (p: FilterPatch) => void;
   onRemove: () => void;
@@ -846,10 +864,21 @@ function FilterRow({
             </option>
           ))}
         </Select>
+        {allowSide && (
+          <Select
+            value={filter.side ?? "both"}
+            onChange={(e) => onPatch({ side: e.target.value as FilterSide })}
+            title="Apply this filter to longs, shorts, or both"
+          >
+            <option value="both">Long + Short</option>
+            <option value="long">Long only</option>
+            <option value="short">Short only</option>
+          </Select>
+        )}
         <Button
           size="sm"
           variant="ghost"
-          className="!px-2 text-slate-400 hover:!bg-rose-500/10 hover:text-rose-300"
+          className="ml-auto !px-2 text-slate-400 hover:!bg-rose-500/10 hover:text-rose-300"
           onClick={onRemove}
           title="Remove filter"
         >
