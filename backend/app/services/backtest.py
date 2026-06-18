@@ -4,7 +4,16 @@ import math
 import random
 from typing import Any
 
-from app.engine.risk import funding_cost, hedge_params, leverage, pct_value, round_trip_fee, trailing_pct
+from app.engine.risk import (
+    funding_cost,
+    hedge_params,
+    leverage,
+    pct_value,
+    round_trip_fee,
+    stop_loss_pct,
+    take_profit_pct,
+    trailing_pct,
+)
 from app.engine.strategy_evaluator import build_signals, signal_at
 from app.services import candle_store
 from app.services.exchange import exchange_client
@@ -227,8 +236,10 @@ def _simulate(
     # decides each bar with an array lookup instead of recomputing per bar (O(n²)).
     signals = build_signals(config, candles)
     lev = leverage(config)
-    sl_val = pct_value(config.get("stop_loss"))
-    tp_val = pct_value(config.get("take_profit"))
+    # A reversed strategy swaps stop/target (its entry side is already flipped in
+    # build_signals/signal_at), so a long becomes a mirror-image short.
+    sl_val = stop_loss_pct(config)
+    tp_val = take_profit_pct(config)
     trail_val = trailing_pct(config)
     hedge = hedge_params(config)  # None unless this is a futures strategy with hedging on
     fee = round_trip_fee(config)  # entry+exit taker fee, charged on every closed leg

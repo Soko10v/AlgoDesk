@@ -53,6 +53,7 @@ export type StrategyConfig = {
   take_profit: PctRule;
   trailing_stop?: PctRule; // 0 = off; trails the high/low-water mark
   vol_target_pct?: number; // 0 = off; scale position size inversely to ATR volatility
+  reverse?: boolean; // mirror the strategy: long↔short and stop-loss↔take-profit (futures only)
   // Futures-only fields; spot strategies omit them and the backend defaults market to "spot".
   market?: Market;
   direction?: Direction; // "long" (default) or "both" — futures can trade both ways

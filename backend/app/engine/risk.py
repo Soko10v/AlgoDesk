@@ -69,6 +69,23 @@ def trailing_pct(config: dict[str, Any]) -> float | None:
     return pct_value(config.get("trailing_stop"))
 
 
+def is_reversed(config: dict[str, Any]) -> bool:
+    """True when the strategy runs mirrored: every long↔short, and the stop-loss
+    and take-profit swap places (the side flip itself lives in strategy_evaluator)."""
+    return bool(config.get("reverse"))
+
+
+def stop_loss_pct(config: dict[str, Any]) -> float | None:
+    """Effective stop-loss distance. A reversed strategy uses the take-profit value
+    as its stop (the original target becomes the mirror's stop)."""
+    return pct_value(config.get("take_profit") if is_reversed(config) else config.get("stop_loss"))
+
+
+def take_profit_pct(config: dict[str, Any]) -> float | None:
+    """Effective take-profit distance (the stop-loss value when reversed)."""
+    return pct_value(config.get("stop_loss") if is_reversed(config) else config.get("take_profit"))
+
+
 def is_futures(config: dict[str, Any]) -> bool:
     return config.get("market") == "futures"
 

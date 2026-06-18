@@ -26,8 +26,9 @@ from app.engine.risk import (
     hedge_params,
     is_futures,
     leverage,
-    pct_value,
     round_trip_fee_pct,
+    stop_loss_pct,
+    take_profit_pct,
     trailing_pct,
 )
 from app.engine.strategy_evaluator import evaluate_signal
@@ -692,8 +693,9 @@ class BotSupervisor:
             pnl_now = ((state.entry_price - current_price) / state.entry_price) * 100
         else:
             pnl_now = ((current_price - state.entry_price) / state.entry_price) * 100
-        sl_val = pct_value(config.get("stop_loss"))
-        tp_val = pct_value(config.get("take_profit"))
+        # Reverse swaps stop/target (the entry side is already flipped upstream).
+        sl_val = stop_loss_pct(config)
+        tp_val = take_profit_pct(config)
         if sl_val is not None and pnl_now <= -sl_val:
             return "stop_loss"
         if tp_val is not None and pnl_now >= tp_val:
@@ -776,7 +778,7 @@ class BotSupervisor:
         amount: float,
         futures: bool,
     ) -> None:
-        sl_val = pct_value(strategy.config_json.get("stop_loss"))
+        sl_val = stop_loss_pct(strategy.config_json)  # swapped for reversed strategies
         if sl_val is None or entry_price <= 0:
             return
         if side == "short":
