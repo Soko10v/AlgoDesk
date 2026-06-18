@@ -103,6 +103,13 @@ _SYSTEM = """\
 В proposed_config сохрани те же symbol и timeframe; можешь менять entry/exit,
 stop_loss/take_profit/trailing_stop, leverage, position_size_usdt, direction, hedge.
 Если улучшить нечем — proposed_config: null.
+
+ВАЖНО про proposed_config:
+- Возвращай ПОЛНЫЙ конфиг со ВСЕМИ полями (entry, stop_loss, take_profit,
+  trailing_stop, leverage, position_size_usdt, direction, market, filters), а не
+  только изменённые — пропущенные поля легко теряются.
+- НИКОГДА не оставляй стратегию без защиты: в конфиге обязан быть либо
+  stop_loss.value > 0, либо trailing_stop.value > 0. Стоп-лосс не выключай.
 """
 
 
@@ -138,29 +145,59 @@ def _pos(v: Any) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
 
 
+# A strategy must never ship without downside protection; used as a last resort
+# when neither the model nor the base strategy provides a stop.
+_DEFAULT_STOP = {"type": "pct", "value": 4.0}
+
+
+def _has_protection(cfg: dict[str, Any]) -> bool:
+    """True if the config has a stop-loss or a trailing stop with a real value."""
+    return _pos((cfg.get("stop_loss") or {}).get("value")) or _pos((cfg.get("trailing_stop") or {}).get("value"))
+
+
 def _coerce_config(cfg: dict[str, Any], symbol: str | None, timeframe: str | None, base: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Fill in safe defaults for fields the model commonly omits (e.g. ``exit`` on a
-    flip strategy, or ``position_size_usdt``) so a otherwise-valid config isn't
-    dropped. Inherits from ``base`` (the strategy being edited) when available."""
+    """Turn the model's (often partial) output into a complete config.
+
+    The model frequently returns only the fields it changed and silently drops the
+    rest — most dangerously the stop-loss. So we MERGE its output over ``base`` (the
+    strategy being edited), so every field it didn't mention is preserved, and we
+    guarantee the result still has downside protection."""
     base = base or {}
-    cfg = dict(cfg)
-    cfg["symbol"] = symbol
-    cfg["timeframe"] = timeframe
-    if not isinstance(cfg.get("entry"), list) or not cfg["entry"]:
-        cfg["entry"] = base.get("entry") or [{"type": "ema_cross", "fast": 9, "slow": 21}]
-    if not isinstance(cfg.get("exit"), list):
-        cfg["exit"] = base.get("exit") or []
-    for k in ("stop_loss", "take_profit"):
-        if not isinstance(cfg.get(k), dict):
-            cfg[k] = base.get(k) or {"type": "pct", "value": 0}
-    if not (_pos(cfg.get("position_size_usdt")) or _pos(cfg.get("position_size_pct"))):
-        cfg["position_size_usdt"] = base.get("position_size_usdt") or 50
-    if cfg.get("market") == "futures":
+    # Merge over the base so anything the model omitted is kept. Drop the model's
+    # explicit nulls so they can't wipe a base field (e.g. "stop_loss": null).
+    merged: dict[str, Any] = {**base, **{k: v for k, v in cfg.items() if v is not None}}
+    merged["symbol"] = symbol
+    merged["timeframe"] = timeframe
+
+    if not isinstance(merged.get("entry"), list) or not merged["entry"]:
+        merged["entry"] = base.get("entry") or [{"type": "ema_cross", "fast": 9, "slow": 21}]
+    if not isinstance(merged.get("exit"), list):
+        merged["exit"] = base.get("exit") or []
+    # Risk blocks must be dicts: keep the model's, else the base's, else "disabled".
+    for k in ("stop_loss", "take_profit", "trailing_stop"):
+        if not isinstance(merged.get(k), dict):
+            merged[k] = base.get(k) if isinstance(base.get(k), dict) else {"type": "pct", "value": 0}
+    if not (_pos(merged.get("position_size_usdt")) or _pos(merged.get("position_size_pct"))):
+        merged["position_size_usdt"] = base.get("position_size_usdt") or 50
+    if merged.get("market") == "futures":
         try:
-            cfg["leverage"] = max(1, min(MAX_LEVERAGE, int(cfg.get("leverage", base.get("leverage", 1)))))
+            merged["leverage"] = max(1, min(MAX_LEVERAGE, int(merged.get("leverage", base.get("leverage", 1)))))
         except (TypeError, ValueError):
-            cfg["leverage"] = base.get("leverage", 1)
-    return cfg
+            merged["leverage"] = base.get("leverage", 1)
+    else:
+        # No protective short on spot — a leftover hedge from the base would be invalid.
+        merged.pop("hedge", None)
+
+    # The main guard against the model "forgetting" the stop: if the result has no
+    # protection at all, restore the base's stop/trailing, else apply a default.
+    if not _has_protection(merged):
+        if isinstance(base.get("stop_loss"), dict) and _pos(base["stop_loss"].get("value")):
+            merged["stop_loss"] = base["stop_loss"]
+        elif isinstance(base.get("trailing_stop"), dict) and _pos(base["trailing_stop"].get("value")):
+            merged["trailing_stop"] = base["trailing_stop"]
+        else:
+            merged["stop_loss"] = dict(_DEFAULT_STOP)
+    return merged
 
 
 def _validate_or_drop(cfg: dict[str, Any]) -> dict[str, Any] | None:
@@ -394,6 +431,10 @@ _ASK_SYSTEM = """\
   «настрой фильтры», «добавь ADX», «сделай агрессивнее») — СРАЗУ верни ПОЛНЫЙ
   новый proposed_config с изменениями и коротко поясни. НЕ переспрашивай и не
   отнекивайся, если намерение понятно.
+- proposed_config — это ВЕСЬ конфиг со всеми полями (entry, stop_loss, take_profit,
+  trailing_stop, leverage, position_size_usdt, direction, market, filters), а не
+  только изменённое. НИКОГДА не оставляй стратегию без защиты: должен быть либо
+  stop_loss.value > 0, либо trailing_stop.value > 0 (не выключай стоп без явной просьбы).
 - Если он только задаёт вопрос (ничего менять не просит) — proposed_config: null.
 - Не выдумывай поля. Меняй только перечисленные ниже. symbol и timeframe не меняй.
 - Не лепи все фильтры сразу — это пережмёт вход и сделок не будет. Подбирай
@@ -516,6 +557,9 @@ _GENERATE_SYSTEM = """\
 Делай подходы реально разными (разные entry/filters/риск/направление). Учитывай
 запрос: «консервативный» → меньше плечо, шире стоп, фильтр тренда; «агрессивный» →
 выше плечо, чаще сделки. Имя (name) и approach — на русском, коротко.
+
+Каждый бот ОБЯЗАН иметь защиту: stop_loss.value > 0 или trailing_stop.value > 0.
+Конфиг полный, со всеми полями.
 
 Отвечай ТОЛЬКО валидным JSON:
 {
