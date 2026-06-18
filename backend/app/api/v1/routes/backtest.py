@@ -79,7 +79,9 @@ async def optimize_strategy(
     if strategy is None or strategy.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Strategy not found")
     since_ms, until_ms = _date_bounds(payload.start_date, payload.end_date)
-    data = await run_optimization(strategy.config_json, since_ms=since_ms, until_ms=until_ms)
+    data = await run_optimization(
+        strategy.config_json, group=payload.group or "entry", since_ms=since_ms, until_ms=until_ms
+    )
     return OptimizeOut(**data)
 
 

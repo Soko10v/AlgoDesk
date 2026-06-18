@@ -231,10 +231,17 @@ export type OptimizeResult = {
   trades: number;
   score: number;
 };
-export type OptimizeResponse = { results: OptimizeResult[]; tested: number; candles: number };
+// Which group the optimizer tunes (one at a time, holding the rest fixed).
+export type OptimizeGroup = "entry" | "exits" | "long_filters" | "short_filters";
+export type OptimizeResponse = { results: OptimizeResult[]; tested: number; candles: number; group: OptimizeGroup };
 
-export async function optimizeStrategy(strategy_id: number, start_date?: string, end_date?: string) {
-  const { data } = await api.post("/backtest/optimize", { strategy_id, start_date, end_date });
+export async function optimizeStrategy(
+  strategy_id: number,
+  group: OptimizeGroup,
+  start_date?: string,
+  end_date?: string
+) {
+  const { data } = await api.post("/backtest/optimize", { strategy_id, group, start_date, end_date });
   return data as OptimizeResponse;
 }
 
