@@ -151,6 +151,14 @@ def _passes_filters(
     return True
 
 
+_FLIP = {"long": "short", "short": "long"}
+
+
+def _flip_action(action: str | None) -> str | None:
+    """Mirror a decision for a reversed strategy: long↔short; close/None unchanged."""
+    return _FLIP.get(action, action)
+
+
 def _decide(
     allow_short_flag: bool,
     position_side: str | None,
@@ -294,6 +302,7 @@ def build_signals(config: dict[str, Any], candles: list[list[float]]) -> dict[st
     long_ok, short_ok = _filter_series(config, closes, candles)
     return {
         "allow_short": allow_short(config),
+        "reverse": bool(config.get("reverse")),
         "bullish": bullish,
         "bearish": bearish,
         "long_ok": long_ok,
@@ -303,16 +312,23 @@ def build_signals(config: dict[str, Any], candles: list[list[float]]) -> dict[st
 
 
 def signal_at(sig: dict[str, Any], idx: int, position_side: str | None) -> str | None:
-    """Decision for bar ``idx`` from precomputed ``build_signals`` output."""
-    return _decide(
+    """Decision for bar ``idx`` from precomputed ``build_signals`` output.
+
+    A reversed strategy is the mirror image: we feed the conjugate position side
+    into the normal logic and flip the resulting action, so every long becomes a
+    short (and the RSI exit still lines up). SL/TP swapping is handled in the sim."""
+    reverse = sig.get("reverse")
+    inner_side = _flip_action(position_side) if reverse else position_side
+    action = _decide(
         sig["allow_short"],
-        position_side,
+        inner_side,
         bool(sig["bullish"][idx]),
         bool(sig["bearish"][idx]),
         bool(sig["long_ok"][idx]),
         bool(sig["short_ok"][idx]),
         bool(sig["rsi_exit"][idx]),
     )
+    return _flip_action(action) if reverse else action
 
 
 def evaluate_signal(
@@ -338,13 +354,16 @@ def evaluate_signal(
     (once per tick); the backtest uses build_signals/signal_at for the same logic."""
     if not closes:
         return None
+    reverse = bool(config.get("reverse"))
+    inner_side = _flip_action(position_side) if reverse else position_side
     bullish, bearish = _entry_trend(config, closes)
-    return _decide(
+    action = _decide(
         allow_short(config),
-        position_side,
+        inner_side,
         bullish,
         bearish,
         _passes_filters(config, closes, "long", candles),
         _passes_filters(config, closes, "short", candles),
         _rsi_exit(config, closes),
     )
+    return _flip_action(action) if reverse else action

@@ -133,7 +133,14 @@ export function StrategyBuilderPage() {
   const setHedge = (patch: Partial<HedgeConfig>) =>
     setCfg((c) => ({ ...c, hedge: { ...defaultHedge(), ...c.hedge, ...patch } }));
   const setMarket = (market: Market) =>
-    setCfg((c) => ({ ...c, market, leverage: c.leverage ?? 3, hedge: { ...defaultHedge(), ...c.hedge } }));
+    setCfg((c) => ({
+      ...c,
+      market,
+      leverage: c.leverage ?? 3,
+      hedge: { ...defaultHedge(), ...c.hedge },
+      // Reverse needs shorting; spot can't, so drop it when leaving futures.
+      reverse: market === "futures" ? c.reverse : false,
+    }));
   const setDirection = (direction: Direction) => setCfg((c) => ({ ...c, direction }));
 
   const save = useMutation({
@@ -694,6 +701,25 @@ export function StrategyBuilderPage() {
                     enable squeeze protection.
                   </div>
                 )}
+
+                {isFutures(cfg) && (
+                  <Block icon={ArrowDownUp} title="Reverse strategy" tone="text-amber-300">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs leading-relaxed text-slate-500">
+                        Mirror the strategy: every long becomes a short (and vice versa), and the
+                        stop-loss and take-profit swap places. Same entry, indicators and filters —
+                        useful when a strategy is consistently wrong and you'd profit doing the opposite.
+                      </p>
+                      <Toggle checked={cfg.reverse ?? false} onChange={(v) => setCfg((c) => ({ ...c, reverse: v }))} />
+                    </div>
+                    {cfg.reverse && (
+                      <p className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-200">
+                        Reversed: opens the opposite side of every signal; SL {cfg.stop_loss.value || 0}% ⇄ TP{" "}
+                        {cfg.take_profit.value || 0}%.
+                      </p>
+                    )}
+                  </Block>
+                )}
               </>
             )}
           </div>
@@ -1006,9 +1032,9 @@ function buildGraph(cfg: StrategyConfig): { nodes: Node[]; edges: Edge[] } {
       id: "entry",
       position: { x: 260, y: 170 },
       data: {
-        label: `Entry · ${describeEntry(cfg)}${isBidirectional(cfg) ? " · flip L/S" : ""}${
-          describeFilters(cfg) ? ` · filter: ${describeFilters(cfg)}` : ""
-        }`,
+        label: `Entry · ${describeEntry(cfg)}${cfg.reverse ? " · ⇄ REVERSED" : ""}${
+          isBidirectional(cfg) ? " · flip L/S" : ""
+        }${describeFilters(cfg) ? ` · filter: ${describeFilters(cfg)}` : ""}`,
       },
       style: accentNode("rgba(16,185,129,0.6)"),
       sourcePosition: "right" as never,

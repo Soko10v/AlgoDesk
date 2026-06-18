@@ -36,6 +36,14 @@ def validate_strategy_config(value: dict[str, Any]) -> dict[str, Any]:
     if vt is not None and not (isinstance(vt, (int, float)) and not isinstance(vt, bool) and vt >= 0):
         raise ValueError("vol_target_pct must be a number ≥ 0 (0 = off)")
 
+    # Reverse mirrors the strategy (long↔short, stop-loss↔take-profit). It needs
+    # futures because spot can't open shorts.
+    rev = value.get("reverse")
+    if rev is not None and not isinstance(rev, bool):
+        raise ValueError("reverse must be true or false")
+    if rev and value.get("market", "spot") != "futures":
+        raise ValueError("reverse requires a futures strategy (spot can't short)")
+
     entry = value.get("entry") or []
     if entry:
         etype = entry[0].get("type") if isinstance(entry[0], dict) else None

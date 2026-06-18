@@ -113,6 +113,9 @@ export function normalizeConfig(config: Partial<StrategyConfig>): StrategyConfig
   merged.filters = Array.isArray(merged.filters) ? merged.filters : [];
   merged.trailing_stop = merged.trailing_stop ?? { type: "pct", value: 0 };
   merged.vol_target_pct = merged.vol_target_pct ?? 0;
+  merged.reverse = merged.reverse ?? false;
+  // Reverse needs shorting, so it only applies to futures.
+  if (merged.market !== "futures") merged.reverse = false;
   return merged;
 }
 
@@ -128,6 +131,7 @@ export function defaultConfig(): StrategyConfig {
     take_profit: { type: "pct", value: 5 },
     trailing_stop: { type: "pct", value: 0 },
     vol_target_pct: 0,
+    reverse: false,
     market: "spot",
     direction: "long",
     leverage: 3,
