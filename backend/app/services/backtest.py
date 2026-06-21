@@ -541,6 +541,14 @@ def _closed_trades(result: dict[str, Any]) -> int:
     return sum(1 for t in result["trades"] if t.get("leg") == "main" and "pnl_pct" in t)
 
 
+def _finite_result(r: dict[str, Any]) -> bool:
+    """True only if every numeric field is finite — guards the JSON response from
+    inf/NaN (e.g. a -inf score for an under-traded config), which JS can't parse."""
+    return all(
+        math.isfinite(r[k]) for k in ("score", "total_return_pct", "max_drawdown_pct", "win_rate")
+    )
+
+
 def _score(result: dict[str, Any], n_trades: int) -> float:
     """Risk-adjusted: return per unit of drawdown. Configs with too few trades
     are pushed to the bottom so a single lucky trade can't top the board."""
@@ -576,7 +584,10 @@ async def run_optimization(
         group = "entry"
     candles = await load_candles(config, since_ms, until_ms, limit=OPTIMIZE_CANDLES)
     results = await asyncio.to_thread(_run_grid, config, candles, group)
-    ranked = [r for r in results if r["score"] != float("-inf")] or results
+    # Keep only finite rows: an under-traded config scores -inf, and -inf/NaN
+    # serialize as invalid JSON (-Infinity), which breaks the client. If none
+    # qualify, return an empty list — the UI shows "not enough trades".
+    ranked = [r for r in results if _finite_result(r)]
     return {"results": ranked[:OPTIMIZE_TOP_N], "tested": len(results), "candles": len(candles), "group": group}
 
 
