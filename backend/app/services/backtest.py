@@ -454,7 +454,8 @@ def _simulate(
 
 # ---- optimizer (parameter sweep) -------------------------------------------
 
-OPTIMIZE_CANDLES = 800
+OPTIMIZE_CANDLES = 3000
+OPTIMIZE_MAX_CANDLES = 12000
 OPTIMIZE_MIN_TRADES = 5
 OPTIMIZE_TOP_N = 12
 
@@ -579,14 +580,41 @@ async def run_optimization(
 ) -> dict[str, Any]:
     """Sweep ONE group's options (entry / exits / long_filters / short_filters)
     over a candle set and rank by a risk-adjusted score, holding the rest of the
-    strategy fixed. CPU work runs in a thread so the event loop stays free."""
+    strategy fixed.
+
+    The data window auto-widens: a sparse strategy that doesn't trade enough on a
+    short window would yield no rankable configs, so we keep pulling more history
+    (the selected range first, then progressively more recent candles) until at
+    least one config trades enough — or we run out of data. CPU work runs in a
+    thread so the event loop stays free."""
     if group not in OPTIMIZE_GROUPS:
         group = "entry"
-    candles = await load_candles(config, since_ms, until_ms, limit=OPTIMIZE_CANDLES)
-    results = await asyncio.to_thread(_run_grid, config, candles, group)
+
+    # Candidate data windows, widening until enough configs trade meaningfully.
+    windows: list[tuple[int | None, int | None, int]] = []
+    if since_ms is not None or until_ms is not None:
+        windows.append((since_ms, until_ms, OPTIMIZE_MAX_CANDLES))  # the selected range, in full
+    for lim in (OPTIMIZE_CANDLES, 6000, OPTIMIZE_MAX_CANDLES):
+        windows.append((None, None, lim))  # most-recent N candles
+
+    results: list[dict[str, Any]] = []
+    candles: list[list[float]] = []
+    last_sig: tuple[int, float, float] | None = None
+    for s, u, lim in windows:
+        c = await load_candles(config, s, u, limit=lim)
+        if not c:
+            continue
+        sig = (len(c), c[0][0], c[-1][0])
+        if sig == last_sig:  # same data as the previous attempt — no point re-running
+            continue
+        last_sig = sig
+        candles = c
+        results = await asyncio.to_thread(_run_grid, config, candles, group)
+        if any(_finite_result(r) for r in results):
+            break
+
     # Keep only finite rows: an under-traded config scores -inf, and -inf/NaN
-    # serialize as invalid JSON (-Infinity), which breaks the client. If none
-    # qualify, return an empty list — the UI shows "not enough trades".
+    # serialize as invalid JSON (-Infinity), which breaks the client.
     ranked = [r for r in results if _finite_result(r)]
     return {"results": ranked[:OPTIMIZE_TOP_N], "tested": len(results), "candles": len(candles), "group": group}
 
