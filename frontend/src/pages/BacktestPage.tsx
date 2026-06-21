@@ -818,7 +818,7 @@ export function BacktestPage() {
           className="mt-6"
           icon={Wand2}
           title={`Optimizer — ${OPT_GROUP_LABELS[optimize.data.group] ?? "results"}`}
-          meta={`${optimize.data.tested ?? 0} options · ranked by return ÷ drawdown`}
+          meta={`${optimize.data.tested ?? 0} options · ${(optimize.data.candles ?? 0).toLocaleString()} candles`}
         >
           {(optimize.data.results ?? []).length === 0 ? (
             <div className="p-6 text-sm text-slate-500">No combination produced enough trades in this period.</div>
