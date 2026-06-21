@@ -818,9 +818,9 @@ export function BacktestPage() {
           className="mt-6"
           icon={Wand2}
           title={`Optimizer — ${OPT_GROUP_LABELS[optimize.data.group] ?? "results"}`}
-          meta={`${optimize.data.tested} options · ranked by return ÷ drawdown`}
+          meta={`${optimize.data.tested ?? 0} options · ranked by return ÷ drawdown`}
         >
-          {optimize.data.results.length === 0 ? (
+          {(optimize.data.results ?? []).length === 0 ? (
             <div className="p-6 text-sm text-slate-500">No combination produced enough trades in this period.</div>
           ) : (
             <div className="max-h-[420px] overflow-auto">
@@ -839,7 +839,7 @@ export function BacktestPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/[0.05]">
-                  {optimize.data.results.map((r, i) => (
+                  {(optimize.data.results ?? []).map((r, i) => (
                     <tr key={i} className="hover:bg-white/[0.02]">
                       <td className="px-4 py-2.5 text-slate-500">{i + 1}</td>
                       <td className="px-4 py-2.5 text-slate-300">
@@ -849,9 +849,9 @@ export function BacktestPage() {
                         )}
                       </td>
                       <td className="px-4 py-2.5 font-mono text-xs text-slate-400">
-                        {r.config.stop_loss.value}% / {r.config.take_profit.value || "—"}
-                        {r.config.take_profit.value ? "%" : ""} / {r.config.trailing_stop?.value || "—"}
-                        {r.config.trailing_stop?.value ? "%" : ""}
+                        {r.config?.stop_loss?.value ?? 0}% / {r.config?.take_profit?.value || "—"}
+                        {r.config?.take_profit?.value ? "%" : ""} / {r.config?.trailing_stop?.value || "—"}
+                        {r.config?.trailing_stop?.value ? "%" : ""}
                       </td>
                       <td className={`px-4 py-2.5 text-right font-semibold ${pnlTone(r.total_return_pct)}`}>
                         {signedPct(r.total_return_pct)}
