@@ -20,7 +20,7 @@ import {
   type StrategyConfig,
 } from "../api/endpoints";
 import { toast } from "../store/toast";
-import { Badge, Button, Card, EmptyState, Field, PageHeader, Select, Spinner, StatCard } from "../components/ui";
+import { Badge, Button, Card, EmptyState, Field, InfoTip, PageHeader, Select, Spinner, StatCard } from "../components/ui";
 import { dateTime, pct, pnlTone, price, signedPct } from "../lib/formatters";
 import { describeEntry, describeFilters } from "../lib/strategy";
 
@@ -44,6 +44,7 @@ function CollapsibleCard({
   icon: Icon,
   title,
   meta,
+  info,
   defaultOpen = true,
   className = "",
   children,
@@ -51,28 +52,39 @@ function CollapsibleCard({
   icon?: LucideIcon;
   title: ReactNode;
   meta?: ReactNode;
+  info?: ReactNode;
   defaultOpen?: boolean;
   className?: string;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  // A div (not <button>) so an InfoTip button can live in the header without
+  // nesting buttons; the whole row still toggles on click/Enter.
   return (
     <Card className={`overflow-hidden p-0 ${className}`}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
+      <div
+        role="button"
+        tabIndex={0}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 px-5 py-3 text-left text-sm font-semibold text-slate-200 transition-colors hover:bg-white/[0.03]"
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen((v) => !v);
+          }
+        }}
+        className="flex w-full cursor-pointer select-none items-center gap-2 px-5 py-3 text-sm font-semibold text-slate-200 transition-colors hover:bg-white/[0.03]"
       >
         {Icon && <Icon className="h-4 w-4 shrink-0 text-brand-400" />}
         <span>{title}</span>
+        {info && <InfoTip text={info} />}
         {meta && <span className="ml-auto text-xs font-normal text-slate-500">{meta}</span>}
         <ChevronDown
           className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${meta ? "ml-2" : "ml-auto"} ${
             open ? "" : "-rotate-90"
           }`}
         />
-      </button>
+      </div>
       <div className={`border-t border-white/[0.06] ${open ? "" : "hidden"}`}>{children}</div>
     </Card>
   );
@@ -379,7 +391,10 @@ export function BacktestPage() {
           <Field label="Start date">
             <input type="date" className="input" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           </Field>
-          <Field label="End date">
+          <Field
+            label="End date"
+            hint="Leave the dates blank to backtest the most recent candles. Pick a range to test over years of cached history — the exact period and candle count are shown with the results."
+          >
             <input type="date" className="input" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
           </Field>
         </div>
@@ -439,12 +454,8 @@ export function BacktestPage() {
             </Button>
           )}
         </div>
-        <p className="mt-3 text-xs text-slate-500">
-          Leave the dates blank to backtest the most recent candles. Pick a date range to test over
-          years of cached history — the exact period and candle count are shown with the results.
-        </p>
         {selStrategy && (
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-3 text-xs text-slate-500">
             {coverage && coverage.count > 0 ? (
               <>
                 <span className="text-slate-400">Cached history</span> for {coverage.symbol} {coverage.timeframe}:{" "}
@@ -465,7 +476,12 @@ export function BacktestPage() {
       )}
 
       {walkfwd.data && !walkfwd.isPending && (
-        <CollapsibleCard className="mt-6" icon={ShieldCheck} title="Walk-forward (across time)">
+        <CollapsibleCard
+          className="mt-6"
+          icon={ShieldCheck}
+          title="Walk-forward (across time)"
+          info="Твоя стратегия (как есть, без переподбора) прогоняется на нескольких последовательных отрезках истории. В плюсе в большинстве окон — эдж устойчив. Если общий плюс держится на одном-двух окнах — это была удача периода. Сумма по окнам ≈ полному бэктесту."
+        >
           <div className="space-y-4 p-5">
             <div
               className={`rounded-xl border p-3 text-sm font-medium ${
@@ -531,12 +547,6 @@ export function BacktestPage() {
                 </div>
               </>
             )}
-
-            <p className="text-xs text-slate-500">
-              Твоя стратегия (как есть, без переподбора) прогоняется на {walkfwd.data.total_folds || "нескольких"}{" "}
-              последовательных отрезках истории. Если она в плюсе в большинстве окон — эдж устойчив. Если общий
-              плюс держится на одном-двух окнах — это была удача периода. Сумма по окнам ≈ полному бэктесту.
-            </p>
           </div>
         </CollapsibleCard>
       )}
@@ -548,7 +558,12 @@ export function BacktestPage() {
       )}
 
       {sensit.data && !sensit.isPending && (
-        <CollapsibleCard className="mt-6" icon={Grid3x3} title="Parameter sensitivity">
+        <CollapsibleCard
+          className="mt-6"
+          icon={Grid3x3}
+          title="Parameter sensitivity"
+          info="Перебор параметров вокруг текущих значений. Широкая зелёная область вокруг твоих настроек = устойчиво. Одинокая яркая клетка среди красного = переподгонка под конкретные значения."
+        >
           <div className="space-y-4 p-5">
             <div
               className={`rounded-xl border p-3 text-sm font-medium ${
@@ -610,16 +625,18 @@ export function BacktestPage() {
                 </tbody>
               </table>
             </div>
-            <p className="text-xs text-slate-500">
-              Широкая зелёная область вокруг твоих настроек = устойчиво. Одинокая яркая клетка среди красного =
-              переподгонка под конкретные значения.
-            </p>
           </div>
         </CollapsibleCard>
       )}
 
       {aiEnabled && (
-        <CollapsibleCard className="mt-6" icon={MessageSquare} title="Ask AI" meta="about this strategy">
+        <CollapsibleCard
+          className="mt-6"
+          icon={MessageSquare}
+          title="Ask AI"
+          meta="about this strategy"
+          info="ИИ работает только с этой стратегией. Изменения проверяются и сразу бэктестятся на том же периоде — но прошлые результаты не гарантируют будущих. Сохрани и протестируй в paper-режиме."
+        >
           <div className="p-5">
             <div ref={chatBoxRef} className="max-h-[420px] space-y-3 overflow-y-auto">
               {chat.length === 0 && (
@@ -694,10 +711,6 @@ export function BacktestPage() {
                 <Send className="h-4 w-4" />
               </Button>
             </div>
-            <p className="mt-2 text-xs text-slate-500">
-              ИИ работает только с этой стратегией. Изменения проверяются и сразу бэктестятся на том же
-              периоде — но прошлые результаты не гарантируют будущих. Сохрани и протестируй в paper-режиме.
-            </p>
           </div>
         </CollapsibleCard>
       )}
@@ -709,7 +722,12 @@ export function BacktestPage() {
       )}
 
       {aiData && !aiPending && (
-        <CollapsibleCard className="mt-6" icon={Sparkles} title="AI analysis">
+        <CollapsibleCard
+          className="mt-6"
+          icon={Sparkles}
+          title="AI analysis"
+          info="AI suggestions are based on past data and can be wrong — backtest the saved version and start in paper mode."
+        >
           <div className="space-y-4 p-5">
             {/* Verdict */}
             <div
@@ -800,9 +818,6 @@ export function BacktestPage() {
               </div>
             )}
 
-            <p className="text-xs text-slate-500">
-              AI suggestions are based on past data and can be wrong — backtest the saved version and start in paper mode.
-            </p>
           </div>
         </CollapsibleCard>
       )}
@@ -819,6 +834,7 @@ export function BacktestPage() {
           icon={Wand2}
           title={`Optimizer — ${OPT_GROUP_LABELS[optimize.data.group] ?? "results"}`}
           meta={`${optimize.data.tested ?? 0} options · ${(optimize.data.candles ?? 0).toLocaleString()} candles`}
+          info="Ranked on past data by return ÷ drawdown — high scores can be overfit. Prefer many trades + low drawdown, and re-test on another period."
         >
           {(optimize.data.results ?? []).length === 0 ? (
             <div className="p-6 text-sm text-slate-500">No combination produced enough trades in this period.</div>
@@ -876,9 +892,6 @@ export function BacktestPage() {
               </table>
             </div>
           )}
-          <div className="border-t border-white/[0.06] px-5 py-2.5 text-xs text-slate-500">
-            ⚠️ Ranked on past data — high scores can be overfit. Prefer many trades + low drawdown, and re-test on another period.
-          </div>
         </CollapsibleCard>
       )}
 
@@ -947,35 +960,37 @@ export function BacktestPage() {
             <CollapsibleCard
               icon={Activity}
               title="Monte Carlo — got lucky or real?"
-              meta={`${result.monte_carlo.simulations.toLocaleString()} resamples of your trades`}
+              meta={`${result.monte_carlo.simulations.toLocaleString()} resamples`}
+              info={
+                <>
+                  Перетасовка твоих сделок {result.monte_carlo.simulations.toLocaleString()} раз. Если даже «худший
+                  случай» (5-й перцентиль) в плюсе и шанс прибыли высокий — эдж реальный. Если разброс огромный и
+                  медиана у нуля — результат держался на удаче и порядке сделок (типичная просадка ~
+                  {pct(result.monte_carlo.median_maxdd_pct)}, в худших ~{pct(result.monte_carlo.p95_maxdd_pct)}).
+                </>
+              }
             >
               <div className="p-5">
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-                <StatCard
-                  icon={Trophy}
-                  label="Chance of profit"
-                  value={pct(result.monte_carlo.prob_profit_pct)}
-                  valueClassName={result.monte_carlo.prob_profit_pct >= 60 ? "text-brand-300" : result.monte_carlo.prob_profit_pct < 50 ? "text-rose-400" : "text-amber-300"}
-                />
-                <StatCard
-                  icon={Percent}
-                  label="Median return"
-                  value={signedPct(result.monte_carlo.median_return_pct)}
-                  valueClassName={pnlTone(result.monte_carlo.median_return_pct)}
-                />
-                <StatCard
-                  icon={TrendingDown}
-                  label="Worst case (5%)"
-                  value={signedPct(result.monte_carlo.p5_return_pct)}
-                  valueClassName={pnlTone(result.monte_carlo.p5_return_pct)}
-                />
-              </div>
-              <p className="mt-3 text-xs text-slate-500">
-                Перетасовка твоих сделок {result.monte_carlo.simulations.toLocaleString()} раз. Если даже «худший
-                случай» (5-й перцентиль) в плюсе и шанс прибыли высокий — эдж реальный. Если разброс огромный и
-                медиана у нуля — результат держался на удаче и порядке сделок (типичная просадка ~
-                {pct(result.monte_carlo.median_maxdd_pct)}, в худших ~{pct(result.monte_carlo.p95_maxdd_pct)}).
-              </p>
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                  <StatCard
+                    icon={Trophy}
+                    label="Chance of profit"
+                    value={pct(result.monte_carlo.prob_profit_pct)}
+                    valueClassName={result.monte_carlo.prob_profit_pct >= 60 ? "text-brand-300" : result.monte_carlo.prob_profit_pct < 50 ? "text-rose-400" : "text-amber-300"}
+                  />
+                  <StatCard
+                    icon={Percent}
+                    label="Median return"
+                    value={signedPct(result.monte_carlo.median_return_pct)}
+                    valueClassName={pnlTone(result.monte_carlo.median_return_pct)}
+                  />
+                  <StatCard
+                    icon={TrendingDown}
+                    label="Worst case (5%)"
+                    value={signedPct(result.monte_carlo.p5_return_pct)}
+                    valueClassName={pnlTone(result.monte_carlo.p5_return_pct)}
+                  />
+                </div>
               </div>
             </CollapsibleCard>
           )}

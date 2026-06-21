@@ -28,7 +28,7 @@ import {
   type StrategyFilter,
 } from "../api/endpoints";
 import { toast } from "../store/toast";
-import { Badge, Button, Card, Field, Input, NumberField, PageHeader, Select, Spinner, Toggle } from "../components/ui";
+import { Badge, Button, Card, Field, InfoTip, Input, NumberField, PageHeader, Select, Spinner, Toggle } from "../components/ui";
 import { cn } from "../lib/cn";
 import { pct, pnlTone, signedPct } from "../lib/formatters";
 import {
@@ -276,6 +276,7 @@ export function StrategyBuilderPage() {
         <Card className="mb-6 animate-slide-up p-0">
           <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-3 text-sm font-semibold text-slate-200">
             <Sparkles className="h-4 w-4 text-brand-400" /> AI bot builder
+            <InfoTip text="ИИ подбирает по описанию, бэктест на прошлых данных не гарантирует будущих результатов — сохрани бота и протестируй в paper-режиме." />
             <span className="ml-auto text-xs font-normal text-slate-500">describe it → get 3 backtested bots</span>
           </div>
           <div className="p-5">
@@ -365,10 +366,6 @@ export function StrategyBuilderPage() {
                 <Send className="h-4 w-4" />
               </Button>
             </div>
-            <p className="mt-2 text-xs text-slate-500">
-              ИИ подбирает по описанию, бэктест на прошлых данных не гарантирует будущих результатов —
-              сохрани бота и протестируй в paper-режиме.
-            </p>
           </div>
         </Card>
       )}
@@ -524,18 +521,24 @@ export function StrategyBuilderPage() {
                   </div>
                 </Block>
 
-                <Block icon={Filter} title="Entry filters (optional)" tone="text-violet-300">
-                  <p className="mb-3 text-xs leading-relaxed text-slate-500">
-                    Extra conditions that must hold to open a trade. The entry signal picks the side; a
-                    filter can veto it — e.g. only go long while price is above the 200 EMA, only trade
-                    when ADX shows a real trend, or require a volume spike.
-                    {isBidirectional(cfg) && (
-                      <>
-                        {" "}In Long &amp; Short you can apply each filter to <b>longs only</b>, <b>shorts only</b>,
-                        or both — so the bot can long in an uptrend and short in a downtrend instead of sitting out.
-                      </>
-                    )}
-                  </p>
+                <Block
+                  icon={Filter}
+                  title="Entry filters (optional)"
+                  tone="text-violet-300"
+                  info={
+                    <>
+                      Extra conditions that must hold to open a trade. The entry signal picks the side; a filter
+                      can veto it — e.g. only go long above the 200 EMA, only trade when ADX shows a real trend,
+                      or require a volume spike.
+                      {isBidirectional(cfg) && (
+                        <>
+                          {" "}In Long &amp; Short, each filter can apply to longs only, shorts only, or both — so
+                          the bot can long in an uptrend and short in a downtrend instead of sitting out.
+                        </>
+                      )}
+                    </>
+                  }
+                >
                   <div className="space-y-2.5">
                     {(cfg.filters ?? []).map((f, i) => (
                       <FilterRow
@@ -557,14 +560,18 @@ export function StrategyBuilderPage() {
 
             {tab === "risk" && (
               <>
-                <Block icon={LogOut} title="Exit signal" tone="text-sky-300">
+                <Block
+                  icon={LogOut}
+                  title="Exit signal"
+                  tone="text-sky-300"
+                  info={
+                    isBidirectional(cfg)
+                      ? "In Long & Short the position exits on the opposite entry signal (the bot flips long↔short), or on Stop loss / Take profit / Trailing stop. There's no separate RSI exit in this mode — it applies to Long only."
+                      : undefined
+                  }
+                >
                   {isBidirectional(cfg) ? (
-                    <p className="text-xs leading-relaxed text-slate-400">
-                      In Long &amp; Short the position exits on the opposite entry signal
-                      (the bot flips long↔short), or on Stop loss / Take profit / Trailing
-                      stop below. There's no separate RSI exit in this mode — it applies to
-                      Long only.
-                    </p>
+                    <p className="text-xs text-slate-500">Flips on the opposite signal, or exits via SL / TP / Trailing stop.</p>
                   ) : (
                     <div className="grid grid-cols-2 gap-3">
                       <Field label="Condition">
@@ -644,11 +651,14 @@ export function StrategyBuilderPage() {
             {tab === "advanced" && (
               <>
                 {isFutures(cfg) ? (
-                  <Block icon={Umbrella} title="Hedge — squeeze protection" tone="text-indigo-300">
-                    <div className="flex items-center justify-between">
-                      <p className="pr-3 text-xs text-slate-500">
-                        Opens a short leg to offset sudden adverse moves on the futures position.
-                      </p>
+                  <Block
+                    icon={Umbrella}
+                    title="Hedge — squeeze protection"
+                    tone="text-indigo-300"
+                    info="Opens a short leg to offset sudden adverse moves on the futures position."
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm text-slate-300">Enable hedge</span>
                       <Toggle checked={cfg.hedge?.enabled ?? false} onChange={(v) => setHedge({ enabled: v })} />
                     </div>
 
@@ -703,13 +713,14 @@ export function StrategyBuilderPage() {
                 )}
 
                 {isFutures(cfg) && (
-                  <Block icon={ArrowDownUp} title="Reverse strategy" tone="text-amber-300">
+                  <Block
+                    icon={ArrowDownUp}
+                    title="Reverse strategy"
+                    tone="text-amber-300"
+                    info="Mirror the strategy: every long becomes a short (and vice versa), and the stop-loss and take-profit swap places. Same entry, indicators and filters — useful when a strategy is consistently wrong and you'd profit doing the opposite."
+                  >
                     <div className="flex items-center justify-between gap-3">
-                      <p className="text-xs leading-relaxed text-slate-500">
-                        Mirror the strategy: every long becomes a short (and vice versa), and the
-                        stop-loss and take-profit swap places. Same entry, indicators and filters —
-                        useful when a strategy is consistently wrong and you'd profit doing the opposite.
-                      </p>
+                      <span className="text-sm text-slate-300">Trade the mirror</span>
                       <Toggle checked={cfg.reverse ?? false} onChange={(v) => setCfg((c) => ({ ...c, reverse: v }))} />
                     </div>
                     {cfg.reverse && (
@@ -821,17 +832,20 @@ function Block({
   icon: Icon,
   title,
   tone,
+  info,
   children,
 }: {
   icon: typeof Shield;
   title: string;
   tone: string;
+  info?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5">
       <div className={`mb-3 flex items-center gap-2 text-sm font-semibold ${tone}`}>
         <Icon className="h-4 w-4" /> {title}
+        {info && <InfoTip text={info} className="text-slate-500" />}
       </div>
       {children}
     </div>
@@ -890,6 +904,7 @@ function FilterRow({
             </option>
           ))}
         </Select>
+        <InfoTip text={filterHint(filter)} />
         {allowSide && (
           <Select
             value={filter.side ?? "both"}
@@ -972,7 +987,6 @@ function FilterRow({
           </div>
         )}
       </div>
-      <p className="mt-2 text-xs text-slate-500">{filterHint(filter)}</p>
     </div>
   );
 }

@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ChevronDown, type LucideIcon } from "lucide-react";
+import { ChevronDown, Info, type LucideIcon } from "lucide-react";
 import { cn } from "../lib/cn";
 
 export function Spinner({ className }: { className?: string }) {
@@ -154,13 +154,62 @@ export function Select({ className, children, ...props }: SelectHTMLAttributes<H
   );
 }
 
-export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+export function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
   return (
     <div>
-      <span className="label">{label}</span>
+      <div className="label flex items-center gap-1.5">
+        <span>{label}</span>
+        {hint && <InfoTip text={hint} />}
+      </div>
       {children}
-      {hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}
     </div>
+  );
+}
+
+/** Small "ⓘ" icon that reveals a hint on tap — keeps explanatory copy out of the
+ *  way until asked for (works on touch; closes on outside tap). */
+export function InfoTip({ text, className, label }: { text: ReactNode; className?: string; label?: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: Event) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("touchstart", close);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("touchstart", close);
+    };
+  }, [open]);
+  return (
+    <span ref={ref} className={cn("relative inline-flex align-middle", className)}>
+      <button
+        type="button"
+        aria-label={label ?? "Details"}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className={cn(
+          "inline-grid h-4 w-4 place-items-center rounded-full text-slate-500 transition hover:text-slate-300",
+          open && "text-brand-400"
+        )}
+      >
+        <Info className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <span
+          role="tooltip"
+          onClick={(e) => e.stopPropagation()}
+          className="absolute left-1/2 top-6 z-50 w-64 max-w-[78vw] -translate-x-1/2 rounded-xl border border-white/10 bg-ink-900 p-3 text-left text-xs font-normal normal-case leading-relaxed tracking-normal text-slate-300 shadow-xl"
+        >
+          {text}
+        </span>
+      )}
+    </span>
   );
 }
 
