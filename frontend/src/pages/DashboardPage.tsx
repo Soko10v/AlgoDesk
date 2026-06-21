@@ -36,7 +36,7 @@ import {
   type Trade,
 } from "../api/endpoints";
 import { toast } from "../store/toast";
-import { Badge, Button, Card, EmptyState, Field, Input, NumberField, PageHeader, Spinner, StatCard } from "../components/ui";
+import { Badge, Button, Card, EmptyState, Field, InfoTip, Input, NumberField, PageHeader, Spinner, StatCard } from "../components/ui";
 import { describeEntry, describeExit, describeHedge, describeSize, isBidirectional, isFutures, isRunning, positionUsdt } from "../lib/strategy";
 import { num, pnlTone, price, signedPct, timeAgo, usd } from "../lib/formatters";
 import { cn } from "../lib/cn";
@@ -464,12 +464,10 @@ function StrategyRow({
           {openCount > 0 && (
             <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
               <p className="text-sm font-medium text-slate-200">
-                Position open · managed by the bot
+                Position open · managed by the bot{" "}
+                <InfoTip text="You don't need to do anything — the bot closes it on your exit rule, stop-loss or take-profit. The buttons below are manual overrides only, if you want to step in." />
               </p>
-              <p className="mt-0.5 text-xs text-slate-500">
-                You don't need to do anything — the bot closes it on your exit rule, stop-loss
-                or take-profit. These are manual overrides only if you want to step in:
-              </p>
+              <p className="mt-0.5 text-xs text-slate-500">Manual overrides:</p>
               <div className="mt-2.5 flex flex-wrap items-center gap-2">
                 <Button
                   size="sm"
