@@ -14,7 +14,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.engine.risk import MAX_LEVERAGE, leverage
-from app.schemas.strategy import validate_strategy_config
+from app.schemas.strategy import ALLOWED_ENTRY_TYPES, validate_strategy_config
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -150,6 +150,45 @@ def _pos(v: Any) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
 
 
+# DeepSeek often names the entry indicator loosely ("ema_crossing", "donchian").
+# Map common variants to our canonical types so a whole bot isn't dropped over a
+# label — the entry rule's params (fast/slow/period/…) are kept.
+_ENTRY_ALIASES = {
+    "ema_crossing": "ema_cross", "ema_crossover": "ema_cross", "ema_cross_over": "ema_cross",
+    "ma_crossing": "ma_cross", "ma_crossover": "ma_cross", "sma_cross": "ma_cross",
+    "sma_crossing": "ma_cross", "sma_crossover": "ma_cross", "moving_average": "ma_cross",
+    "crossover": "ema_cross", "cross": "ema_cross", "ema": "ema_cross", "sma": "ma_cross", "ma": "ma_cross",
+    "rsi_reversion": "rsi", "rsi_reversal": "rsi", "mean_reversion": "rsi", "rsi_oscillator": "rsi",
+    "donchian": "breakout", "donchian_channel": "breakout", "channel_breakout": "breakout",
+    "breakout_channel": "breakout", "channel": "breakout", "range_breakout": "breakout",
+    "macd_cross": "macd", "macd_crossover": "macd", "macd_signal": "macd",
+}
+
+
+def _normalize_entry_rule(rule: Any) -> dict[str, Any] | None:
+    """Coerce one entry rule to a supported type (via aliases), else None.
+
+    Keeps the rule's other params so e.g. ``{"type":"ema_crossing","fast":12,"slow":26}``
+    becomes a valid ema_cross instead of getting the whole bot rejected."""
+    if not isinstance(rule, dict):
+        return None
+    raw = str(rule.get("type", "")).strip().lower().replace("-", "_").replace(" ", "_")
+    t = raw if raw in ALLOWED_ENTRY_TYPES else _ENTRY_ALIASES.get(raw)
+    if t is None:
+        return None
+    out = dict(rule)
+    out["type"] = t
+    return out
+
+
+def _coerce_entry(raw: Any, base: dict[str, Any]) -> list[dict[str, Any]]:
+    """Normalised, non-empty entry list — falls back to the base's, then a default."""
+    if isinstance(raw, dict):
+        raw = [raw]
+    rules = [r for r in (_normalize_entry_rule(e) for e in raw) if r] if isinstance(raw, list) else []
+    return rules or base.get("entry") or [{"type": "ema_cross", "fast": 9, "slow": 21}]
+
+
 # A strategy must never ship without downside protection; used as a last resort
 # when neither the model nor the base strategy provides a stop.
 _DEFAULT_STOP = {"type": "pct", "value": 4.0}
@@ -174,8 +213,7 @@ def _coerce_config(cfg: dict[str, Any], symbol: str | None, timeframe: str | Non
     merged["symbol"] = symbol
     merged["timeframe"] = timeframe
 
-    if not isinstance(merged.get("entry"), list) or not merged["entry"]:
-        merged["entry"] = base.get("entry") or [{"type": "ema_cross", "fast": 9, "slow": 21}]
+    merged["entry"] = _coerce_entry(merged.get("entry"), base)
     if not isinstance(merged.get("exit"), list):
         merged["exit"] = base.get("exit") or []
     # Risk blocks must be dicts: keep the model's, else the base's, else "disabled".
@@ -554,7 +592,8 @@ _GENERATE_SYSTEM = """\
 Поля конфига:
 - market ("spot"|"futures"), direction ("long"|"both"), leverage (1-10)
 - position_size_usdt — МАРЖА в USD; объём позиции = маржа × leverage
-- entry: массив правил (ma_cross/ema_cross/rsi/breakout/macd) — движок берёт ПЕРВОЕ
+- entry: массив правил, движок берёт ПЕРВОЕ. type — СТРОГО одна из строк:
+  "ma_cross","ema_cross","rsi","breakout","macd" (без вариаций типа "ema_crossing").
 - filters: доп. условия входа (реальные): trend {ma,period}, rsi {period,max,min},
   volume {period,mult}, atr {period,min_pct,max_pct}, adx {period,min}. У любого
   фильтра можно задать "side":"long"|"short"|"both" — применять к лонгам/шортам/обоим
