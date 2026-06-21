@@ -290,6 +290,12 @@ export function LoginPage() {
               )}
             </div>
           )}
+          <p className="mt-5 text-center text-[11px] leading-relaxed text-slate-500">
+            Продолжая, вы соглашаетесь с{" "}
+            <a href="/terms" className="text-slate-400 underline hover:text-slate-300">Условиями</a> и{" "}
+            <a href="/privacy" className="text-slate-400 underline hover:text-slate-300">Политикой</a> и понимаете,
+            что алгоритмическая торговля сопряжена с риском потери средств — прошлые результаты не гарантируют будущих.
+          </p>
         </Card>
       </div>
     </div>

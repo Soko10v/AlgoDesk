@@ -6,7 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
-from app.core.deps import get_current_user
+from app.core.deps import current_plan, get_current_user, require_feature
+from app.core.plans import FEATURE_MIN_PLAN, allows
 from app.core.ratelimit import limiter
 from app.models.strategy import Strategy
 from app.models.user import User
@@ -58,12 +59,17 @@ async def backtest_strategy(
     payload: BacktestIn,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    plan: str = Depends(current_plan),
 ) -> BacktestOut:
     strategy = await db.get(Strategy, payload.strategy_id)
     if strategy is None or strategy.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Strategy not found")
     since_ms, until_ms = _date_bounds(payload.start_date, payload.end_date)
     data = await run_backtest(strategy.config_json, since_ms=since_ms, until_ms=until_ms)
+    # Monte-Carlo robustness is an Expert feature — drop it so lower plans see a
+    # locked teaser instead of the numbers.
+    if not allows(plan, "monte_carlo"):
+        data["monte_carlo"] = None
     return BacktestOut(**data)
 
 
@@ -74,14 +80,26 @@ async def optimize_strategy(
     payload: OptimizeIn,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    plan: str = Depends(current_plan),
 ) -> OptimizeOut:
     strategy = await db.get(Strategy, payload.strategy_id)
     if strategy is None or strategy.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Strategy not found")
+    group = payload.group or "entry"
+    # Free optimizes entry params; Pro adds SL/TP; Expert adds per-side filters.
+    feature = {
+        "entry": "optimize_entry",
+        "exits": "optimize_exits",
+        "long_filters": "optimize_filters",
+        "short_filters": "optimize_filters",
+    }.get(group, "optimize_filters")
+    if not allows(plan, feature):
+        raise HTTPException(
+            status_code=402,
+            detail={"error": "upgrade_required", "feature": feature, "required_plan": FEATURE_MIN_PLAN[feature], "plan": plan},
+        )
     since_ms, until_ms = _date_bounds(payload.start_date, payload.end_date)
-    data = await run_optimization(
-        strategy.config_json, group=payload.group or "entry", since_ms=since_ms, until_ms=until_ms
-    )
+    data = await run_optimization(strategy.config_json, group=group, since_ms=since_ms, until_ms=until_ms)
     return OptimizeOut(**data)
 
 
@@ -107,6 +125,7 @@ async def sensitivity_strategy(
     payload: SensitivityIn,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _plan: str = Depends(require_feature("sensitivity")),
 ) -> SensitivityOut:
     strategy = await db.get(Strategy, payload.strategy_id)
     if strategy is None or strategy.user_id != current_user.id:
@@ -124,6 +143,7 @@ async def walkforward_strategy(
     payload: WalkForwardIn,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _plan: str = Depends(require_feature("walkforward")),
 ) -> WalkForwardOut:
     strategy = await db.get(Strategy, payload.strategy_id)
     if strategy is None or strategy.user_id != current_user.id:
@@ -142,6 +162,7 @@ async def analyze_backtest(
     payload: AnalyzeIn,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _plan: str = Depends(require_feature("ai")),
 ) -> AnalyzeStartOut:
     """Kick off the iterative AI analysis as a background job and return its id.
 
@@ -181,6 +202,7 @@ async def ask_ai(
     payload: AskIn,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _plan: str = Depends(require_feature("ai")),
 ) -> AskOut:
     """Constrained free-form chat about one strategy. Answers questions and, on
     request, returns an edited config (validated + backtested) the user can save."""
@@ -226,6 +248,7 @@ async def generate_bots(
     request: Request,
     payload: GenerateIn,
     current_user: User = Depends(get_current_user),
+    _plan: str = Depends(require_feature("ai")),
 ) -> AnalyzeStartOut:
     """Design three distinct bots from a description (background job: one DeepSeek
     call + three backtests). Poll /generate/{job_id} for the result."""

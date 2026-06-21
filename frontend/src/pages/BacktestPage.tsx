@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createChart, type IChartApi, type SeriesMarker, type Time, type UTCTimestamp } from "lightweight-charts";
-import { Activity, ChevronDown, Grid3x3, MessageSquare, Play, Percent, Save, Send, ShieldCheck, Sparkles, TrendingDown, Trophy, Wand2, type LucideIcon } from "lucide-react";
+import { Activity, ChevronDown, Grid3x3, Lock, MessageSquare, Play, Percent, Save, Send, ShieldCheck, Sparkles, TrendingDown, Trophy, Wand2, type LucideIcon } from "lucide-react";
 import {
   askAi,
   authConfig,
@@ -23,6 +23,8 @@ import { toast } from "../store/toast";
 import { Badge, Button, Card, EmptyState, Field, InfoTip, PageHeader, Select, Spinner, StatCard } from "../components/ui";
 import { dateTime, pct, pnlTone, price, signedPct } from "../lib/formatters";
 import { describeEntry, describeFilters } from "../lib/strategy";
+import { usePlan, useUpsell } from "../hooks/usePlan";
+import type { FeatureKey } from "../api/endpoints";
 
 /** Compact "Mon 'YY" label for a unix-seconds timestamp (walk-forward windows). */
 function shortDate(unixSeconds: number): string {
@@ -105,9 +107,14 @@ export function BacktestPage() {
   });
   const result = run.data;
 
+  const { can, requiredPlan } = usePlan();
+  const upsell = useUpsell();
   // The optimizer tunes one group at a time (entry / exits / per-side filters),
   // holding the rest of the strategy fixed.
   const [optGroup, setOptGroup] = useState<OptimizeGroup>("entry");
+  const optFeature: FeatureKey = (
+    { entry: "optimize_entry", exits: "optimize_exits", long_filters: "optimize_filters", short_filters: "optimize_filters" } as const
+  )[optGroup];
   const optimize = useMutation({
     mutationFn: (group: OptimizeGroup) =>
       optimizeStrategy(strategyId as number, group, startDate || undefined, endDate || undefined),
@@ -255,6 +262,10 @@ export function BacktestPage() {
   function sendAsk() {
     const text = askText.trim();
     if (!text || !strategyId || ask.isPending) return;
+    if (!can("ai")) {
+      upsell(requiredPlan("ai"), "Ask-AI чат");
+      return;
+    }
     const next: ChatItem[] = [...chat, { role: "user", content: text }];
     setChat(next);
     setAskText("");
@@ -410,47 +421,47 @@ export function BacktestPage() {
               title="Pick what the optimizer tunes — the rest of the strategy stays as is"
             >
               <option value="entry">Entry params</option>
-              <option value="exits">SL / TP / Trailing</option>
-              <option value="long_filters">Long filters</option>
-              {optBidir && <option value="short_filters">Short filters</option>}
+              <option value="exits">SL / TP / Trailing {can("optimize_exits") ? "" : "🔒"}</option>
+              <option value="long_filters">Long filters {can("optimize_filters") ? "" : "🔒"}</option>
+              {optBidir && <option value="short_filters">Short filters {can("optimize_filters") ? "" : "🔒"}</option>}
             </Select>
             <Button
               variant="secondary"
-              onClick={() => optimize.mutate(optGroup)}
+              onClick={() => (can(optFeature) ? optimize.mutate(optGroup) : upsell(requiredPlan(optFeature), "Этот оптимизатор"))}
               loading={optimize.isPending}
               disabled={!strategyId}
               title="Sweep options for the selected group only and rank the best"
             >
-              <Wand2 className="h-4 w-4" /> Optimize
+              {can(optFeature) ? <Wand2 className="h-4 w-4" /> : <Lock className="h-4 w-4" />} Optimize
             </Button>
           </div>
           <Button
             variant="secondary"
-            onClick={() => walkfwd.mutate()}
-            loading={walkfwd.isPending}
-            disabled={!strategyId}
-            title="Optimise on past windows, validate on the next unseen ones — checks for overfitting"
-          >
-            <ShieldCheck className="h-4 w-4" /> Walk-forward
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => sensit.mutate()}
+            onClick={() => (can("sensitivity") ? sensit.mutate() : upsell(requiredPlan("sensitivity"), "Карта чувствительности"))}
             loading={sensit.isPending}
             disabled={!strategyId}
             title="Sweep parameters around the current values — a broad green area means robust, a lone bright cell means overfit"
           >
-            <Grid3x3 className="h-4 w-4" /> Sensitivity
+            {can("sensitivity") ? <Grid3x3 className="h-4 w-4" /> : <Lock className="h-4 w-4" />} Sensitivity
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => (can("walkforward") ? walkfwd.mutate() : upsell(requiredPlan("walkforward"), "Walk-forward"))}
+            loading={walkfwd.isPending}
+            disabled={!strategyId}
+            title="Optimise on past windows, validate on the next unseen ones — checks for overfitting"
+          >
+            {can("walkforward") ? <ShieldCheck className="h-4 w-4" /> : <Lock className="h-4 w-4" />} Walk-forward
           </Button>
           {aiEnabled && (
             <Button
               variant="secondary"
-              onClick={() => startAi.mutate()}
+              onClick={() => (can("ai") ? startAi.mutate() : upsell(requiredPlan("ai"), "AI-аналитик"))}
               loading={aiPending}
               disabled={!strategyId}
               title="DeepSeek reviews the backtest and suggests an improved bot"
             >
-              <Sparkles className="h-4 w-4" /> AI analysis
+              {can("ai") ? <Sparkles className="h-4 w-4" /> : <Lock className="h-4 w-4" />} AI analysis
             </Button>
           )}
         </div>
@@ -956,6 +967,31 @@ export function BacktestPage() {
             </div>
           )}
 
+          {!can("live") && result.total_return_pct > 0 && (
+            <button
+              type="button"
+              onClick={() => upsell(requiredPlan("live"), "Live-торговля")}
+              className="flex w-full items-center justify-between gap-3 rounded-2xl border border-brand-500/30 bg-brand-500/[0.07] p-4 text-left shadow-glow transition hover:bg-brand-500/[0.12]"
+            >
+              <div className="flex items-center gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-500/15 text-brand-300">
+                  <Lock className="h-5 w-5" />
+                </span>
+                <div>
+                  <div className="text-sm font-semibold text-slate-100">
+                    Эта стратегия дала {signedPct(result.total_return_pct)} — а ты пока на ней не зарабатываешь.
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    Открой live-торговлю и запусти бота на бирже. Тариф Pro — $25/мес. →
+                  </div>
+                </div>
+              </div>
+              <span className="hidden shrink-0 rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-ink-950 sm:block">
+                Открыть Pro
+              </span>
+            </button>
+          )}
+
           {result.monte_carlo && (
             <CollapsibleCard
               icon={Activity}
@@ -993,6 +1029,26 @@ export function BacktestPage() {
                 </div>
               </div>
             </CollapsibleCard>
+          )}
+
+          {!result.monte_carlo && !can("monte_carlo") && (
+            <button
+              type="button"
+              onClick={() => upsell(requiredPlan("monte_carlo"), "Monte-Carlo")}
+              className="card card-hover flex w-full items-center gap-3 p-5 text-left"
+            >
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-500/10 text-amber-300">
+                <Lock className="h-5 w-5" />
+              </span>
+              <span>
+                <span className="block text-sm font-semibold text-slate-200">
+                  Monte-Carlo — повезло или реальный эдж?
+                </span>
+                <span className="block text-xs text-slate-500">
+                  Прогон твоих сделок 1000 раз: шанс прибыли и худший случай. Открой на тарифе Expert →
+                </span>
+              </span>
+            </button>
           )}
 
           <CollapsibleCard

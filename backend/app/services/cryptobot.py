@@ -13,7 +13,7 @@ def cryptobot_headers() -> dict[str, str]:
     return {"Crypto-Pay-API-Token": settings.cryptobot_token}
 
 
-async def create_invoice(amount: float, payload_user_id: int) -> dict[str, str]:
+async def create_invoice(amount: float, payload: str | int, plan: str = "pro") -> dict[str, str]:
     async with httpx.AsyncClient(timeout=15) as client:
         response = await client.post(
             "https://pay.crypt.bot/api/createInvoice",
@@ -21,8 +21,8 @@ async def create_invoice(amount: float, payload_user_id: int) -> dict[str, str]:
             json={
                 "asset": "USDT",
                 "amount": str(amount),
-                "description": "AlgoDesk Pro Subscription",
-                "payload": str(payload_user_id),
+                "description": f"AlgoDesk {plan.capitalize()} subscription (1 month)",
+                "payload": str(payload),
             },
         )
         body = response.json()
