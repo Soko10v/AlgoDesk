@@ -21,9 +21,14 @@ class Settings(BaseSettings):
     cryptobot_webhook_secret: str = ""
     google_client_id: str = ""
     google_client_secret: str = ""
-    # Temporary launch promo: when true every user gets full (pro) access for free
-    # and the upgrade/paywall UI is hidden. Set FREE_MODE=false to re-enable billing.
+    # Master paywall switch. TRUE (default) = launch promo: everyone gets full
+    # (expert) access for free and the tiers are dormant — safe to deploy without
+    # breaking access. To GO LIVE with the free/pro/expert paywall set FREE_MODE=false
+    # in infra/.env (after CRYPTOBOT_TOKEN and ADMIN_EMAILS are set). The tier system,
+    # gating and pricing page are all built and activate the moment this is false.
     free_mode: bool = True
+    # Comma-separated emails that always get full (expert) access — the owner/support.
+    admin_emails: str = ""
     frontend_origin: str = "http://localhost:5173"
     backend_origin: str = "http://localhost:8000"
     access_token_expire_minutes: int = 60 * 24 * 7

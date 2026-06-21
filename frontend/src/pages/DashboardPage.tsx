@@ -39,10 +39,13 @@ import { toast } from "../store/toast";
 import { Badge, Button, Card, EmptyState, Field, InfoTip, Input, NumberField, PageHeader, Spinner, StatCard } from "../components/ui";
 import { describeEntry, describeExit, describeHedge, describeSize, isBidirectional, isFutures, isRunning, positionUsdt } from "../lib/strategy";
 import { num, pnlTone, price, signedPct, timeAgo, usd } from "../lib/formatters";
+import { usePlan, useUpsell } from "../hooks/usePlan";
 import { cn } from "../lib/cn";
 
 export function DashboardPage() {
   const qc = useQueryClient();
+  const { can, requiredPlan } = usePlan();
+  const upsell = useUpsell();
   const strategies = useQuery({ queryKey: ["strategies"], queryFn: listStrategies });
   const exchange = useQuery({ queryKey: ["exchange-status"], queryFn: exchangeStatus });
   const subscription = useQuery({ queryKey: ["subscription"], queryFn: getSubscription });
@@ -228,7 +231,11 @@ export function DashboardPage() {
                   syncing={sync.isPending && sync.variables === s.id}
                   closing={closePos.isPending && closePos.variables === s.id}
                   liveClash={liveClashName(s)}
-                  onStart={(mode, usdt) => start.mutate({ id: s.id, mode, usdt })}
+                  onStart={(mode, usdt) =>
+                    can(mode)
+                      ? start.mutate({ id: s.id, mode, usdt })
+                      : upsell(requiredPlan(mode), mode === "live" ? "Live-торговля" : "Paper-режим")
+                  }
                   onStop={() => stop.mutate(s.id)}
                   onEdit={() => navigate(`/builder?edit=${s.id}`)}
                   onSync={() => sync.mutate(s.id)}

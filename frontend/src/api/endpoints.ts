@@ -79,11 +79,25 @@ export type AuthConfig = {
   google_enabled?: boolean;
   ai_enabled?: boolean;
 };
+export type PlanId = "free" | "pro" | "expert";
+export type FeatureKey =
+  | "backtest"
+  | "optimize_entry"
+  | "paper"
+  | "live"
+  | "sensitivity"
+  | "optimize_exits"
+  | "walkforward"
+  | "monte_carlo"
+  | "ai"
+  | "optimize_filters";
 export type Subscription = {
-  plan: string;
+  plan: PlanId;
   expires_at: string | null;
   free_mode?: boolean;
   paid_in_usdt?: number;
+  entitlements?: Partial<Record<FeatureKey, boolean>>;
+  prices?: Partial<Record<"pro" | "expert", number>>;
 };
 
 export type ExchangeId = "bybit" | "binance";
@@ -463,7 +477,7 @@ export async function getSubscription() {
   return data as Subscription;
 }
 
-export async function checkout(plan: "pro") {
+export async function checkout(plan: "pro" | "expert") {
   const { data } = await api.post("/payments/checkout", { plan });
   return data as { invoice_id: string; pay_url: string };
 }

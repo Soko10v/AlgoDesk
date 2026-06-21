@@ -3,7 +3,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import SessionLocal, get_db
-from app.core.deps import get_current_user
+from app.core.deps import current_plan, get_current_user
+from app.core.plans import FEATURE_MIN_PLAN, allows
 from app.engine.risk import is_futures
 from app.models.strategy import Strategy
 from app.models.user import User
@@ -19,10 +20,18 @@ async def start_bot(
     payload: BotControlIn,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    plan: str = Depends(current_plan),
 ) -> dict:
     strategy = await db.get(Strategy, strategy_id)
     if strategy is None or strategy.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Strategy not found")
+    # Trading (paper or live) is a paid feature.
+    feature = "live" if payload.mode == "live" else "paper"
+    if not allows(plan, feature):
+        raise HTTPException(
+            status_code=402,
+            detail={"error": "upgrade_required", "feature": feature, "required_plan": FEATURE_MIN_PLAN[feature], "plan": plan},
+        )
     if payload.mode == "live" and not strategy.live_enabled:
         raise HTTPException(status_code=400, detail="Live mode disabled for this strategy")
     if payload.mode == "live":

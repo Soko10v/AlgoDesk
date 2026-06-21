@@ -31,6 +31,7 @@ import { toast } from "../store/toast";
 import { Badge, Button, Card, Field, InfoTip, Input, NumberField, PageHeader, Select, Spinner, Toggle } from "../components/ui";
 import { cn } from "../lib/cn";
 import { pct, pnlTone, signedPct } from "../lib/formatters";
+import { usePlan, useUpsell } from "../hooks/usePlan";
 import {
   ENTRY_TYPES,
   FILTER_TYPES,
@@ -194,6 +195,8 @@ export function StrategyBuilderPage() {
   // ---- AI bot generator (chat → 3 distinct bots, each backtested) ----
   const cfgQuery = useQuery({ queryKey: ["auth-config"], queryFn: authConfig, staleTime: Infinity });
   const aiEnabled = cfgQuery.data?.ai_enabled ?? false;
+  const { can, requiredPlan } = usePlan();
+  const upsell = useUpsell();
   type GenItem =
     | { role: "user"; content: string }
     | { role: "assistant"; answer: string; symbol: string; timeframe: string; bots: GeneratedBot[] };
@@ -241,6 +244,10 @@ export function StrategyBuilderPage() {
   function sendGen() {
     const text = genText.trim();
     if (!text || genPending) return;
+    if (!can("ai")) {
+      upsell(requiredPlan("ai"), "AI-сборщик ботов");
+      return;
+    }
     const next: GenItem[] = [...genChat, { role: "user", content: text }];
     setGenChat(next);
     setGenText("");
@@ -277,7 +284,9 @@ export function StrategyBuilderPage() {
           <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-3 text-sm font-semibold text-slate-200">
             <Sparkles className="h-4 w-4 text-brand-400" /> AI bot builder
             <InfoTip text="ИИ подбирает по описанию, бэктест на прошлых данных не гарантирует будущих результатов — сохрани бота и протестируй в paper-режиме." />
-            <span className="ml-auto text-xs font-normal text-slate-500">describe it → get 3 backtested bots</span>
+            <span className="ml-auto text-xs font-normal text-slate-500">
+              {can("ai") ? "describe it → get 3 backtested bots" : "🔒 на тарифе Expert"}
+            </span>
           </div>
           <div className="p-5">
             <div ref={genBoxRef} className="max-h-[460px] space-y-4 overflow-y-auto">
