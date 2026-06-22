@@ -79,7 +79,7 @@ export function SubscriptionPage() {
   const freeMode = subscription.data?.free_mode ?? false;
 
   const upgrade = useMutation({
-    mutationFn: (v: { plan: "pro" | "expert"; provider: "cryptomus" | "lava" }) => checkout(v.plan, v.provider),
+    mutationFn: (v: { plan: "pro" | "expert"; provider: "plisio" | "lava" }) => checkout(v.plan, v.provider),
     onSuccess: (d) => {
       toast.success("Счёт создан", "Доступ откроется автоматически после оплаты");
       if (d.pay_url) window.open(d.pay_url, "_blank", "noopener");
@@ -189,7 +189,7 @@ export function SubscriptionPage() {
                     <Button
                       variant={best ? "primary" : "secondary"}
                       className="w-full"
-                      onClick={() => upgrade.mutate({ plan: tier.id as "pro" | "expert", provider: "cryptomus" })}
+                      onClick={() => upgrade.mutate({ plan: tier.id as "pro" | "expert", provider: "plisio" })}
                       loading={upgrade.isPending && upgrade.variables?.plan === tier.id}
                       disabled={freeMode}
                     >

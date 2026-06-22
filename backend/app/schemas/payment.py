@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 class CheckoutIn(BaseModel):
     plan: str = Field(pattern="^(pro|expert)$")
-    provider: str = Field(default="cryptomus", pattern="^(cryptomus|lava|cryptobot)$")
+    provider: str = Field(default="plisio", pattern="^(plisio|cryptomus|lava|cryptobot)$")
 
 
 class CheckoutOut(BaseModel):

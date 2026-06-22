@@ -19,9 +19,12 @@ class Settings(BaseSettings):
     fernet_key: str = ""
     cryptobot_token: str = ""
     cryptobot_webhook_secret: str = ""
-    # Cryptomus (primary card+crypto gateway) — merchant uuid + payment API key.
+    # Cryptomus (kept, dormant) — merchant uuid + payment API key.
     cryptomus_merchant: str = ""
     cryptomus_api_key: str = ""
+    # Plisio (primary crypto gateway, no-KYC) — single API key (also verifies
+    # webhooks by re-fetching the operation).
+    plisio_api_key: str = ""
     # Lava.top (secondary: cards / СБП / crypto subscriptions). API key for creating
     # invoices; webhook Basic-auth login/password to verify incoming notifications.
     lava_api_key: str = ""

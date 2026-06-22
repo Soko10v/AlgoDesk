@@ -12,7 +12,7 @@ from app.core.plans import PLAN_PRICES, effective_plan, entitlements, normalize_
 from app.models.subscription import Subscription
 from app.models.user import User
 from app.schemas.payment import CheckoutIn, CheckoutOut, SubscriptionOut
-from app.services import cryptomus, lava
+from app.services import cryptomus, lava, plisio
 from app.services.cryptobot import create_invoice as cryptobot_invoice
 from app.services.cryptobot import new_expiration, verify_webhook_signature
 
@@ -78,7 +78,15 @@ async def checkout(
 
     base = settings.public_base_url.rstrip("/")
     try:
-        if payload.provider == "cryptomus":
+        if payload.provider == "plisio":
+            if not plisio.is_configured():
+                raise HTTPException(status_code=503, detail="Crypto payments are not configured yet.")
+            invoice = await plisio.create_invoice(
+                price, current_user.id, payload.plan,
+                callback_url=f"{base}/api/v1/payments/plisio/webhook",
+                return_url=f"{base}/subscription",
+            )
+        elif payload.provider == "cryptomus":
             if not cryptomus.is_configured():
                 raise HTTPException(status_code=503, detail="Card/crypto payments are not configured yet.")
             invoice = await cryptomus.create_invoice(
@@ -100,6 +108,34 @@ async def checkout(
         logger.warning("Checkout failed (%s): %s", payload.provider, exc)
         raise HTTPException(status_code=502, detail="Payment provider error — try again or another method.")
     return CheckoutOut(**invoice)
+
+
+@router.post("/plisio/webhook")
+async def plisio_webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
+    # Plisio posts form-encoded (sometimes JSON). We don't trust the body's hash;
+    # instead we re-fetch the operation from Plisio with our API key.
+    try:
+        payload: dict = dict(await request.form())
+    except Exception:  # noqa: BLE001
+        payload = await request.json()
+    txn_id = payload.get("txn_id") or payload.get("id")
+    if not txn_id:
+        raise HTTPException(status_code=400, detail="Missing txn_id")
+    op = await plisio.operation(str(txn_id))
+    status = str(op.get("status") or payload.get("status") or "")
+    if status not in plisio.PAID_STATUSES:
+        return {"ok": True}
+    order_number = str(op.get("order_number") or payload.get("order_number") or "")
+    parts = order_number.split("_")
+    if len(parts) < 2 or not parts[0].isdigit():
+        logger.warning("Plisio webhook unmapped order_number=%s", order_number)
+        return {"ok": True}
+    try:
+        amount = float(op.get("source_amount") or payload.get("source_amount") or 0)
+    except (TypeError, ValueError):
+        amount = 0.0
+    await _activate(db, int(parts[0]), parts[1], amount)
+    return {"ok": True}
 
 
 @router.post("/cryptomus/webhook")
