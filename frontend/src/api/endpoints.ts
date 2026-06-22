@@ -477,7 +477,8 @@ export async function getSubscription() {
   return data as Subscription;
 }
 
-export async function checkout(plan: "pro" | "expert") {
-  const { data } = await api.post("/payments/checkout", { plan });
+export type PayProvider = "cryptomus" | "lava" | "cryptobot";
+export async function checkout(plan: "pro" | "expert", provider: PayProvider = "cryptomus") {
+  const { data } = await api.post("/payments/checkout", { plan, provider });
   return data as { invoice_id: string; pay_url: string };
 }
