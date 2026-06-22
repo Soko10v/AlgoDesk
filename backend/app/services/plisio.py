@@ -36,7 +36,6 @@ async def create_invoice(amount: float, user_id: int, plan: str, callback_url: s
         "callback_url": callback_url,
         "success_callback_url": return_url,
         "fail_callback_url": return_url,
-        "redirect_to_invoice": "true",
     }
     async with httpx.AsyncClient(timeout=20) as client:
         resp = await client.get(f"{PLISIO_API}/invoices/new", params=params)
