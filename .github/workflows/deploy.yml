@@ -21,7 +21,7 @@ jobs:
           CRYPTOMUS_API_KEY: ${{ secrets.CRYPTOMUS_API_KEY }}
           PLISIO_API_KEY: ${{ secrets.PLISIO_KEY }}
           FREE_MODE: ${{ secrets.FREE_MODE }}
-          ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
+          ADMIN_EMAILS: ${{ secrets.ADMIN_EMAIL }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
