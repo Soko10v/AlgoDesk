@@ -81,8 +81,13 @@ export function SubscriptionPage() {
   const upgrade = useMutation({
     mutationFn: (v: { plan: "pro" | "expert"; provider: "plisio" | "lava" }) => checkout(v.plan, v.provider),
     onSuccess: (d) => {
-      toast.success("Счёт создан", "Доступ откроется автоматически после оплаты");
-      if (d.pay_url) window.open(d.pay_url, "_blank", "noopener");
+      // Redirect the current tab — window.open() in an async callback is blocked
+      // by mobile popup blockers, so the pay page never appeared.
+      if (d.pay_url) {
+        window.location.href = d.pay_url;
+      } else {
+        toast.error("Не удалось открыть оплату", "Попробуй другой способ оплаты");
+      }
     },
     onError: () => toast.error("Не удалось создать счёт", "Попробуй другой способ оплаты или позже"),
   });
