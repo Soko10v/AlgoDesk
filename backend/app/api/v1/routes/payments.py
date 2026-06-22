@@ -110,17 +110,23 @@ async def checkout(
     return CheckoutOut(**invoice)
 
 
-@router.post("/plisio/webhook")
+@router.api_route("/plisio/webhook", methods=["GET", "POST"])
 async def plisio_webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
-    # Plisio posts form-encoded (sometimes JSON). We don't trust the body's hash;
-    # instead we re-fetch the operation from Plisio with our API key.
-    try:
-        payload: dict = dict(await request.form())
-    except Exception:  # noqa: BLE001
-        payload = await request.json()
+    # Accept GET (Plisio's Status-URL validation ping / GET callbacks) and POST
+    # (form or JSON). We don't trust the body's hash; instead we re-fetch the
+    # operation from Plisio with our API key.
+    payload: dict = dict(request.query_params)
+    if request.method == "POST":
+        try:
+            payload.update({k: v for k, v in (await request.form()).items()})
+        except Exception:  # noqa: BLE001
+            try:
+                payload.update(await request.json())
+            except Exception:  # noqa: BLE001
+                pass
     txn_id = payload.get("txn_id") or payload.get("id")
     if not txn_id:
-        raise HTTPException(status_code=400, detail="Missing txn_id")
+        return {"ok": True}  # validation ping with no data — don't error
     op = await plisio.operation(str(txn_id))
     status = str(op.get("status") or payload.get("status") or "")
     if status not in plisio.PAID_STATUSES:
