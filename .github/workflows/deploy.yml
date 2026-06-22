@@ -13,26 +13,42 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DS_KEY }}
+          LAVA_API_KEY: ${{ secrets.LAVA_KEY }}
+          LAVA_WEBHOOK_PASSWORD: ${{ secrets.LAVA_WH_PWD }}
+          LAVA_OFFER_PRO: ${{ secrets.LAVA_OFFER_PRO }}
+          LAVA_OFFER_EXPERT: ${{ secrets.LAVA_OFFER_EXPERT }}
+          CRYPTOMUS_MERCHANT: ${{ secrets.CRYPTOMUS_MERCHANT }}
+          CRYPTOMUS_API_KEY: ${{ secrets.CRYPTOMUS_API_KEY }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: DEEPSEEK_API_KEY
+          envs: DEEPSEEK_API_KEY,LAVA_API_KEY,LAVA_WEBHOOK_PASSWORD,LAVA_OFFER_PRO,LAVA_OFFER_EXPERT,CRYPTOMUS_MERCHANT,CRYPTOMUS_API_KEY
           script: |
             set -e
             cd /root/AlgoDesk
             git fetch origin main
             git reset --hard origin/main
             cd infra
-            # Sync the DeepSeek key from the GitHub secret into .env (untracked) so
-            # the backend can read it. Written to the file only, never logged.
-            if [ -n "$DEEPSEEK_API_KEY" ]; then
-              touch .env
-              grep -v '^DEEPSEEK_API_KEY=' .env > .env.tmp 2>/dev/null || true
-              echo "DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY" >> .env.tmp
+            # Sync secrets from GitHub into .env (untracked) so the backend can read
+            # them. Written to the file only, never echoed. Empty values are skipped.
+            touch .env
+            sync_env() {
+              key="$1"; val="$2"
+              [ -n "$val" ] || return 0
+              grep -v "^${key}=" .env > .env.tmp 2>/dev/null || true
+              echo "${key}=${val}" >> .env.tmp
               mv .env.tmp .env
-              echo "[deploy] DEEPSEEK_API_KEY synced into infra/.env"
-            fi
+              echo "[deploy] ${key} synced into infra/.env"
+            }
+            sync_env DEEPSEEK_API_KEY "$DEEPSEEK_API_KEY"
+            sync_env LAVA_API_KEY "$LAVA_API_KEY"
+            sync_env LAVA_WEBHOOK_PASSWORD "$LAVA_WEBHOOK_PASSWORD"
+            sync_env LAVA_WEBHOOK_LOGIN "algodesk"
+            sync_env LAVA_OFFER_PRO "$LAVA_OFFER_PRO"
+            sync_env LAVA_OFFER_EXPERT "$LAVA_OFFER_EXPERT"
+            sync_env CRYPTOMUS_MERCHANT "$CRYPTOMUS_MERCHANT"
+            sync_env CRYPTOMUS_API_KEY "$CRYPTOMUS_API_KEY"
             docker compose build
             # Apply migrations explicitly via a one-off container so they ALWAYS
             # run (regardless of RUN_DB_MIGRATIONS in the VPS .env) and fail the

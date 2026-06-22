@@ -79,12 +79,12 @@ export function SubscriptionPage() {
   const freeMode = subscription.data?.free_mode ?? false;
 
   const upgrade = useMutation({
-    mutationFn: (plan: "pro" | "expert") => checkout(plan),
+    mutationFn: (v: { plan: "pro" | "expert"; provider: "cryptomus" | "lava" }) => checkout(v.plan, v.provider),
     onSuccess: (d) => {
-      toast.success("Счёт создан", `#${d.invoice_id} — оплати в USDT, доступ откроется автоматически`);
+      toast.success("Счёт создан", "Доступ откроется автоматически после оплаты");
       if (d.pay_url) window.open(d.pay_url, "_blank", "noopener");
     },
-    onError: () => toast.error("Не удалось создать счёт", "Попробуй позже"),
+    onError: () => toast.error("Не удалось создать счёт", "Попробуй другой способ оплаты или позже"),
   });
 
   return (
@@ -185,15 +185,26 @@ export function SubscriptionPage() {
                     Базовый
                   </Button>
                 ) : isUpgrade || freeMode ? (
-                  <Button
-                    variant={best ? "primary" : "secondary"}
-                    className="w-full"
-                    onClick={() => upgrade.mutate(tier.id as "pro" | "expert")}
-                    loading={upgrade.isPending && upgrade.variables === tier.id}
-                    disabled={freeMode}
-                  >
-                    {best ? <Rocket className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />} {tier.cta}
-                  </Button>
+                  <div>
+                    <Button
+                      variant={best ? "primary" : "secondary"}
+                      className="w-full"
+                      onClick={() => upgrade.mutate({ plan: tier.id as "pro" | "expert", provider: "cryptomus" })}
+                      loading={upgrade.isPending && upgrade.variables?.plan === tier.id}
+                      disabled={freeMode}
+                    >
+                      {best ? <Rocket className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />} {tier.cta}
+                    </Button>
+                    {!freeMode && (
+                      <button
+                        type="button"
+                        onClick={() => upgrade.mutate({ plan: tier.id as "pro" | "expert", provider: "lava" })}
+                        className="mt-2 w-full text-center text-xs text-slate-400 underline decoration-slate-600 hover:text-slate-200"
+                      >
+                        Оплатить картой / СБП
+                      </button>
+                    )}
+                  </div>
                 ) : (
                   <Button variant="ghost" className="w-full" disabled>
                     Включено
@@ -209,7 +220,7 @@ export function SubscriptionPage() {
         🔥 Большинство берут <b>Expert</b> — окупается с первой удачной стратегии, которую находит AI.
       </p>
       <p className="mt-2 text-center text-xs text-slate-500">
-        Оплата в USDT через CryptoBot. Подписка активируется автоматически после оплаты. Торговля сопряжена с риском —
+        Оплата криптой или картой/СБП. Подписка активируется автоматически после оплаты. Торговля сопряжена с риском —
         прошлые результаты не гарантируют будущих.
       </p>
     </div>

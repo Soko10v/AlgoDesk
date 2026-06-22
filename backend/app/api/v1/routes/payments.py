@@ -1,4 +1,5 @@
 import json
+import logging
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy import select
@@ -11,10 +12,32 @@ from app.core.plans import PLAN_PRICES, effective_plan, entitlements, normalize_
 from app.models.subscription import Subscription
 from app.models.user import User
 from app.schemas.payment import CheckoutIn, CheckoutOut, SubscriptionOut
-from app.services.cryptobot import create_invoice, new_expiration, verify_webhook_signature
+from app.services import cryptomus, lava
+from app.services.cryptobot import create_invoice as cryptobot_invoice
+from app.services.cryptobot import new_expiration, verify_webhook_signature
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 settings = get_settings()
+
+
+async def _activate(db: AsyncSession, user_id: int, plan: str, amount: float = 0.0) -> None:
+    """Upsert the user's subscription to `plan` and extend it by a month."""
+    plan = normalize_plan(plan)
+    if plan == "free":  # a paid webhook never downgrades to free
+        plan = "pro"
+    sub = (
+        await db.execute(select(Subscription).where(Subscription.user_id == user_id))
+    ).scalar_one_or_none()
+    if not sub:
+        sub = Subscription(user_id=user_id, plan=plan, paid_in_usdt=amount)
+        db.add(sub)
+    else:
+        sub.plan = plan
+        sub.paid_in_usdt += amount
+    sub.expires_at = new_expiration(sub.expires_at)
+    await db.commit()
+    logger.info("Subscription activated: user=%s plan=%s amount=%s", user_id, plan, amount)
 
 
 @router.get("/subscription", response_model=SubscriptionOut)
@@ -52,9 +75,86 @@ async def checkout(
     price = PLAN_PRICES.get(payload.plan)
     if not price:
         raise HTTPException(status_code=400, detail="Unknown plan")
-    # Encode the plan in the invoice payload so the webhook knows what was bought.
-    invoice = await create_invoice(price, f"{current_user.id}:{payload.plan}", plan=payload.plan)
+
+    base = settings.public_base_url.rstrip("/")
+    try:
+        if payload.provider == "cryptomus":
+            if not cryptomus.is_configured():
+                raise HTTPException(status_code=503, detail="Card/crypto payments are not configured yet.")
+            invoice = await cryptomus.create_invoice(
+                price, current_user.id, payload.plan,
+                callback_url=f"{base}/api/v1/payments/cryptomus/webhook",
+                return_url=f"{base}/subscription",
+            )
+        elif payload.provider == "lava":
+            if not lava.is_configured():
+                raise HTTPException(status_code=503, detail="Lava payments are not configured yet.")
+            if not current_user.email:
+                raise HTTPException(status_code=400, detail="Add an email to your account to pay via Lava.")
+            invoice = await lava.create_invoice(payload.plan, current_user.email)
+        else:  # cryptobot (USDT in Telegram)
+            invoice = await cryptobot_invoice(price, f"{current_user.id}:{payload.plan}", plan=payload.plan)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 - surface provider/transport failures
+        logger.warning("Checkout failed (%s): %s", payload.provider, exc)
+        raise HTTPException(status_code=502, detail="Payment provider error — try again or another method.")
     return CheckoutOut(**invoice)
+
+
+@router.post("/cryptomus/webhook")
+async def cryptomus_webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
+    payload = await request.json()
+    if not cryptomus.verify_webhook(payload):
+        raise HTTPException(status_code=401, detail="Invalid signature")
+    if not cryptomus.is_paid(payload):
+        return {"ok": True}
+    user_id, _, plan = str(payload.get("additional_data") or "").partition(":")
+    try:
+        uid = int(user_id)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Bad additional_data") from exc
+    try:
+        amount = float(payload.get("amount", 0) or 0)
+    except (TypeError, ValueError):
+        amount = 0.0
+    await _activate(db, uid, plan or "pro", amount)
+    return {"ok": True}
+
+
+@router.post("/lava/webhook")
+async def lava_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    authorization: str = Header(default=""),
+) -> dict:
+    if not lava.verify_basic_auth(authorization):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    payload = await request.json()
+    # Success events carry the buyer email + the purchased offer; map both to us.
+    status = str(payload.get("status") or payload.get("eventType") or "").lower()
+    if "fail" in status or "cancel" in status:
+        return {"ok": True}
+    email = payload.get("email") or (payload.get("buyer") or {}).get("email")
+    offer_id = (
+        payload.get("offerId")
+        or (payload.get("product") or {}).get("id")
+        or (payload.get("offer") or {}).get("id")
+    )
+    plan = lava.plan_for_offer(str(offer_id or ""))
+    if not email or not plan:
+        logger.warning("Lava webhook unmapped (email=%s offer=%s): %s", bool(email), offer_id, str(payload)[:300])
+        return {"ok": True}
+    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    if not user:
+        logger.warning("Lava webhook: no user for email")
+        return {"ok": True}
+    try:
+        amount = float(payload.get("amount", 0) or 0)
+    except (TypeError, ValueError):
+        amount = 0.0
+    await _activate(db, user.id, plan, amount)
+    return {"ok": True}
 
 
 @router.post("/webhook")
@@ -66,36 +166,18 @@ async def cryptobot_webhook(
     raw_body = await request.body()
     if not verify_webhook_signature(raw_body, crypto_pay_api_signature):
         raise HTTPException(status_code=401, detail="Invalid signature")
-
     data = json.loads(raw_body or b"{}")
     if data.get("update_type") != "invoice_paid":
         return {"ok": True}
-
     invoice = data.get("payload") or {}
-    # payload is "<user_id>:<plan>" (older invoices were just "<user_id>" → pro).
-    raw_payload = str(invoice.get("payload") or "")
-    parts = raw_payload.split(":", 1)
+    user_id, _, plan = str(invoice.get("payload") or "").partition(":")
     try:
-        user_id = int(parts[0])
+        uid = int(user_id)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail="Missing user id in invoice payload") from exc
-    plan = normalize_plan(parts[1]) if len(parts) > 1 else "pro"
-    if plan == "free":  # never downgrade-to-free via a paid invoice
-        plan = "pro"
     try:
         amount = float(invoice.get("amount", 0) or 0)
     except (TypeError, ValueError):
         amount = 0.0
-
-    subscription = (
-        await db.execute(select(Subscription).where(Subscription.user_id == user_id))
-    ).scalar_one_or_none()
-    if not subscription:
-        subscription = Subscription(user_id=user_id, plan=plan, paid_in_usdt=amount)
-        db.add(subscription)
-    else:
-        subscription.plan = plan
-        subscription.paid_in_usdt += amount
-    subscription.expires_at = new_expiration(subscription.expires_at)
-    await db.commit()
+    await _activate(db, uid, plan or "pro", amount)
     return {"ok": True}

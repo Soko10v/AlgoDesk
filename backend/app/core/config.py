@@ -19,6 +19,17 @@ class Settings(BaseSettings):
     fernet_key: str = ""
     cryptobot_token: str = ""
     cryptobot_webhook_secret: str = ""
+    # Cryptomus (primary card+crypto gateway) — merchant uuid + payment API key.
+    cryptomus_merchant: str = ""
+    cryptomus_api_key: str = ""
+    # Lava.top (secondary: cards / СБП / crypto subscriptions). API key for creating
+    # invoices; webhook Basic-auth login/password to verify incoming notifications.
+    lava_api_key: str = ""
+    lava_webhook_login: str = "algodesk"
+    lava_webhook_password: str = ""
+    # Lava.top product "offer" UUIDs per plan (from your Lava dashboard).
+    lava_offer_pro: str = ""
+    lava_offer_expert: str = ""
     google_client_id: str = ""
     google_client_secret: str = ""
     # Master paywall switch. TRUE (default) = launch promo: everyone gets full
@@ -31,6 +42,8 @@ class Settings(BaseSettings):
     admin_emails: str = ""
     frontend_origin: str = "http://localhost:5173"
     backend_origin: str = "http://localhost:8000"
+    # Public site URL used to build payment callback/return links (no trailing slash).
+    public_base_url: str = "https://algodesk.pro"
     access_token_expire_minutes: int = 60 * 24 * 7
     dev_auth: bool = False
     # Risk safety net: a user can't hold more than this many open positions at once
