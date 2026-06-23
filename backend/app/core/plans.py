@@ -21,18 +21,21 @@ PLAN_RANK = {PLAN_FREE: 0, PLAN_PRO: 1, PLAN_EXPERT: 2}
 PLAN_PRICES = {PLAN_PRO: 25.0, PLAN_EXPERT: 40.0}
 
 # Feature key -> minimum plan that unlocks it.
+# Free is deliberately generous: build, backtest and every analysis tool (so the
+# user sees green numbers and gets hooked). The paywall only bites where money is
+# made — turning a bot on (paper/live) — plus a couple of advanced tuning tools.
 FEATURE_MIN_PLAN = {
     "backtest": PLAN_FREE,
     "optimize_entry": PLAN_FREE,
-    # Pro
+    "walkforward": PLAN_FREE,
+    "monte_carlo": PLAN_FREE,
+    "ai": PLAN_FREE,
+    # Pro — turn your bots on
     "paper": PLAN_PRO,
     "live": PLAN_PRO,
-    "sensitivity": PLAN_PRO,
-    "optimize_exits": PLAN_PRO,
-    # Expert
-    "walkforward": PLAN_EXPERT,
-    "monte_carlo": PLAN_EXPERT,
-    "ai": PLAN_EXPERT,
+    # Expert — advanced tuning/validation (+ unlimited bots & Telegram alerts)
+    "sensitivity": PLAN_EXPERT,
+    "optimize_exits": PLAN_EXPERT,
     "optimize_filters": PLAN_EXPERT,
 }
 
