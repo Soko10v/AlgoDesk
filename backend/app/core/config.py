@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     # Plisio (primary crypto gateway, no-KYC) — single API key (also verifies
     # webhooks by re-fetching the operation).
     plisio_api_key: str = ""
+    # Crypto the on-page (white-label) invoice is issued in (Plisio code).
+    plisio_currency: str = "USDT_TRX"
     # Lava.top (secondary: cards / СБП / crypto subscriptions). API key for creating
     # invoices; webhook Basic-auth login/password to verify incoming notifications.
     lava_api_key: str = ""

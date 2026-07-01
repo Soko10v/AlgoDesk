@@ -5,12 +5,22 @@ from pydantic import BaseModel, Field
 
 class CheckoutIn(BaseModel):
     plan: str = Field(pattern="^(pro|expert)$")
-    provider: str = Field(default="cryptobot", pattern="^(cryptobot|plisio|cryptomus|lava)$")
+    provider: str = Field(default="plisio", pattern="^(plisio|cryptobot|cryptomus|lava)$")
 
 
 class CheckoutOut(BaseModel):
     invoice_id: str
-    pay_url: str
+    pay_url: str = ""
+    # On-page (white-label) crypto payment details.
+    address: str = ""
+    amount: str = ""
+    currency: str = ""
+    qr: str = ""
+
+
+class PayStatusOut(BaseModel):
+    status: str = ""
+    paid: bool = False
 
 
 class SubscriptionOut(BaseModel):
