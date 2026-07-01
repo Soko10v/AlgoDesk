@@ -1,9 +1,10 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Check, Crown, Gift, Lock, Rocket, Sparkles, TrendingUp } from "lucide-react";
-import { checkout, getSubscription, type PlanId } from "../api/endpoints";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check, Copy, Crown, Gift, Lock, Rocket, Sparkles, TrendingUp, X } from "lucide-react";
+import { checkout, getPayStatus, getSubscription, type CheckoutResult, type PlanId } from "../api/endpoints";
 import { toast } from "../store/toast";
 import { PLAN_RANK } from "../hooks/usePlan";
-import { Badge, Button, Card, PageHeader } from "../components/ui";
+import { Badge, Button, Card, PageHeader, Spinner } from "../components/ui";
 import { dateTime } from "../lib/formatters";
 import { cn } from "../lib/cn";
 
@@ -75,19 +76,46 @@ export function SubscriptionPage() {
   const current: PlanId = subscription.data?.plan ?? "free";
   const freeMode = subscription.data?.free_mode ?? false;
 
+  const qc = useQueryClient();
+  const [pay, setPay] = useState<CheckoutResult | null>(null);
+  const [payPlan, setPayPlan] = useState<"pro" | "expert" | null>(null);
+
   const upgrade = useMutation({
-    mutationFn: (plan: "pro" | "expert") => checkout(plan, "cryptobot"),
-    onSuccess: (d) => {
-      // Redirect the current tab — window.open() in an async callback is blocked
-      // by mobile popup blockers, so the pay page never appeared.
-      if (d.pay_url) {
-        window.location.href = d.pay_url;
+    mutationFn: (plan: "pro" | "expert") => checkout(plan, "plisio"),
+    onSuccess: (d, plan) => {
+      if (d.address) {
+        setPay(d); // on-page: show QR + address, no redirect
+        setPayPlan(plan);
+      } else if (d.pay_url) {
+        window.location.href = d.pay_url; // fallback if no white-label address
       } else {
         toast.error("Не удалось открыть оплату", "Попробуй ещё раз");
       }
     },
     onError: () => toast.error("Не удалось создать счёт", "Попробуй ещё раз позже"),
   });
+
+  // Poll the invoice while the payment panel is open; unlock the moment it's paid.
+  const payStatus = useQuery({
+    queryKey: ["pay-status", pay?.invoice_id],
+    queryFn: () => getPayStatus(pay!.invoice_id),
+    enabled: !!pay?.invoice_id,
+    refetchInterval: (q) => (q.state.data?.paid ? false : 5000),
+  });
+  const paid = payStatus.data?.paid ?? false;
+  useEffect(() => {
+    if (paid) {
+      toast.success("Оплачено!", "Доступ открыт");
+      qc.invalidateQueries({ queryKey: ["subscription"] });
+    }
+  }, [paid, qc]);
+
+  const copyAddress = () => {
+    if (pay?.address) {
+      navigator.clipboard?.writeText(pay.address);
+      toast.success("Адрес скопирован");
+    }
+  };
 
   return (
     <div className="animate-fade-in">
@@ -211,9 +239,61 @@ export function SubscriptionPage() {
         🔥 Большинство берут <b>Expert</b> — окупается с первой удачной стратегии, которую находит AI.
       </p>
       <p className="mt-2 text-center text-xs text-slate-500">
-        Оплата криптой (USDT и др.) через @CryptoBot. Подписка активируется автоматически после оплаты. Торговля
-        сопряжена с риском — прошлые результаты не гарантируют будущих.
+        Оплата криптой (USDT). Адрес и QR прямо здесь — никуда переходить не нужно, доступ откроется автоматически.
+        Торговля сопряжена с риском — прошлые результаты не гарантируют будущих.
       </p>
+
+      {pay && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-sm"
+          onClick={() => setPay(null)}
+        >
+          <Card className="w-full max-w-sm p-6 text-center" onClick={(e) => e.stopPropagation()}>
+            {paid ? (
+              <div className="space-y-3">
+                <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-brand-500/15 text-brand-300">
+                  <Check className="h-7 w-7" />
+                </div>
+                <div className="text-lg font-bold text-white">Оплачено!</div>
+                <div className="text-sm text-slate-400">Тариф {payPlan?.toUpperCase()} активирован.</div>
+                <Button className="w-full" onClick={() => setPay(null)}>
+                  Готово
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-semibold text-slate-200">
+                    Оплата {payPlan?.toUpperCase()} · {pay.amount} USDT
+                  </div>
+                  <button type="button" onClick={() => setPay(null)} className="text-slate-500 hover:text-slate-300">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                {pay.qr && (
+                  <img src={pay.qr} alt="QR" className="mx-auto mt-4 h-44 w-44 rounded-xl bg-white p-2" />
+                )}
+                <div className="mt-4 text-xs uppercase tracking-wider text-slate-500">Сеть: USDT · TRC-20 (Tron)</div>
+                <div className="mt-2 flex items-center gap-2 rounded-xl border border-white/10 bg-ink-900 p-2.5">
+                  <span className="min-w-0 flex-1 truncate text-left font-mono text-xs text-slate-300">
+                    {pay.address}
+                  </span>
+                  <Button size="sm" variant="ghost" onClick={copyAddress}>
+                    <Copy className="h-3.5 w-3.5" /> Копир.
+                  </Button>
+                </div>
+                <div className="mt-4 flex items-center justify-center gap-2 text-sm text-amber-300">
+                  <Spinner className="h-4 w-4" /> Ждём оплату…
+                </div>
+                <p className="mt-2 text-xs text-slate-500">
+                  Отправь ровно <b className="text-slate-300">{pay.amount} USDT</b> (сеть TRC-20) на адрес выше.
+                  Доступ откроется автоматически.
+                </p>
+              </>
+            )}
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

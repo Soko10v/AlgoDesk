@@ -11,7 +11,7 @@ from app.core.deps import get_current_user
 from app.core.plans import PLAN_PRICES, effective_plan, entitlements, normalize_plan
 from app.models.subscription import Subscription
 from app.models.user import User
-from app.schemas.payment import CheckoutIn, CheckoutOut, SubscriptionOut
+from app.schemas.payment import CheckoutIn, CheckoutOut, PayStatusOut, SubscriptionOut
 from app.services import cryptomus, lava, plisio
 from app.services.cryptobot import create_invoice as cryptobot_invoice
 from app.services.cryptobot import new_expiration, verify_webhook_signature
@@ -84,7 +84,6 @@ async def checkout(
             invoice = await plisio.create_invoice(
                 price, current_user.id, payload.plan,
                 callback_url=f"{base}/api/v1/payments/plisio/webhook",
-                return_url=f"{base}/subscription",
             )
         elif payload.provider == "cryptomus":
             if not cryptomus.is_configured():
@@ -108,6 +107,31 @@ async def checkout(
         logger.warning("Checkout failed (%s): %s", payload.provider, exc)
         raise HTTPException(status_code=502, detail="Payment provider error — try again or another method.")
     return CheckoutOut(**invoice)
+
+
+@router.get("/status/{txn_id}", response_model=PayStatusOut)
+async def payment_status(
+    txn_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PayStatusOut:
+    """Polled by the on-page payment panel. Confirms with Plisio (our API key) and
+    activates the plan the moment it's paid — so we don't rely on the webhook alone."""
+    op = await plisio.operation(txn_id)
+    status = str(op.get("status") or "")
+    order_number = str(op.get("order_number") or "")
+    parts = order_number.split("_")
+    # Only the owner of this invoice may poll/activate it.
+    if len(parts) < 2 or parts[0] != str(current_user.id):
+        return PayStatusOut(status="", paid=False)
+    paid = status in plisio.PAID_STATUSES
+    if paid:
+        try:
+            amount = float(op.get("source_amount") or 0)
+        except (TypeError, ValueError):
+            amount = 0.0
+        await _activate(db, current_user.id, parts[1], amount)
+    return PayStatusOut(status=status, paid=paid)
 
 
 @router.api_route("/plisio/webhook", methods=["GET", "POST"])

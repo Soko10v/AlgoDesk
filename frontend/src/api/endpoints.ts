@@ -477,8 +477,20 @@ export async function getSubscription() {
   return data as Subscription;
 }
 
-export type PayProvider = "cryptobot" | "plisio" | "cryptomus" | "lava";
-export async function checkout(plan: "pro" | "expert", provider: PayProvider = "cryptobot") {
+export type PayProvider = "plisio" | "cryptobot" | "cryptomus" | "lava";
+export type CheckoutResult = {
+  invoice_id: string;
+  pay_url: string;
+  address: string;
+  amount: string;
+  currency: string;
+  qr: string;
+};
+export async function checkout(plan: "pro" | "expert", provider: PayProvider = "plisio") {
   const { data } = await api.post("/payments/checkout", { plan, provider });
-  return data as { invoice_id: string; pay_url: string };
+  return data as CheckoutResult;
+}
+export async function getPayStatus(txnId: string) {
+  const { data } = await api.get(`/payments/status/${txnId}`);
+  return data as { status: string; paid: boolean };
 }
