@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   LineChart,
   LogOut,
+  Mail,
   ScrollText,
   SlidersHorizontal,
   UserCircle,
@@ -80,6 +81,14 @@ export function Layout() {
             </NavLink>
           ))}
         </nav>
+        <a
+          href="mailto:sokolovpeterdev@gmail.com"
+          title="Email support"
+          className="mb-2 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-400 transition hover:bg-white/[0.04] hover:text-slate-200"
+        >
+          <Mail className="h-[18px] w-[18px]" />
+          Support
+        </a>
         <div className="mt-2 flex items-center justify-between gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-2.5">
           <Link to="/profile" className="flex min-w-0 items-center gap-2.5 rounded-lg p-0.5 transition hover:opacity-80" title="View profile">
             <div className="grid h-8 w-8 place-items-center rounded-lg bg-white/[0.06] text-xs font-semibold text-slate-200">

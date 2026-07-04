@@ -7,6 +7,7 @@ import {
   Coins,
   Crown,
   Gift,
+  Mail,
   Plug,
   RefreshCw,
   SlidersHorizontal,
@@ -238,6 +239,24 @@ export function ProfilePage() {
             </Button>
           </Link>
         </div>
+      </Card>
+
+      {/* Support */}
+      <Card className="mt-6 animate-slide-up flex flex-wrap items-center justify-between gap-4 p-5">
+        <div className="flex items-center gap-3">
+          <div className="grid h-11 w-11 place-items-center rounded-xl bg-white/[0.05] text-brand-300">
+            <Mail className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="text-sm font-semibold text-slate-100">Need help?</div>
+            <div className="text-xs text-slate-500">Payment issue, bot bug, anything — write us directly.</div>
+          </div>
+        </div>
+        <a href="mailto:sokolovpeterdev@gmail.com">
+          <Button variant="ghost">
+            sokolovpeterdev@gmail.com <ArrowUpRight className="h-4 w-4" />
+          </Button>
+        </a>
       </Card>
     </div>
   );
