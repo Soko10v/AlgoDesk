@@ -27,7 +27,7 @@ const PRIVACY = {
     },
     {
       heading: "Contact",
-      body: `If you have questions about this policy, please contact us via the support channel in the app.`,
+      body: `If you have questions about this policy or need help with your account, email sokolovpeterdev@gmail.com.`,
     },
   ],
 };

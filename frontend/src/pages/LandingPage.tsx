@@ -217,6 +217,7 @@ export function LandingPage() {
               <span>— Algorithmic trading platform</span>
             </div>
             <div className="flex items-center gap-5">
+              <a href="mailto:sokolovpeterdev@gmail.com" className="hover:text-slate-300 transition">Support</a>
               <Link to="/privacy" className="hover:text-slate-300 transition">Privacy Policy</Link>
               <Link to="/terms" className="hover:text-slate-300 transition">Terms of Service</Link>
               <span>© {new Date().getFullYear()} AlgoDesk</span>
