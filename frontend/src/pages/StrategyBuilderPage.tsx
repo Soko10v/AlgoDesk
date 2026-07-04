@@ -876,7 +876,9 @@ function filterHint(f: StrategyFilter): string {
   const where = f.side === "long" ? " (longs only)" : f.side === "short" ? " (shorts only)" : "";
   switch (f.type) {
     case "trend":
-      return `Only long above the ${f.ma.toUpperCase()} ${f.period}, only short below it${where}.`;
+      // A loaded strategy can originate from the AI generator (unvalidated
+      // JSON from the model), so `ma`/`period` aren't guaranteed to match.
+      return `Only long above the ${String(f.ma ?? "MA").toUpperCase()} ${f.period ?? ""}, only short below it${where}.`;
     case "rsi":
       return `Skip longs when RSI ≥ ${f.max ?? "—"}, skip shorts when RSI ≤ ${f.min ?? "—"}${where}.`;
     case "volume":

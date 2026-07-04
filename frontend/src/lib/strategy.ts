@@ -76,7 +76,9 @@ export function describeFilter(f: StrategyFilter): string {
   const tag = filterSideTag(f);
   switch (f.type) {
     case "trend":
-      return `${f.ma.toUpperCase()}${f.period} trend${tag}`;
+      // f may be an AI-generated config (unvalidated JSON from the model), so
+      // `ma`/`period` aren't guaranteed to match the StrategyFilter shape.
+      return `${String(f.ma ?? "MA").toUpperCase()}${f.period ?? ""} trend${tag}`;
     case "rsi":
       return `RSI${f.period}${f.max != null ? ` <${f.max}` : ""}${f.min != null ? ` >${f.min}` : ""}${tag}`;
     case "volume":
