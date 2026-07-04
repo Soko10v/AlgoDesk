@@ -21,8 +21,9 @@ import {
 } from "../api/endpoints";
 import { toast } from "../store/toast";
 import { Badge, Button, Card, EmptyState, Field, InfoTip, PageHeader, Select, Spinner, StatCard } from "../components/ui";
-import { dateTime, pct, pnlTone, price, signedPct } from "../lib/formatters";
-import { describeEntry, describeFilters } from "../lib/strategy";
+import { dateTime, pct, pnlTone, price, signedPct, usd } from "../lib/formatters";
+import { describeEntry, describeFilters, positionUsdt } from "../lib/strategy";
+import { periodDays, recordBacktest } from "../lib/missedProfit";
 import { usePlan, useUpsell } from "../hooks/usePlan";
 import type { FeatureKey } from "../api/endpoints";
 
@@ -103,6 +104,11 @@ export function BacktestPage() {
   const qc = useQueryClient();
   const run = useMutation({
     mutationFn: () => runBacktest(strategyId as number, startDate || undefined, endDate || undefined),
+    onSuccess: (r) => {
+      // Feed the dashboard's missed-profit aggregate (free-tier conversion).
+      const s = strategies.data?.find((x) => x.id === strategyId);
+      if (s) recordBacktest(s, r);
+    },
     onError: () => toast.error("Backtest failed", "Try another symbol or timeframe."),
   });
   const result = run.data;
@@ -967,30 +973,43 @@ export function BacktestPage() {
             </div>
           )}
 
-          {!can("live") && result.total_return_pct > 0 && (
-            <button
-              type="button"
-              onClick={() => upsell(requiredPlan("live"), "Live-торговля")}
-              className="flex w-full items-center justify-between gap-3 rounded-2xl border border-brand-500/30 bg-brand-500/[0.07] p-4 text-left shadow-glow transition hover:bg-brand-500/[0.12]"
-            >
-              <div className="flex items-center gap-3">
-                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-500/15 text-brand-300">
-                  <Lock className="h-5 w-5" />
-                </span>
-                <div>
-                  <div className="text-sm font-semibold text-slate-100">
-                    Эта стратегия дала {signedPct(result.total_return_pct)} — а ты пока на ней не зарабатываешь.
-                  </div>
-                  <div className="text-xs text-slate-400">
-                    Открой live-торговлю и запусти бота на бирже. Тариф Pro — $25/мес. →
+          {!can("live") && selStrategy && result.total_return_pct > 0 && (() => {
+            // Money talks: the same result, shown in dollars the user didn't make.
+            const posUsdt = positionUsdt(selStrategy.config_json);
+            const missedUsd = (posUsdt * result.total_return_pct) / 100;
+            const days = periodDays(result);
+            const perMonth = (missedUsd / days) * 30;
+            const paybackDays = perMonth > 25 ? Math.max(1, Math.ceil(25 / (perMonth / 30))) : null;
+            return (
+              <button
+                type="button"
+                onClick={() => upsell(requiredPlan("live"), "Live-торговля")}
+                className="flex w-full items-center justify-between gap-3 rounded-2xl border border-brand-500/30 bg-brand-500/[0.07] p-4 text-left shadow-glow transition hover:bg-brand-500/[0.12]"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-500/15 text-brand-300">
+                    <Lock className="h-5 w-5" />
+                  </span>
+                  <div>
+                    <div className="text-sm font-semibold text-slate-100">
+                      Упущено ≈ <span className="text-brand-300">{usd(missedUsd, 0)}</span> за {days} дн. — бот не был
+                      запущен ({signedPct(result.total_return_pct)} на позиции {usd(posUsdt, 0)}).
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      В таком темпе это ≈ {usd(perMonth, 0)}/мес.
+                      {paybackDays
+                        ? ` Pro стоит $25 — окупился бы за ${paybackDays} ${paybackDays === 1 ? "день" : paybackDays < 5 ? "дня" : "дней"}.`
+                        : " Pro — $25/мес."}{" "}
+                      →
+                    </div>
                   </div>
                 </div>
-              </div>
-              <span className="hidden shrink-0 rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-ink-950 sm:block">
-                Открыть Pro
-              </span>
-            </button>
-          )}
+                <span className="hidden shrink-0 rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-ink-950 sm:block">
+                  Запустить вживую
+                </span>
+              </button>
+            );
+          })()}
 
           {result.monte_carlo && (
             <CollapsibleCard
