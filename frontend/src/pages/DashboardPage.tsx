@@ -40,6 +40,7 @@ import { Badge, Button, Card, EmptyState, Field, InfoTip, Input, NumberField, Pa
 import { describeEntry, describeExit, describeHedge, describeSize, isBidirectional, isFutures, isRunning, positionUsdt } from "../lib/strategy";
 import { num, pnlTone, price, signedPct, timeAgo, usd } from "../lib/formatters";
 import { usePlan, useUpsell } from "../hooks/usePlan";
+import { missedEntries } from "../lib/missedProfit";
 import { cn } from "../lib/cn";
 
 export function DashboardPage() {
@@ -68,6 +69,16 @@ export function DashboardPage() {
   const items = strategies.data ?? [];
   const running = items.filter((s) => isRunning(s.status)).length;
   const nameById = useMemo(() => new Map(items.map((s) => [s.id, s.name])), [items]);
+
+  // Free-tier conversion: profitable backtests the user hasn't taken live yet.
+  const missed = useMemo(() => {
+    if (can("live")) return [];
+    const validIds = new Set(items.map((s) => s.id));
+    const liveIds = new Set(items.filter((s) => isRunning(s.status)).map((s) => s.id));
+    return missedEntries(validIds, liveIds);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, subscription.data?.plan]);
+  const missedTotal = missed.reduce((sum, e) => sum + e.profitUsd, 0);
 
   // Name of another LIVE bot already trading the same symbol+market, if any —
   // running two on one symbol/account merges them into one exchange position.
@@ -202,6 +213,33 @@ export function DashboardPage() {
           valueClassName={subscription.data?.plan === "pro" ? "text-amber-300" : undefined}
         />
       </div>
+
+      {missedTotal > 0 && (
+        <button
+          type="button"
+          onClick={() => navigate("/subscription")}
+          className="mt-6 flex w-full items-center justify-between gap-3 rounded-2xl border border-brand-500/30 bg-brand-500/[0.07] p-4 text-left shadow-glow transition hover:bg-brand-500/[0.12]"
+        >
+          <div className="flex items-center gap-3">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-500/15 text-brand-300">
+              <TrendingUp className="h-5 w-5" />
+            </span>
+            <div>
+              <div className="text-sm font-semibold text-slate-100">
+                Твои стратегии заработали бы ≈{" "}
+                <span className="text-lg font-bold text-brand-300">{usd(missedTotal, 0)}</span> — но они выключены.
+              </div>
+              <div className="text-xs text-slate-400">
+                По последним бэктестам: {missed.slice(0, 3).map((e) => `${e.name} ${usd(e.profitUsd, 0)}`).join(" · ")}
+                {missed.length > 3 ? ` · ещё ${missed.length - 3}` : ""}. Запусти их вживую — Pro $25/мес. →
+              </div>
+            </div>
+          </div>
+          <span className="hidden shrink-0 rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-ink-950 sm:block">
+            Включить ботов
+          </span>
+        </button>
+      )}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
