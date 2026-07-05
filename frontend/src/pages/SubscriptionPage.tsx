@@ -1,12 +1,30 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, Crown, Gift, Lock, Rocket, Sparkles, TrendingUp, X } from "lucide-react";
-import { checkout, getPayStatus, getSubscription, type CheckoutResult, type PlanId } from "../api/endpoints";
+import {
+  checkout,
+  getPayStatus,
+  getSubscription,
+  type CheckoutResult,
+  type PlanId,
+  type UsdtNetwork,
+} from "../api/endpoints";
 import { toast } from "../store/toast";
 import { PLAN_RANK } from "../hooks/usePlan";
 import { Badge, Button, Card, PageHeader, Spinner } from "../components/ui";
 import { dateTime } from "../lib/formatters";
 import { cn } from "../lib/cn";
+
+// USDT networks the user can pay through — only ones with an active wallet in
+// the Plisio shop (an unlisted network makes invoice creation fail).
+const NETWORKS: { id: UsdtNetwork; label: string; hint: string }[] = [
+  { id: "USDT_TRX", label: "TRC-20 (Tron)", hint: "Самая распространённая — есть на любой бирже" },
+  { id: "USDT_TON", label: "TON", hint: "Низкие комиссии — удобно из Telegram-кошелька" },
+];
+
+function networkLabel(currency: string): string {
+  return NETWORKS.find((n) => n.id === currency)?.label ?? currency;
+}
 
 type Tier = {
   id: PlanId;
@@ -84,10 +102,13 @@ export function SubscriptionPage() {
   const qc = useQueryClient();
   const [pay, setPay] = useState<CheckoutResult | null>(null);
   const [payPlan, setPayPlan] = useState<"pro" | "expert" | null>(null);
+  // Plan picked but network not chosen yet → network-chooser dialog is open.
+  const [pickNet, setPickNet] = useState<"pro" | "expert" | null>(null);
 
   const upgrade = useMutation({
-    mutationFn: (plan: "pro" | "expert") => checkout(plan, "plisio"),
-    onSuccess: (d, plan) => {
+    mutationFn: ({ plan, network }: { plan: "pro" | "expert"; network: UsdtNetwork }) =>
+      checkout(plan, "plisio", network),
+    onSuccess: (d, { plan }) => {
       if (d.address) {
         setPay(d); // on-page: show QR + address, no redirect
         setPayPlan(plan);
@@ -223,8 +244,8 @@ export function SubscriptionPage() {
                   <Button
                     variant={best ? "primary" : "secondary"}
                     className="w-full"
-                    onClick={() => upgrade.mutate(tier.id as "pro" | "expert")}
-                    loading={upgrade.isPending && upgrade.variables === tier.id}
+                    onClick={() => setPickNet(tier.id as "pro" | "expert")}
+                    loading={upgrade.isPending && upgrade.variables?.plan === tier.id}
                     disabled={freeMode}
                   >
                     {best ? <Rocket className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />} {tier.cta}
@@ -247,6 +268,48 @@ export function SubscriptionPage() {
         Оплата криптой (USDT). Адрес и QR прямо здесь — никуда переходить не нужно, доступ откроется автоматически.
         Торговля сопряжена с риском — прошлые результаты не гарантируют будущих.
       </p>
+
+      {pickNet && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-sm"
+          onClick={() => setPickNet(null)}
+        >
+          <Card className="w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold text-slate-200">
+                Оплата {pickNet.toUpperCase()} · выбери сеть USDT
+              </div>
+              <button type="button" onClick={() => setPickNet(null)} className="text-slate-500 hover:text-slate-300">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mt-4 space-y-2.5">
+              {NETWORKS.map((n) => (
+                <button
+                  key={n.id}
+                  type="button"
+                  disabled={upgrade.isPending}
+                  onClick={() => {
+                    const plan = pickNet;
+                    setPickNet(null);
+                    upgrade.mutate({ plan, network: n.id });
+                  }}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5 text-left transition hover:border-brand-500/40 hover:bg-brand-500/[0.06] disabled:opacity-50"
+                >
+                  <span>
+                    <span className="block text-sm font-semibold text-slate-100">{n.label}</span>
+                    <span className="block text-xs text-slate-500">{n.hint}</span>
+                  </span>
+                  <span className="shrink-0 text-slate-500">→</span>
+                </button>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-slate-500">
+              Сумма одинаковая — выбирай сеть, из которой удобнее отправить USDT.
+            </p>
+          </Card>
+        </div>
+      )}
 
       {pay && (
         <div
@@ -278,7 +341,9 @@ export function SubscriptionPage() {
                 {pay.qr && (
                   <img src={pay.qr} alt="QR" className="mx-auto mt-4 h-44 w-44 rounded-xl bg-white p-2" />
                 )}
-                <div className="mt-4 text-xs uppercase tracking-wider text-slate-500">Сеть: USDT · TRC-20 (Tron)</div>
+                <div className="mt-4 text-xs uppercase tracking-wider text-slate-500">
+                  Сеть: {networkLabel(pay.currency)}
+                </div>
                 <div className="mt-2 flex items-center gap-2 rounded-xl border border-white/10 bg-ink-900 p-2.5">
                   <span className="min-w-0 flex-1 truncate text-left font-mono text-xs text-slate-300">
                     {pay.address}
@@ -291,8 +356,8 @@ export function SubscriptionPage() {
                   <Spinner className="h-4 w-4" /> Ждём оплату…
                 </div>
                 <p className="mt-2 text-xs text-slate-500">
-                  Отправь ровно <b className="text-slate-300">{pay.amount} USDT</b> (сеть TRC-20) на адрес выше.
-                  Доступ откроется автоматически.
+                  Отправь ровно <b className="text-slate-300">{pay.amount} USDT</b> (сеть{" "}
+                  {networkLabel(pay.currency)}) на адрес выше. Доступ откроется автоматически.
                 </p>
               </>
             )}

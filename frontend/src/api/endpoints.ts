@@ -486,8 +486,13 @@ export type CheckoutResult = {
   currency: string;
   qr: string;
 };
-export async function checkout(plan: "pro" | "expert", provider: PayProvider = "plisio") {
-  const { data } = await api.post("/payments/checkout", { plan, provider });
+export type UsdtNetwork = "USDT_TRX" | "USDT_TON";
+export async function checkout(
+  plan: "pro" | "expert",
+  provider: PayProvider = "plisio",
+  network?: UsdtNetwork
+) {
+  const { data } = await api.post("/payments/checkout", { plan, provider, network });
   return data as CheckoutResult;
 }
 export async function getPayStatus(txnId: string) {

@@ -84,6 +84,7 @@ async def checkout(
             invoice = await plisio.create_invoice(
                 price, current_user.id, payload.plan,
                 callback_url=f"{base}/api/v1/payments/plisio/webhook",
+                currency=payload.network,
             )
         elif payload.provider == "cryptomus":
             if not cryptomus.is_configured():
