@@ -979,8 +979,8 @@ export function BacktestPage() {
             const missedUsd = (posUsdt * result.total_return_pct) / 100;
             const days = periodDays(result);
             const perMonth = (missedUsd / days) * 30;
-            // TEMPORARY: Pro is $1 during the checkout test (see backend PLAN_PRICES) — restore to 25 after.
-            const proPrice = 1;
+            // TEMPORARY: Pro is $6 during the checkout test (see backend PLAN_PRICES) — restore to 25 after.
+            const proPrice = 6;
             const paybackDays = perMonth > proPrice ? Math.max(1, Math.ceil(proPrice / (perMonth / 30))) : null;
             return (
               <button

@@ -231,7 +231,7 @@ export function DashboardPage() {
               </div>
               <div className="text-xs text-slate-400">
                 По последним бэктестам: {missed.slice(0, 3).map((e) => `${e.name} ${usd(e.profitUsd, 0)}`).join(" · ")}
-                {missed.length > 3 ? ` · ещё ${missed.length - 3}` : ""}. Запусти их вживую — Pro $1/мес. →
+                {missed.length > 3 ? ` · ещё ${missed.length - 3}` : ""}. Запусти их вживую — Pro $6/мес. →
               </div>
             </div>
           </div>
