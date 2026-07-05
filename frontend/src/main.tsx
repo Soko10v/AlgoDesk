@@ -1,8 +1,17 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import * as Sentry from "@sentry/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import "./index.css";
+
+// Error monitoring (optional): only initialised when a DSN is baked into the
+// build. Sentry SDK calls are safe no-ops when uninitialized, mirroring the
+// backend's optional-Sentry pattern (app/main.py).
+const sentryDsn = import.meta.env.VITE_SENTRY_DSN;
+if (sentryDsn) {
+  Sentry.init({ dsn: sentryDsn, tracesSampleRate: 0, sendDefaultPii: false });
+}
 
 // After a deploy, an already-open tab still references the old content-hashed
 // chunks, which no longer exist on the server (404) — lazy-navigating then throws

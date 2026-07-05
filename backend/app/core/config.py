@@ -27,14 +27,6 @@ class Settings(BaseSettings):
     plisio_api_key: str = ""
     # Crypto the on-page (white-label) invoice is issued in (Plisio code).
     plisio_currency: str = "USDT_TRX"
-    # Lava.top (secondary: cards / СБП / crypto subscriptions). API key for creating
-    # invoices; webhook Basic-auth login/password to verify incoming notifications.
-    lava_api_key: str = ""
-    lava_webhook_login: str = "algodesk"
-    lava_webhook_password: str = ""
-    # Lava.top product "offer" UUIDs per plan (from your Lava dashboard).
-    lava_offer_pro: str = ""
-    lava_offer_expert: str = ""
     google_client_id: str = ""
     google_client_secret: str = ""
     # Master paywall switch. TRUE (default) = launch promo: everyone gets full
