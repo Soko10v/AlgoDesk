@@ -979,7 +979,9 @@ export function BacktestPage() {
             const missedUsd = (posUsdt * result.total_return_pct) / 100;
             const days = periodDays(result);
             const perMonth = (missedUsd / days) * 30;
-            const paybackDays = perMonth > 25 ? Math.max(1, Math.ceil(25 / (perMonth / 30))) : null;
+            // TEMPORARY: Pro is $1 during the checkout test (see backend PLAN_PRICES) — restore to 25 after.
+            const proPrice = 1;
+            const paybackDays = perMonth > proPrice ? Math.max(1, Math.ceil(proPrice / (perMonth / 30))) : null;
             return (
               <button
                 type="button"
@@ -998,8 +1000,8 @@ export function BacktestPage() {
                     <div className="text-xs text-slate-400">
                       В таком темпе это ≈ {usd(perMonth, 0)}/мес.
                       {paybackDays
-                        ? ` Pro стоит $25 — окупился бы за ${paybackDays} ${paybackDays === 1 ? "день" : paybackDays < 5 ? "дня" : "дней"}.`
-                        : " Pro — $25/мес."}{" "}
+                        ? ` Pro стоит $${proPrice} — окупился бы за ${paybackDays} ${paybackDays === 1 ? "день" : paybackDays < 5 ? "дня" : "дней"}.`
+                        : ` Pro — $${proPrice}/мес.`}{" "}
                       →
                     </div>
                   </div>
