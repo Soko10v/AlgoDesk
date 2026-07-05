@@ -26,14 +26,18 @@ def is_configured() -> bool:
 
 
 def _qr(data: dict[str, Any]) -> str:
-    """Normalise Plisio's QR into something an <img src> can render."""
-    url = data.get("qr_url")
-    if url:
-        return str(url)
+    """Normalise Plisio's QR into something an <img src> can render.
+
+    Plisio's `qr_url` is NOT a URL — it holds the payment address string — so
+    an <img src> pointed at it renders a broken image. The actual picture is
+    `qr_code` (a base64 data URI). Only fall back to qr_url when it really
+    looks like a link.
+    """
     code = data.get("qr_code")
     if code:
         return str(code) if str(code).startswith(("data:", "http")) else f"data:image/png;base64,{code}"
-    return ""
+    url = str(data.get("qr_url") or "")
+    return url if url.startswith(("data:", "http")) else ""
 
 
 async def create_invoice(amount: float, user_id: int, plan: str, callback_url: str) -> dict[str, str]:
@@ -76,4 +80,14 @@ async def operation(txn_id: str) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=20) as client:
         resp = await client.get(f"{PLISIO_API}/operations/{txn_id}", params={"api_key": settings.plisio_api_key})
         body = resp.json()
-    return (body.get("data") or {}) if body.get("status") == "success" else {}
+    data: dict[str, Any] = (body.get("data") or {}) if body.get("status") == "success" else {}
+    # Plisio nests the invoice's own fields under `params` in operation
+    # responses (top-level order_number/source_amount come back null). Hoist
+    # them so callers can map the payment to a user — this is exactly the gap
+    # that once left a real completed payment unactivated.
+    params = data.get("params") or {}
+    if isinstance(params, dict):
+        for key in ("order_number", "source_amount"):
+            if not data.get(key) and params.get(key):
+                data[key] = params[key]
+    return data
