@@ -6,6 +6,10 @@ from pydantic import BaseModel, Field
 class CheckoutIn(BaseModel):
     plan: str = Field(pattern="^(pro|expert)$")
     provider: str = Field(default="plisio", pattern="^(plisio|cryptobot|cryptomus)$")
+    # USDT network for the on-page Plisio invoice. Whitelist only networks that
+    # have an active wallet in the Plisio shop — an unlisted code makes
+    # invoices/new fail with "Unsupported currency".
+    network: str | None = Field(default=None, pattern="^(USDT_TRX|USDT_TON)$")
 
 
 class CheckoutOut(BaseModel):

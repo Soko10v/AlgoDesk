@@ -40,13 +40,17 @@ def _qr(data: dict[str, Any]) -> str:
     return url if url.startswith(("data:", "http")) else ""
 
 
-async def create_invoice(amount: float, user_id: int, plan: str, callback_url: str) -> dict[str, str]:
+async def create_invoice(
+    amount: float, user_id: int, plan: str, callback_url: str, currency: str | None = None
+) -> dict[str, str]:
     """Create a single-coin invoice and return the on-page payment details."""
     params = {
         "api_key": settings.plisio_api_key,
         "source_currency": "USD",
         "source_amount": str(amount),
-        "currency": settings.plisio_currency,  # single coin → Plisio returns an address
+        # single coin → Plisio returns an address; the route validates the
+        # user-picked network against a whitelist before it gets here.
+        "currency": currency or settings.plisio_currency,
         "order_number": f"{user_id}_{plan}_{uuid.uuid4().hex[:10]}",
         "order_name": f"AlgoDesk {plan.capitalize()} (1 month)",
         "callback_url": callback_url,
