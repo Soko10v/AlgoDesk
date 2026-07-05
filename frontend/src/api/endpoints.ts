@@ -477,7 +477,7 @@ export async function getSubscription() {
   return data as Subscription;
 }
 
-export type PayProvider = "plisio" | "cryptobot" | "cryptomus" | "lava";
+export type PayProvider = "plisio" | "cryptobot" | "cryptomus";
 export type CheckoutResult = {
   invoice_id: string;
   pay_url: string;

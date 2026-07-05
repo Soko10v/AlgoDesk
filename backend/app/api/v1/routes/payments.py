@@ -12,7 +12,7 @@ from app.core.plans import PLAN_PRICES, effective_plan, entitlements, normalize_
 from app.models.subscription import Subscription
 from app.models.user import User
 from app.schemas.payment import CheckoutIn, CheckoutOut, PayStatusOut, SubscriptionOut
-from app.services import cryptomus, lava, plisio
+from app.services import cryptomus, plisio
 from app.services.cryptobot import create_invoice as cryptobot_invoice
 from app.services.cryptobot import new_expiration, verify_webhook_signature
 
@@ -93,12 +93,6 @@ async def checkout(
                 callback_url=f"{base}/api/v1/payments/cryptomus/webhook",
                 return_url=f"{base}/subscription",
             )
-        elif payload.provider == "lava":
-            if not lava.is_configured():
-                raise HTTPException(status_code=503, detail="Lava payments are not configured yet.")
-            if not current_user.email:
-                raise HTTPException(status_code=400, detail="Add an email to your account to pay via Lava.")
-            invoice = await lava.create_invoice(payload.plan, current_user.email)
         else:  # cryptobot (USDT in Telegram)
             invoice = await cryptobot_invoice(price, f"{current_user.id}:{payload.plan}", plan=payload.plan)
     except HTTPException:
@@ -185,41 +179,6 @@ async def cryptomus_webhook(request: Request, db: AsyncSession = Depends(get_db)
     except (TypeError, ValueError):
         amount = 0.0
     await _activate(db, uid, plan or "pro", amount)
-    return {"ok": True}
-
-
-@router.post("/lava/webhook")
-async def lava_webhook(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    authorization: str = Header(default=""),
-) -> dict:
-    if not lava.verify_basic_auth(authorization):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    payload = await request.json()
-    # Success events carry the buyer email + the purchased offer; map both to us.
-    status = str(payload.get("status") or payload.get("eventType") or "").lower()
-    if "fail" in status or "cancel" in status:
-        return {"ok": True}
-    email = payload.get("email") or (payload.get("buyer") or {}).get("email")
-    offer_id = (
-        payload.get("offerId")
-        or (payload.get("product") or {}).get("id")
-        or (payload.get("offer") or {}).get("id")
-    )
-    plan = lava.plan_for_offer(str(offer_id or ""))
-    if not email or not plan:
-        logger.warning("Lava webhook unmapped (email=%s offer=%s): %s", bool(email), offer_id, str(payload)[:300])
-        return {"ok": True}
-    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
-    if not user:
-        logger.warning("Lava webhook: no user for email")
-        return {"ok": True}
-    try:
-        amount = float(payload.get("amount", 0) or 0)
-    except (TypeError, ValueError):
-        amount = 0.0
-    await _activate(db, user.id, plan, amount)
     return {"ok": True}
 
 

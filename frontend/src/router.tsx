@@ -1,5 +1,6 @@
-import { Suspense, lazy, type ComponentType, type ReactNode } from "react";
-import { createBrowserRouter } from "react-router-dom";
+import { Suspense, lazy, useEffect, type ComponentType, type ReactNode } from "react";
+import * as Sentry from "@sentry/react";
+import { createBrowserRouter, useRouteError } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
@@ -50,9 +51,16 @@ function PageFallback() {
   );
 }
 
-// Shown if a route still errors after the reload attempt (e.g. offline). Gives
-// the user a clear way to recover instead of a raw "Unexpected Application Error".
+// Shown for any uncaught error in a route's render — a real bug, an offline
+// network, or a chunk-load failure that outlived lazyWithRetry's one silent
+// reload. Report it: this errorElement is a React error boundary, so the
+// exception never reaches window.onerror / Sentry's automatic capture —
+// without this, a render crash here is invisible to monitoring.
 function RouteError() {
+  const error = useRouteError();
+  useEffect(() => {
+    Sentry.captureException(error);
+  }, [error]);
   return (
     <div className="grid min-h-screen place-items-center p-6 text-center">
       <div className="max-w-sm space-y-3">
