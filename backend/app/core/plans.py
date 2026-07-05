@@ -18,7 +18,9 @@ PLAN_EXPERT = "expert"
 PLAN_RANK = {PLAN_FREE: 0, PLAN_PRO: 1, PLAN_EXPERT: 2}
 
 # Monthly price in USDT per paid plan.
-PLAN_PRICES = {PLAN_PRO: 25.0, PLAN_EXPERT: 40.0}
+# TEMPORARY: dropped to $1 to test the real checkout → webhook → activation
+# path end-to-end before launch. Restore to {PRO: 25.0, EXPERT: 40.0} after.
+PLAN_PRICES = {PLAN_PRO: 1.0, PLAN_EXPERT: 1.0}
 
 # Feature key -> minimum plan that unlocks it.
 # Free is deliberately generous: build, backtest and every analysis tool (so the
