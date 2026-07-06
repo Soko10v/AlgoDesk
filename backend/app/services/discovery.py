@@ -1,10 +1,15 @@
 """Auto-discovery of the "best strategies" board.
 
-Brute-forces entry types × entry params × per-side filters over the last ~30 days
-for a small set of liquid symbols/timeframes, scores each on the same
-risk-adjusted metric the optimizer uses, and returns the top handful. Everything
-is spot + long-only so the results are safe to hand a complete beginner (no
-leverage, no shorting) and the search space stays tractable.
+Brute-forces entry types × entry params × per-side filters for a small set of
+liquid symbols/timeframes, scores each on the same risk-adjusted metric the
+optimizer uses, and returns the top handful. Everything is spot + long-only so
+the results are safe to hand a complete beginner (no leverage, no shorting) and
+the search space stays tractable.
+
+Crucially it scores over the SAME candle window a no-date backtest uses (the most
+recent MAX_CANDLES), so the return shown on the board is exactly what the user
+gets when they open the strategy and hit "Run" — no board/backtest mismatch. The
+period label per card is the real span that window covers (varies by timeframe).
 
 The heavy inner loop reuses backtest.py's own primitives (_entry_variations,
 _filter_candidates, _simulate, _score) so "discovered" strategies are scored
@@ -163,14 +168,15 @@ async def discover() -> list[dict[str, Any]]:
     Returns rows ready to persist as DiscoveredStrategy."""
     t0 = time.time()
     picks: list[dict[str, Any]] = []
-    now_ms = int(time.time() * 1000)
 
     for symbol in DISCOVERY_SYMBOLS:
         for timeframe in DISCOVERY_TIMEFRAMES:
             base = _base_config(symbol, timeframe)
-            since = now_ms - PERIOD_DAYS * 86_400_000
-            # Room for the densest timeframe (15m over 30d ≈ 2880 candles).
-            candles = await load_candles(base, since_ms=since, until_ms=None, limit=4000)
+            # Score over EXACTLY the window a no-date backtest uses (the most recent
+            # MAX_CANDLES candles). If the board scored a different window than the
+            # user's own "Run", the advertised return wouldn't match what they see —
+            # which is exactly the "+12% on the board, -10% in my backtest" bug.
+            candles = await load_candles(base)
             if len(candles) < MIN_CANDLES:
                 logger.info("discovery: %s %s only %d candles — skipped", symbol, timeframe, len(candles))
                 continue
