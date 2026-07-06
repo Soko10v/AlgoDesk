@@ -20,17 +20,21 @@ export function useAuthBootstrap() {
 
     let active = true;
 
-    // Are we returning from an OAuth provider? Supabase exchanges the `?code`
-    // (PKCE) or reads the `#access_token` (implicit) asynchronously, so hold
-    // off marking auth "ready" until onAuthStateChange confirms the session —
-    // otherwise a protected route can redirect away and drop the OAuth params.
+    // Are we returning from Supabase? Keep OAuth/email params intact until the
+    // callback page can exchange them; protected routes wait so they don't
+    // redirect away and drop the one-time code.
     const search = new URLSearchParams(window.location.search);
     const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const oauthError = search.get("error_description") || search.get("error") || hash.get("error");
     const oauthPending = (search.has("code") || hash.has("access_token")) && !oauthError;
 
+    if (oauthPending && window.location.pathname !== "/auth/callback") {
+      window.location.replace(`/auth/callback${window.location.search}${window.location.hash}`);
+      return;
+    }
+
     if (oauthError) {
-      toast.error("Google sign-in failed", oauthError);
+      toast.error("Sign-in failed", oauthError);
     }
 
     // Safety net: never leave the app stuck on the loading gate if the code

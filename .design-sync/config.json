@@ -1,0 +1,42 @@
+{
+  "pkg": "algodesk-frontend",
+  "globalName": "AlgoDesk",
+  "shape": "package",
+  "srcDir": "src/components",
+  "tsconfig": "tsconfig.json",
+  "cssEntry": "ds-styles.generated.css",
+  "buildCmd": "frontend/node_modules/.bin/tailwindcss -c .design-sync/tailwind.gen.mjs -i frontend/src/index.css -o frontend/ds-styles.generated.css --minify",
+  "extraEntries": ["../.design-sync/ds-preview-surface.tsx"],
+  "provider": { "component": "DsSurface" },
+  "readmeHeader": ".design-sync/conventions.md",
+  "componentSrcMap": {
+    "Spinner": "src/components/ui.tsx",
+    "Card": "src/components/ui.tsx",
+    "Button": "src/components/ui.tsx",
+    "Input": "src/components/ui.tsx",
+    "NumberField": "src/components/ui.tsx",
+    "Select": "src/components/ui.tsx",
+    "Field": "src/components/ui.tsx",
+    "InfoTip": "src/components/ui.tsx",
+    "Badge": "src/components/ui.tsx",
+    "Toggle": "src/components/ui.tsx",
+    "StatCard": "src/components/ui.tsx",
+    "EmptyState": "src/components/ui.tsx",
+    "PageHeader": "src/components/ui.tsx"
+  },
+  "dtsPropsFor": {
+    "Spinner": "className?: string;",
+    "Card": "className?: string;\n  children?: React.ReactNode;\n  /** Plus all standard <div> attributes. */\n  [key: string]: unknown;",
+    "Button": "variant?: \"primary\" | \"secondary\" | \"ghost\" | \"danger\";\n  size?: \"sm\" | \"md\";\n  loading?: boolean;\n  disabled?: boolean;\n  type?: \"button\" | \"submit\" | \"reset\";\n  onClick?: React.MouseEventHandler<HTMLButtonElement>;\n  className?: string;\n  children?: React.ReactNode;",
+    "Input": "type?: string;\n  placeholder?: string;\n  value?: string | number;\n  defaultValue?: string | number;\n  disabled?: boolean;\n  onChange?: React.ChangeEventHandler<HTMLInputElement>;\n  className?: string;",
+    "NumberField": "value: number;\n  onValueChange: (value: number) => void;\n  min?: number;\n  max?: number;\n  placeholder?: string;\n  disabled?: boolean;\n  className?: string;",
+    "Select": "value?: string | number;\n  defaultValue?: string | number;\n  disabled?: boolean;\n  onChange?: React.ChangeEventHandler<HTMLSelectElement>;\n  className?: string;\n  children?: React.ReactNode;",
+    "Field": "label: string;\n  hint?: React.ReactNode;\n  children: React.ReactNode;",
+    "InfoTip": "text: React.ReactNode;\n  label?: string;\n  className?: string;",
+    "Badge": "tone?: \"neutral\" | \"success\" | \"danger\" | \"warning\" | \"info\" | \"violet\";\n  className?: string;\n  children: React.ReactNode;",
+    "Toggle": "checked: boolean;\n  onChange: (value: boolean) => void;\n  label?: string;",
+    "StatCard": "icon?: React.ComponentType<{ className?: string }>;\n  label: string;\n  value: React.ReactNode;\n  sub?: React.ReactNode;\n  valueClassName?: string;",
+    "EmptyState": "icon?: React.ComponentType<{ className?: string }>;\n  title: string;\n  description?: string;\n  action?: React.ReactNode;",
+    "PageHeader": "title: string;\n  description?: string;\n  actions?: React.ReactNode;"
+  }
+}

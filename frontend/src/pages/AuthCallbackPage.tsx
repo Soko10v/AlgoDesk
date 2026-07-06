@@ -12,13 +12,15 @@ import { Spinner } from "../components/ui";
  *    The backend issues our own JWT and puts it in the URL fragment.
  *    We store it and navigate to /dashboard.
  *
- * 2. Supabase PKCE fallback  →  /auth/callback?code=<supabase_code>
- *    Used when Supabase handles other providers. We exchange the code
- *    for a session; onAuthStateChange in useAuthBootstrap picks up the token.
+ * 2. Supabase PKCE / implicit redirects:
+ *    - /auth/callback?code=<supabase_code>
+ *    - /auth/callback#access_token=<supabase_token>&refresh_token=<...>
+ *    We persist the Supabase session and then navigate to the app.
  */
 export function AuthCallbackPage() {
   const navigate = useNavigate();
   const setToken = useAuthStore((s) => s.setToken);
+  const setReady = useAuthStore((s) => s.setReady);
   const attempted = useRef(false);
 
   useEffect(() => {
@@ -31,16 +33,54 @@ export function AuthCallbackPage() {
 
     if (backendToken) {
       setToken(backendToken);
+      setReady(true);
+      toast.success("Signed in", "Welcome back.");
       navigate("/dashboard", { replace: true });
       return;
     }
 
-    // ── Pattern 2: Supabase PKCE ─────────────────────────────────────────────
+    // ── Pattern 2: Supabase implicit redirect ────────────────────────────────
+    const accessToken = hash.get("access_token");
+    const refreshToken = hash.get("refresh_token");
+    const hashError = hash.get("error_description") ?? hash.get("error");
+
+    if (hashError) {
+      setReady(true);
+      toast.error("Sign-in failed", hashError);
+      navigate("/login", { replace: true });
+      return;
+    }
+
+    if (accessToken && refreshToken) {
+      supabase.auth
+        .setSession({ access_token: accessToken, refresh_token: refreshToken })
+        .then(({ data, error: err }) => {
+          if (err || !data.session?.access_token) {
+            setReady(true);
+            toast.error("Sign-in failed", err?.message ?? "Could not create a session.");
+            navigate("/login", { replace: true });
+          } else {
+            setToken(data.session.access_token);
+            setReady(true);
+            toast.success("Email confirmed", "You are signed in.");
+            navigate("/dashboard", { replace: true });
+          }
+        })
+        .catch(() => {
+          setReady(true);
+          toast.error("Sign-in failed", "Unexpected error during session setup.");
+          navigate("/login", { replace: true });
+        });
+      return;
+    }
+
+    // ── Pattern 3: Supabase PKCE ─────────────────────────────────────────────
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
     const error = params.get("error_description") ?? params.get("error");
 
     if (error) {
+      setReady(true);
       toast.error("Sign-in failed", error);
       navigate("/login", { replace: true });
       return;
@@ -49,15 +89,20 @@ export function AuthCallbackPage() {
     if (code) {
       supabase.auth
         .exchangeCodeForSession(code)
-        .then(({ error: err }) => {
-          if (err) {
-            toast.error("Sign-in failed", err.message);
+        .then(({ data, error: err }) => {
+          if (err || !data.session?.access_token) {
+            setReady(true);
+            toast.error("Sign-in failed", err?.message ?? "Could not create a session.");
             navigate("/login", { replace: true });
           } else {
+            setToken(data.session.access_token);
+            setReady(true);
+            toast.success("Email confirmed", "You are signed in.");
             navigate("/dashboard", { replace: true });
           }
         })
         .catch(() => {
+          setReady(true);
           toast.error("Sign-in failed", "Unexpected error during code exchange.");
           navigate("/login", { replace: true });
         });
@@ -65,8 +110,9 @@ export function AuthCallbackPage() {
     }
 
     // Nothing to process
+    setReady(true);
     navigate("/login", { replace: true });
-  }, [navigate, setToken]);
+  }, [navigate, setReady, setToken]);
 
   return (
     <div className="grid min-h-screen place-items-center">
