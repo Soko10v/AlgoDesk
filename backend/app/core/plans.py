@@ -3,17 +3,14 @@
 Three plans — free / pro / expert. Everything is *visible* in the app so users
 feel what they're missing, but the valuable actions are gated by plan:
 
-  free   — build strategies, backtest, the standard (entry) optimizer,
-           the sensitivity map, Monte-Carlo, and the auto-discovered
-           "best strategies"
-  pro    — + paper & live trading, optimizing SL/TP
-  expert — + AI analysis & bot builder, walk-forward, optimizing per-side
-           filters (everything)
+  free   — build strategies, backtest, every optimizer/validation tool,
+           and the auto-discovered "best strategies"
+  pro    — + paper & live trading
+  expert — + AI analysis & bot builder
 
 AI (analysis + bot builder) is Expert-only: it's the headline feature of the
 top tier, and its output is uneven enough that keeping it behind the paywall
-protects newcomers from acting on a bad AI suggestion. Walk-forward sits
-alongside it as another advanced validation tool for the top tier.
+protects newcomers from acting on a bad AI suggestion.
 """
 
 from datetime import UTC, datetime
@@ -25,25 +22,25 @@ PLAN_EXPERT = "expert"
 PLAN_RANK = {PLAN_FREE: 0, PLAN_PRO: 1, PLAN_EXPERT: 2}
 
 # Monthly price in USDT per paid plan.
-PLAN_PRICES = {PLAN_PRO: 25.0, PLAN_EXPERT: 40.0}
+PLAN_PRICES = {PLAN_PRO: 5.0, PLAN_EXPERT: 10.0}
 
 # Feature key -> minimum plan that unlocks it.
-# Free is deliberately generous: build, backtest and every analysis tool (so the
-# user sees green numbers and gets hooked). The paywall only bites where money is
-# made — turning a bot on (paper/live) — plus a couple of advanced tuning tools.
+# Free is deliberately generous: build, backtest and every analysis/optimization
+# tool. The paywall only bites where money is made — turning a bot on
+# (paper/live) — plus AI.
 FEATURE_MIN_PLAN = {
     "backtest": PLAN_FREE,
     "optimize_entry": PLAN_FREE,
     "monte_carlo": PLAN_FREE,
     "sensitivity": PLAN_FREE,
+    "walkforward": PLAN_FREE,
+    "optimize_exits": PLAN_FREE,
+    "optimize_filters": PLAN_FREE,
     # Pro — turn your bots on
     "paper": PLAN_PRO,
     "live": PLAN_PRO,
-    # Expert — advanced tuning/validation + AI (+ unlimited bots & Telegram alerts)
+    # Expert — AI (+ unlimited bots & Telegram alerts)
     "ai": PLAN_EXPERT,
-    "walkforward": PLAN_EXPERT,
-    "optimize_exits": PLAN_EXPERT,
-    "optimize_filters": PLAN_EXPERT,
 }
 
 

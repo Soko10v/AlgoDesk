@@ -66,8 +66,8 @@ async def backtest_strategy(
         raise HTTPException(status_code=404, detail="Strategy not found")
     since_ms, until_ms = _date_bounds(payload.start_date, payload.end_date)
     data = await run_backtest(strategy.config_json, since_ms=since_ms, until_ms=until_ms)
-    # Monte-Carlo robustness is an Expert feature — drop it so lower plans see a
-    # locked teaser instead of the numbers.
+    # Keep this entitlement check even while Monte-Carlo is free so future plan
+    # changes stay centralized in app/core/plans.py.
     if not allows(plan, "monte_carlo"):
         data["monte_carlo"] = None
     return BacktestOut(**data)
@@ -86,7 +86,7 @@ async def optimize_strategy(
     if strategy is None or strategy.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Strategy not found")
     group = payload.group or "entry"
-    # Free optimizes entry params; Pro adds SL/TP; Expert adds per-side filters.
+    # Feature gates are centralized; currently every optimizer group is free.
     feature = {
         "entry": "optimize_entry",
         "exits": "optimize_exits",
