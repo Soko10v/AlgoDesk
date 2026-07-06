@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import { signOut } from "../hooks/useAuth";
 import { useAuthStore } from "../store/auth";
-import { Toaster } from "./Toaster";
 import { cn } from "../lib/cn";
 
 const nav = [
@@ -159,8 +158,6 @@ export function Layout() {
           <Outlet />
         </main>
       </div>
-
-      <Toaster />
     </div>
   );
 }
