@@ -4,13 +4,16 @@ Three plans — free / pro / expert. Everything is *visible* in the app so users
 feel what they're missing, but the valuable actions are gated by plan:
 
   free   — build strategies, backtest, the standard (entry) optimizer,
-           walk-forward, Monte-Carlo, and the auto-discovered "best strategies"
-  pro    — + paper & live trading, the sensitivity map, optimizing SL/TP
-  expert — + AI analysis & bot builder, optimizing per-side filters (everything)
+           the sensitivity map, Monte-Carlo, and the auto-discovered
+           "best strategies"
+  pro    — + paper & live trading, optimizing SL/TP
+  expert — + AI analysis & bot builder, walk-forward, optimizing per-side
+           filters (everything)
 
 AI (analysis + bot builder) is Expert-only: it's the headline feature of the
 top tier, and its output is uneven enough that keeping it behind the paywall
-protects newcomers from acting on a bad AI suggestion.
+protects newcomers from acting on a bad AI suggestion. Walk-forward sits
+alongside it as another advanced validation tool for the top tier.
 """
 
 from datetime import UTC, datetime
@@ -31,14 +34,14 @@ PLAN_PRICES = {PLAN_PRO: 25.0, PLAN_EXPERT: 40.0}
 FEATURE_MIN_PLAN = {
     "backtest": PLAN_FREE,
     "optimize_entry": PLAN_FREE,
-    "walkforward": PLAN_FREE,
     "monte_carlo": PLAN_FREE,
+    "sensitivity": PLAN_FREE,
     # Pro — turn your bots on
     "paper": PLAN_PRO,
     "live": PLAN_PRO,
     # Expert — advanced tuning/validation + AI (+ unlimited bots & Telegram alerts)
     "ai": PLAN_EXPERT,
-    "sensitivity": PLAN_EXPERT,
+    "walkforward": PLAN_EXPERT,
     "optimize_exits": PLAN_EXPERT,
     "optimize_filters": PLAN_EXPERT,
 }
