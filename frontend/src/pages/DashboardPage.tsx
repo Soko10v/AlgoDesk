@@ -13,17 +13,21 @@ import {
   Radio,
   RefreshCw,
   ShieldAlert,
+  Sparkles,
   Square,
   TrendingDown,
   TrendingUp,
+  Wand2,
   XCircle,
 } from "lucide-react";
 import {
   closePosition,
+  createStrategy,
   exchangeBalance,
   exchangeStatus,
   getMinOrder,
   getSubscription,
+  listDiscovered,
   listStrategies,
   listTrades,
   panicCloseAll,
@@ -31,6 +35,7 @@ import {
   stopBot,
   syncPosition,
   updateStrategy,
+  type DiscoveredStrategy,
   type Strategy,
   type StrategyConfig,
   type Trade,
@@ -50,6 +55,18 @@ export function DashboardPage() {
   const strategies = useQuery({ queryKey: ["strategies"], queryFn: listStrategies });
   const exchange = useQuery({ queryKey: ["exchange-status"], queryFn: exchangeStatus });
   const subscription = useQuery({ queryKey: ["subscription"], queryFn: getSubscription });
+  const discovered = useQuery({ queryKey: ["discovered"], queryFn: listDiscovered, staleTime: 5 * 60_000 });
+  const navigate = useNavigate();
+  const useDiscovered = useMutation({
+    mutationFn: (d: DiscoveredStrategy) =>
+      createStrategy({ name: `${d.title} · ${d.symbol}`, config_json: d.config_json }),
+    onSuccess: (s) => {
+      toast.success("Стратегия добавлена", "Открываю в конструкторе — проверь и запусти.");
+      qc.invalidateQueries({ queryKey: ["strategies"] });
+      navigate(`/builder?edit=${s.id}`);
+    },
+    onError: () => toast.error("Не удалось добавить стратегию", "Попробуй ещё раз."),
+  });
   const balanceQuery = useQuery({
     queryKey: ["exchange-balance"],
     queryFn: exchangeBalance,
@@ -153,7 +170,6 @@ export function DashboardPage() {
 
   const allTrades = trades.data ?? [];
   const pending = start.isPending || stop.isPending;
-  const navigate = useNavigate();
 
   return (
     <div className="animate-fade-in">
@@ -245,6 +261,52 @@ export function DashboardPage() {
             Включить ботов
           </span>
         </button>
+      )}
+
+      {/* Auto-discovered "best strategies" board — the beginner on-ramp. */}
+      {(discovered.data?.length ?? 0) > 0 && (
+        <div className="mt-8">
+          <div className="mb-3 flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-brand-400" />
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-300">
+              Лучшие стратегии
+            </h3>
+            <InfoTip text="Сервер сам перебирает тысячи вариантов на реальных данных за последний месяц и раз в пару дней обновляет топ. Не нужно разбираться в индикаторах — выбери, протестируй и запусти. Прошлые результаты не гарантируют будущих." />
+            <span className="ml-auto text-xs text-slate-500">обновляется автоматически</span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {discovered.data!.map((d) => (
+              <Card key={d.id} className="flex flex-col p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-sm font-semibold text-slate-100">{d.title}</span>
+                  <Badge tone="neutral">{d.symbol.replace("/USDT", "")} · {d.timeframe}</Badge>
+                </div>
+                <div className="mt-1 text-xs text-slate-500">{d.subtitle}</div>
+                <div className="mt-3 flex items-baseline justify-between">
+                  <span className="text-xs text-slate-500">За {d.period_days} дн.</span>
+                  <span className={`text-lg font-bold ${pnlTone(d.total_return_pct)}`}>
+                    {signedPct(d.total_return_pct)}
+                  </span>
+                </div>
+                <div className="mt-0.5 text-xs text-slate-500">
+                  Просадка {d.max_drawdown_pct.toFixed(1)}% · Винрейт {d.win_rate.toFixed(0)}% · {d.trades} сделок
+                </div>
+                <Button
+                  className="mt-3"
+                  size="sm"
+                  variant="secondary"
+                  loading={useDiscovered.isPending && useDiscovered.variables?.id === d.id}
+                  onClick={() => useDiscovered.mutate(d)}
+                >
+                  <Wand2 className="h-3.5 w-3.5" /> Использовать
+                </Button>
+              </Card>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-slate-500">
+            Доходность посчитана на истории — это не обещание прибыли. Сначала прогони в paper-режиме.
+          </p>
+        </div>
       )}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">

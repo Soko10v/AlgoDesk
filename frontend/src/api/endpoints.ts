@@ -189,6 +189,29 @@ export async function listStrategies() {
   return data as Strategy[];
 }
 
+// Auto-discovered "best strategies" board — global, rebuilt server-side every
+// couple of days. Beginner on-ramp: pick one, backtest it, deploy it live.
+export type DiscoveredStrategy = {
+  id: number;
+  title: string;
+  subtitle: string;
+  symbol: string;
+  timeframe: string;
+  config_json: StrategyConfig;
+  total_return_pct: number;
+  max_drawdown_pct: number;
+  win_rate: number;
+  trades: number;
+  period_days: number;
+  rank: number;
+  discovered_at: string;
+};
+
+export async function listDiscovered() {
+  const { data } = await api.get("/discovery");
+  return data as DiscoveredStrategy[];
+}
+
 export async function createStrategy(payload: { name: string; config_json: StrategyConfig; live_enabled?: boolean }) {
   const { data } = await api.post("/strategies", payload);
   return data as Strategy;
