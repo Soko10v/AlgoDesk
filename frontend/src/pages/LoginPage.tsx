@@ -8,6 +8,8 @@ import { useAuthStore } from "../store/auth";
 import { toast } from "../store/toast";
 import { Button, Card, Input, Spinner } from "../components/ui";
 
+const authRedirectTo = `${window.location.origin}/auth/callback`;
+
 const features = [
   { icon: Boxes, title: "Visual builder", text: "Compose entry, exit, stop-loss and take-profit blocks — no code." },
   { icon: BarChart3, title: "Backtest instantly", text: "Replay strategies on real Bybit history with equity & drawdown." },
@@ -64,7 +66,11 @@ export function LoginPage() {
     if (!pendingConfirmEmail || resendCooldown > 0) return;
     setResendBusy(true);
     try {
-      const { error } = await supabase.auth.resend({ type: "signup", email: pendingConfirmEmail });
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: pendingConfirmEmail,
+        options: { emailRedirectTo: authRedirectTo },
+      });
       if (error) throw error;
       toast.success("Email sent", `Check ${pendingConfirmEmail} again.`);
       setResendCooldown(60);
@@ -139,10 +145,16 @@ export function LoginPage() {
     setBusy(true);
     try {
       if (mode === "signup") {
-        const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
+        const { data, error } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: { emailRedirectTo: authRedirectTo },
+        });
         if (error) throw error;
         if (data.session) {
           // Confirmation disabled on this project — already signed in.
+          setToken(data.session.access_token);
+          toast.success("Signed in", "Your account is ready.");
           navigate("/dashboard");
         } else {
           setPendingConfirmEmail(email.trim());
@@ -157,6 +169,8 @@ export function LoginPage() {
         if (!data.session?.access_token) {
           throw new Error("No session returned");
         }
+        setToken(data.session.access_token);
+        toast.success("Signed in", "Welcome back.");
         navigate("/dashboard");
       }
     } catch (err) {
@@ -236,8 +250,8 @@ export function LoginPage() {
               <h2 className="mt-4 text-xl font-bold text-white">Confirm your email</h2>
               <p className="mt-1 text-sm text-slate-400">
                 We sent a confirmation link to{" "}
-                <span className="font-medium text-slate-200">{pendingConfirmEmail}</span>. Open it, then come back
-                and sign in — the link expires after a while, so do it soon.
+                <span className="font-medium text-slate-200">{pendingConfirmEmail}</span>. Open it and we will finish
+                signing you in automatically. The link expires after a while, so do it soon.
               </p>
               <div className="mt-6 space-y-3">
                 <Button
