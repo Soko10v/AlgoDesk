@@ -1004,7 +1004,7 @@ export function BacktestPage() {
             const missedUsd = (posUsdt * result.total_return_pct) / 100;
             const days = periodDays(result);
             const perMonth = (missedUsd / days) * 30;
-            const proPrice = 25;
+            const proPrice = 5;
             const multiple = perMonth / proPrice;
             const paybackDays = perMonth > proPrice ? Math.max(1, Math.ceil(proPrice / (perMonth / 30))) : null;
             return (
@@ -1094,7 +1094,7 @@ export function BacktestPage() {
                   Monte-Carlo — повезло или реальный эдж?
                 </span>
                 <span className="block text-xs text-slate-500">
-                  Прогон твоих сделок 1000 раз: шанс прибыли и худший случай. Открой на тарифе Expert →
+                  Прогон твоих сделок 1000 раз: шанс прибыли и худший случай.
                 </span>
               </span>
             </button>

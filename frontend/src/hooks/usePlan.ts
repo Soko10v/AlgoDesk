@@ -12,12 +12,12 @@ export const FEATURE_MIN_PLAN: Record<FeatureKey, PlanId> = {
   optimize_entry: "free",
   monte_carlo: "free",
   sensitivity: "free",
+  walkforward: "free",
+  optimize_exits: "free",
+  optimize_filters: "free",
   paper: "pro",
   live: "pro",
   ai: "expert",
-  walkforward: "expert",
-  optimize_exits: "expert",
-  optimize_filters: "expert",
 };
 
 /** Plan + entitlement checks for gating the UI. Uses the server's entitlement map
