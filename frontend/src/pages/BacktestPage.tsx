@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { createChart, type IChartApi, type SeriesMarker, type Time, type UTCTimestamp } from "lightweight-charts";
 import { Activity, ChevronDown, Grid3x3, Lock, MessageSquare, Play, Percent, Save, Send, ShieldCheck, Sparkles, TrendingDown, Trophy, Wand2, type LucideIcon } from "lucide-react";
 import {
@@ -22,14 +23,19 @@ import {
 import { toast } from "../store/toast";
 import { Badge, Button, Card, EmptyState, Field, InfoTip, PageHeader, Select, Spinner, StatCard } from "../components/ui";
 import { dateTime, pct, pnlTone, price, signedPct, usd } from "../lib/formatters";
-import { describeEntry, describeFilters, positionUsdt } from "../lib/strategy";
-import { periodDays, recordBacktest } from "../lib/missedProfit";
+import { describeEntry, describeFilters } from "../lib/strategy";
+import { MISSED_PROFIT_BASE_USD, periodDays, recordBacktest } from "../lib/missedProfit";
 import { usePlan, useUpsell } from "../hooks/usePlan";
 import type { FeatureKey } from "../api/endpoints";
 
 /** Compact "Mon 'YY" label for a unix-seconds timestamp (walk-forward windows). */
 function shortDate(unixSeconds: number): string {
   return new Date(unixSeconds * 1000).toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+}
+
+function dateDaysAgo(days: number): string {
+  if (!Number.isFinite(days) || days <= 0) return "";
+  return new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10);
 }
 
 const OPT_GROUP_LABELS: Record<OptimizeGroup, string> = {
@@ -94,12 +100,16 @@ function CollapsibleCard({
 }
 
 export function BacktestPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialStrategyId = Number(searchParams.get("strategy") ?? "");
+  const initialDays = Number(searchParams.get("days") ?? "");
   const strategies = useQuery({ queryKey: ["strategies"], queryFn: listStrategies });
-  const [strategyId, setStrategyId] = useState<number | null>(null);
-  const [startDate, setStartDate] = useState("");
+  const [strategyId, setStrategyId] = useState<number | null>(Number.isFinite(initialStrategyId) && initialStrategyId > 0 ? initialStrategyId : null);
+  const [startDate, setStartDate] = useState(dateDaysAgo(initialDays));
   const [endDate, setEndDate] = useState("");
   const equityEl = useRef<HTMLDivElement | null>(null);
   const priceEl = useRef<HTMLDivElement | null>(null);
+  const autoRunDone = useRef(false);
 
   const qc = useQueryClient();
   const run = useMutation({
@@ -112,6 +122,19 @@ export function BacktestPage() {
     onError: () => toast.error("Backtest failed", "Try another symbol or timeframe."),
   });
   const result = run.data;
+
+  useEffect(() => {
+    if (autoRunDone.current || searchParams.get("autorun") !== "1" || !strategyId || strategies.isLoading) return;
+    if (!strategies.data?.some((s) => s.id === strategyId)) return;
+
+    autoRunDone.current = true;
+    run.mutate();
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("autorun");
+      return next;
+    }, { replace: true });
+  }, [run, searchParams, setSearchParams, strategies.data, strategies.isLoading, strategyId]);
 
   const { can, requiredPlan } = usePlan();
   const upsell = useUpsell();
@@ -977,7 +1000,7 @@ export function BacktestPage() {
             // Money talks: the same result, shown in dollars the user didn't make —
             // anchored to the actual investment (the strategy's position size), so
             // the number is a real projection, not an inflated headline figure.
-            const posUsdt = positionUsdt(selStrategy.config_json);
+            const posUsdt = MISSED_PROFIT_BASE_USD;
             const missedUsd = (posUsdt * result.total_return_pct) / 100;
             const days = periodDays(result);
             const perMonth = (missedUsd / days) * 30;

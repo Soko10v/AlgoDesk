@@ -60,10 +60,10 @@ export function DashboardPage() {
   const useDiscovered = useMutation({
     mutationFn: (d: DiscoveredStrategy) =>
       createStrategy({ name: `${d.title} · ${d.symbol}`, config_json: d.config_json }),
-    onSuccess: (s) => {
-      toast.success("Стратегия добавлена", "Открываю в конструкторе — проверь и запусти.");
+    onSuccess: (s, d) => {
+      toast.success("Стратегия добавлена", "Открываю бэктест и запускаю проверку.");
       qc.invalidateQueries({ queryKey: ["strategies"] });
-      navigate(`/builder?edit=${s.id}`);
+      navigate(`/backtest?strategy=${s.id}&autorun=1&days=${d.period_days}`);
     },
     onError: () => toast.error("Не удалось добавить стратегию", "Попробуй ещё раз."),
   });

@@ -5,10 +5,11 @@
 // the backend doesn't store backtest history) and surface the aggregate on the
 // dashboard: "your strategies would have earned ≈ $X — and they're switched off".
 //
-// Estimates are deliberately simple and honest: profit ≈ position size × return %.
+// Estimates are deliberately simple and honest: profit ≈ base capital × return %.
 
 import type { BacktestResult, Strategy } from "../api/endpoints";
-import { positionUsdt } from "./strategy";
+
+export const MISSED_PROFIT_BASE_USD = 300;
 
 export type MissedEntry = {
   strategyId: number;
@@ -47,7 +48,7 @@ export function periodDays(r: BacktestResult): number {
 /** Record the latest backtest for a strategy (overwrites the previous one). */
 export function recordBacktest(strategy: Strategy, r: BacktestResult) {
   const map = read();
-  const investedUsd = positionUsdt(strategy.config_json);
+  const investedUsd = MISSED_PROFIT_BASE_USD;
   const profitUsd = (investedUsd * r.total_return_pct) / 100;
   map[String(strategy.id)] = {
     strategyId: strategy.id,
