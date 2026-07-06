@@ -79,6 +79,8 @@ export function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, subscription.data?.plan]);
   const missedTotal = missed.reduce((sum, e) => sum + e.profitUsd, 0);
+  const missedInvested = missed.reduce((sum, e) => sum + e.investedUsd, 0);
+  const missedMultiple = missedTotal / 25; // vs Pro's monthly price
 
   // Name of another LIVE bot already trading the same symbol+market, if any —
   // running two on one symbol/account merges them into one exchange position.
@@ -226,12 +228,16 @@ export function DashboardPage() {
             </span>
             <div>
               <div className="text-sm font-semibold text-slate-100">
-                Твои стратегии заработали бы ≈{" "}
+                С вложением {usd(missedInvested, 0)} твои стратегии заработали бы ≈{" "}
                 <span className="text-lg font-bold text-brand-300">{usd(missedTotal, 0)}</span> — но они выключены.
               </div>
               <div className="text-xs text-slate-400">
                 По последним бэктестам: {missed.slice(0, 3).map((e) => `${e.name} ${usd(e.profitUsd, 0)}`).join(" · ")}
-                {missed.length > 3 ? ` · ещё ${missed.length - 3}` : ""}. Запусти их вживую — Pro $6/мес. →
+                {missed.length > 3 ? ` · ещё ${missed.length - 3}` : ""}.{" "}
+                {missedMultiple >= 1.5
+                  ? `Это в ${missedMultiple.toFixed(1)}× больше цены Pro ($25/мес).`
+                  : "Запусти их вживую — Pro $25/мес."}{" "}
+                →
               </div>
             </div>
           </div>

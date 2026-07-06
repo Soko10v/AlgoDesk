@@ -14,7 +14,8 @@ export type MissedEntry = {
   strategyId: number;
   name: string;
   returnPct: number; // total return of the last backtest
-  profitUsd: number; // ≈ position_size_usdt × returnPct
+  investedUsd: number; // the strategy's configured position size
+  profitUsd: number; // ≈ investedUsd × returnPct
   days: number; // backtest period length
   at: number; // unix ms when recorded
 };
@@ -46,11 +47,13 @@ export function periodDays(r: BacktestResult): number {
 /** Record the latest backtest for a strategy (overwrites the previous one). */
 export function recordBacktest(strategy: Strategy, r: BacktestResult) {
   const map = read();
-  const profitUsd = (positionUsdt(strategy.config_json) * r.total_return_pct) / 100;
+  const investedUsd = positionUsdt(strategy.config_json);
+  const profitUsd = (investedUsd * r.total_return_pct) / 100;
   map[String(strategy.id)] = {
     strategyId: strategy.id,
     name: strategy.name,
     returnPct: r.total_return_pct,
+    investedUsd,
     profitUsd,
     days: periodDays(r),
     at: Date.now(),
