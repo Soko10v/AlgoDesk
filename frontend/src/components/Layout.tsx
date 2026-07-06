@@ -13,6 +13,7 @@ import {
   UserCircle,
 } from "lucide-react";
 import { signOut } from "../hooks/useAuth";
+import { usePlan } from "../hooks/usePlan";
 import { useAuthStore } from "../store/auth";
 import { cn } from "../lib/cn";
 
@@ -21,9 +22,8 @@ const nav = [
   { to: "/builder", label: "Strategy Builder", icon: Boxes, end: false },
   { to: "/backtest", label: "Backtest", icon: LineChart, end: false },
   { to: "/compare", label: "Compare", icon: GitCompare, end: false },
-  { to: "/trades", label: "Trade Log", icon: ScrollText, end: false },
-  { to: "/profile", label: "Profile", icon: UserCircle, end: false },
-  { to: "/settings", label: "Exchange", icon: SlidersHorizontal, end: false },
+  { to: "/trades", label: "Trade Log", icon: ScrollText, end: false, requiresSubscription: true },
+  { to: "/settings", label: "Exchange", icon: SlidersHorizontal, end: false, requiresSubscription: true },
   { to: "/subscription", label: "Subscription", icon: CreditCard, end: false },
 ];
 
@@ -43,20 +43,24 @@ function Brand() {
 
 export function Layout() {
   const user = useAuthStore((s) => s.user);
+  const { plan } = usePlan();
   const handleLogout = () => {
     void signOut();
   };
   const location = useLocation();
+  const initials = (user?.username ?? user?.email ?? "T").slice(0, 2).toUpperCase();
+  const visibleNav = nav.filter((item) => !item.requiresSubscription || plan !== "free");
   const current =
-    nav.find((n) => (n.end ? location.pathname === n.to : location.pathname.startsWith(n.to))) ?? nav[0];
-
+    location.pathname.startsWith("/profile")
+      ? { label: "Profile" }
+      : nav.find((n) => (n.end ? location.pathname === n.to : location.pathname.startsWith(n.to))) ?? nav[0];
 
   return (
     <div className="flex min-h-screen">
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-white/[0.06] bg-ink-950/40 p-4 lg:flex">
         <Brand />
         <nav className="mt-7 flex flex-1 flex-col gap-1">
-          {nav.map((item) => (
+          {visibleNav.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -88,26 +92,6 @@ export function Layout() {
           <Mail className="h-[18px] w-[18px]" />
           Support
         </a>
-        <div className="mt-2 flex items-center justify-between gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-2.5">
-          <Link to="/profile" className="flex min-w-0 items-center gap-2.5 rounded-lg p-0.5 transition hover:opacity-80" title="View profile">
-            <div className="grid h-8 w-8 place-items-center rounded-lg bg-white/[0.06] text-xs font-semibold text-slate-200">
-              {(user?.username ?? "?").slice(0, 2).toUpperCase()}
-            </div>
-            <div className="min-w-0">
-              <div className="truncate text-sm font-medium text-slate-200">
-                {user?.username ?? user?.email ?? "Trader"}
-              </div>
-              <div className="truncate text-[11px] text-slate-500">{user?.email ?? "—"}</div>
-            </div>
-          </Link>
-          <button
-            onClick={handleLogout}
-            title="Log out"
-            className="rounded-lg p-2 text-slate-400 transition hover:bg-white/[0.06] hover:text-rose-300"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
-        </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -120,14 +104,26 @@ export function Layout() {
               <h2 className="hidden text-lg font-semibold text-white lg:block">{current.label}</h2>
             </div>
             <div className="flex items-center gap-3">
-              <span className="badge bg-brand-500/10 text-brand-300">
-                <span className="h-1.5 w-1.5 animate-pulse-soft rounded-full bg-brand-400" />
-                Live
-              </span>
+              <Link
+                to="/profile"
+                className="flex min-w-0 items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-2.5 py-2 transition hover:bg-white/[0.05]"
+                title="View profile"
+              >
+                <div className="grid h-8 w-8 place-items-center rounded-lg bg-white/[0.06] text-xs font-semibold text-slate-200">
+                  {initials}
+                </div>
+                <div className="hidden min-w-0 text-left sm:block">
+                  <div className="max-w-36 truncate text-sm font-medium text-slate-200">
+                    {user?.username ?? user?.email ?? "Trader"}
+                  </div>
+                  <div className="max-w-36 truncate text-[11px] text-slate-500">{user?.email ?? "—"}</div>
+                </div>
+                <UserCircle className="hidden h-4 w-4 text-slate-500 sm:block" />
+              </Link>
               <button
                 onClick={handleLogout}
                 title="Log out"
-                className="rounded-lg p-2 text-slate-400 transition hover:bg-white/[0.06] hover:text-rose-300 lg:hidden"
+                className="rounded-lg p-2 text-slate-400 transition hover:bg-white/[0.06] hover:text-rose-300"
               >
                 <LogOut className="h-4 w-4" />
               </button>
@@ -135,7 +131,7 @@ export function Layout() {
           </div>
 
           <nav className="flex gap-1 overflow-x-auto px-3 pb-3 lg:hidden">
-            {nav.map((item) => (
+            {visibleNav.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
