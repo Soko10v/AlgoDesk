@@ -10,12 +10,12 @@ export const PLAN_LABEL: Record<PlanId, string> = { free: "Free", pro: "Pro", ex
 export const FEATURE_MIN_PLAN: Record<FeatureKey, PlanId> = {
   backtest: "free",
   optimize_entry: "free",
-  walkforward: "free",
   monte_carlo: "free",
+  sensitivity: "free",
   paper: "pro",
   live: "pro",
   ai: "expert",
-  sensitivity: "expert",
+  walkforward: "expert",
   optimize_exits: "expert",
   optimize_filters: "expert",
 };
