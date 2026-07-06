@@ -35,6 +35,7 @@ export function LoginPage() {
   const { data: config } = useAuthConfig();
   const widgetRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const confirmPollBusy = useRef(false);
   const [tgScaleX, setTgScaleX] = useState(1);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
@@ -45,6 +46,7 @@ export function LoginPage() {
   // form with an explicit "check your email" screen instead of a toast that
   // auto-dismisses in 4.5s and is easy to miss.
   const [pendingConfirmEmail, setPendingConfirmEmail] = useState<string | null>(null);
+  const [pendingConfirmPassword, setPendingConfirmPassword] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resendBusy, setResendBusy] = useState(false);
 
@@ -61,6 +63,40 @@ export function LoginPage() {
     const m = /after (\d+) seconds?/i.exec(message);
     return m ? Number(m[1]) : null;
   }
+
+  useEffect(() => {
+    if (!pendingConfirmEmail || !pendingConfirmPassword) return;
+
+    let active = true;
+
+    const tryFinishSignIn = async () => {
+      if (confirmPollBusy.current) return;
+      confirmPollBusy.current = true;
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: pendingConfirmEmail,
+          password: pendingConfirmPassword,
+        });
+
+        if (!active) return;
+        if (error || !data.session?.access_token) return;
+
+        setToken(data.session.access_token);
+        setPendingConfirmEmail(null);
+        setPendingConfirmPassword(null);
+        toast.success("Email confirmed", "You are signed in.");
+        navigate("/dashboard");
+      } finally {
+        confirmPollBusy.current = false;
+      }
+    };
+
+    const t = setInterval(() => void tryFinishSignIn(), 5000);
+    return () => {
+      active = false;
+      clearInterval(t);
+    };
+  }, [navigate, pendingConfirmEmail, pendingConfirmPassword, setToken]);
 
   async function resendConfirmation() {
     if (!pendingConfirmEmail || resendCooldown > 0) return;
@@ -158,6 +194,7 @@ export function LoginPage() {
           navigate("/dashboard");
         } else {
           setPendingConfirmEmail(email.trim());
+          setPendingConfirmPassword(password);
           setResendCooldown(60); // Supabase just sent one; matches its own resend cooldown
         }
       } else {
@@ -251,7 +288,8 @@ export function LoginPage() {
               <p className="mt-1 text-sm text-slate-400">
                 We sent a confirmation link to{" "}
                 <span className="font-medium text-slate-200">{pendingConfirmEmail}</span>. Open it and we will finish
-                signing you in automatically. The link expires after a while, so do it soon.
+                signing you in automatically. If you confirm from another device, keep this page open and it will
+                continue here too.
               </p>
               <div className="mt-6 space-y-3">
                 <Button
@@ -269,6 +307,7 @@ export function LoginPage() {
                   className="w-full text-center text-sm text-slate-500 hover:text-slate-300"
                   onClick={() => {
                     setPendingConfirmEmail(null);
+                    setPendingConfirmPassword(null);
                     setMode("signin");
                   }}
                 >
