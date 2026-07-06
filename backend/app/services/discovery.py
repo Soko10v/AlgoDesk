@@ -129,6 +129,28 @@ def _search(base: dict[str, Any], candles: list[list[float]]) -> list[dict[str, 
     return out
 
 
+def _signature(row: dict[str, Any]) -> tuple:
+    """Identity for dedup: same entry type + same filter set + same rounded return
+    is, to a user, the same card — even if a different risk profile produced it."""
+    cfg = row["config"]
+    entry_type = (cfg.get("entry") or [{}])[0].get("type", "")
+    filter_types = tuple(sorted(f.get("type", "") for f in (cfg.get("filters") or [])))
+    return (entry_type, filter_types, round(row["total_return_pct"], 1), row["trades"])
+
+
+def _dedup(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop near-identical twins, keeping the first (best-scored) of each."""
+    seen: set[tuple] = set()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        sig = _signature(r)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        out.append(r)
+    return out
+
+
 def _period_days(candles: list[list[float]]) -> int:
     if len(candles) < 2:
         return PERIOD_DAYS
@@ -152,7 +174,7 @@ async def discover() -> list[dict[str, Any]]:
             if len(candles) < MIN_CANDLES:
                 logger.info("discovery: %s %s only %d candles — skipped", symbol, timeframe, len(candles))
                 continue
-            ranked = await asyncio.to_thread(_search, base, candles)
+            ranked = _dedup(await asyncio.to_thread(_search, base, candles))
             days = _period_days(candles)
             for row in ranked[:KEEP_PER_MARKET]:
                 title, subtitle = _humanize(row["config"])
@@ -171,7 +193,17 @@ async def discover() -> list[dict[str, Any]]:
                 })
 
     picks.sort(key=lambda r: r["score"], reverse=True)
-    top = picks[:TOTAL_KEEP]
+    # Global dedup too: a twin can appear across timeframes/markets after humanizing.
+    seen: set[tuple] = set()
+    top: list[dict[str, Any]] = []
+    for p in picks:
+        key = (p["title"], p["symbol"], p["timeframe"], round(p["total_return_pct"], 1))
+        if key in seen:
+            continue
+        seen.add(key)
+        top.append(p)
+        if len(top) >= TOTAL_KEEP:
+            break
     for i, row in enumerate(top):
         row["rank"] = i + 1
     logger.info("discovery: %d strategies from %d markets in %.0fs", len(top), len(DISCOVERY_SYMBOLS) * len(DISCOVERY_TIMEFRAMES), time.time() - t0)
