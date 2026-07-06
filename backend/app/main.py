@@ -15,6 +15,7 @@ from app.services import candle_store
 from app.services.telegram_alerts import send_admin_alert
 from app.workers.bot_supervisor import bot_supervisor
 from app.workers.candle_sync import sync_candles
+from app.workers.discovery_runner import run_discovery
 from app.workers.price_stream import stream_symbols
 
 logging.basicConfig(level=logging.INFO)
@@ -38,6 +39,8 @@ async def lifespan(_: FastAPI):
     candle_store.init_db()
     background_tasks.append(asyncio.create_task(sync_candles()))
     background_tasks.append(asyncio.create_task(stream_symbols(SessionLocal)))
+    # Rebuild the auto-discovered "best strategies" board on a slow cadence.
+    background_tasks.append(asyncio.create_task(run_discovery(SessionLocal)))
     try:
         await bot_supervisor.recover(SessionLocal)
     except Exception:
