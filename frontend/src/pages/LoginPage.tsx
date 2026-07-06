@@ -39,6 +39,48 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [oauthBusy, setOauthBusy] = useState(false);
+  // Set right after a signup that requires email confirmation — replaces the
+  // form with an explicit "check your email" screen instead of a toast that
+  // auto-dismisses in 4.5s and is easy to miss.
+  const [pendingConfirmEmail, setPendingConfirmEmail] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [resendBusy, setResendBusy] = useState(false);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const t = setInterval(() => setResendCooldown((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(t);
+  }, [resendCooldown]);
+
+  // Supabase's rate-limit error names the exact wait time — surface that
+  // instead of a generic failure ("you can only request this after 13
+  // seconds" isn't really a failure, it's a cooldown).
+  function secondsFromRateLimitError(message: string): number | null {
+    const m = /after (\d+) seconds?/i.exec(message);
+    return m ? Number(m[1]) : null;
+  }
+
+  async function resendConfirmation() {
+    if (!pendingConfirmEmail || resendCooldown > 0) return;
+    setResendBusy(true);
+    try {
+      const { error } = await supabase.auth.resend({ type: "signup", email: pendingConfirmEmail });
+      if (error) throw error;
+      toast.success("Email sent", `Check ${pendingConfirmEmail} again.`);
+      setResendCooldown(60);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not resend";
+      const wait = secondsFromRateLimitError(message);
+      if (wait) {
+        setResendCooldown(wait);
+        toast.info("Please wait", `You can resend in ${wait}s.`);
+      } else {
+        toast.error("Could not resend", message);
+      }
+    } finally {
+      setResendBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -97,10 +139,15 @@ export function LoginPage() {
     setBusy(true);
     try {
       if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({ email: email.trim(), password });
+        const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
         if (error) throw error;
-        toast.success("Account created", "Check your email if confirmation is enabled, then sign in.");
-        setMode("signin");
+        if (data.session) {
+          // Confirmation disabled on this project — already signed in.
+          navigate("/dashboard");
+        } else {
+          setPendingConfirmEmail(email.trim());
+          setResendCooldown(60); // Supabase just sent one; matches its own resend cooldown
+        }
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({
           email: email.trim(),
@@ -181,67 +228,105 @@ export function LoginPage() {
             <div className="text-lg font-bold text-white">AlgoDesk</div>
           </div>
 
-          <h2 className="text-xl font-bold text-white">{mode === "signin" ? "Sign in" : "Create account"}</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            {mode === "signin" ? "Welcome back — enter your email and password." : "Start with email and password."}
-          </p>
-
-          {!supabaseConfigured ? (
-            <div className="mt-6 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm text-amber-200">
-              Supabase Auth is not configured. Set <code className="text-slate-300">VITE_SUPABASE_URL</code> and{" "}
-              <code className="text-slate-300">VITE_SUPABASE_ANON_KEY</code> in the frontend environment.
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-              <div>
-                <span className="label flex items-center gap-2">
-                  <Mail className="h-3.5 w-3.5" /> Email
-                </span>
-                <Input
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  autoComplete="email"
-                  required
-                />
+          {pendingConfirmEmail ? (
+            <>
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-brand-500/15 text-brand-300">
+                <Mail className="h-6 w-6" />
               </div>
-              <div>
-                <span className="label">Password</span>
-                <Input
-                  type="password"
-                  placeholder={mode === "signup" ? "At least 6 characters" : "Your password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete={mode === "signup" ? "new-password" : "current-password"}
-                  minLength={mode === "signup" ? 6 : 1}
-                  required
-                />
-              </div>
-              <Button type="submit" className="w-full" loading={busy}>
-                {mode === "signin" ? "Sign in" : "Sign up"}
-              </Button>
-              <p className="text-center text-sm text-slate-500">
-                {mode === "signin" ? (
-                  <>
-                    No account?{" "}
-                    <button type="button" className="text-brand-400 hover:underline" onClick={() => setMode("signup")}>
-                      Sign up
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    Already have an account?{" "}
-                    <button type="button" className="text-brand-400 hover:underline" onClick={() => setMode("signin")}>
-                      Sign in
-                    </button>
-                  </>
-                )}
+              <h2 className="mt-4 text-xl font-bold text-white">Confirm your email</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                We sent a confirmation link to{" "}
+                <span className="font-medium text-slate-200">{pendingConfirmEmail}</span>. Open it, then come back
+                and sign in — the link expires after a while, so do it soon.
               </p>
-            </form>
+              <div className="mt-6 space-y-3">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full"
+                  loading={resendBusy}
+                  disabled={resendCooldown > 0}
+                  onClick={() => void resendConfirmation()}
+                >
+                  {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend email"}
+                </Button>
+                <button
+                  type="button"
+                  className="w-full text-center text-sm text-slate-500 hover:text-slate-300"
+                  onClick={() => {
+                    setPendingConfirmEmail(null);
+                    setMode("signin");
+                  }}
+                >
+                  Back to sign in
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h2 className="text-xl font-bold text-white">{mode === "signin" ? "Sign in" : "Create account"}</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                {mode === "signin" ? "Welcome back — enter your email and password." : "Start with email and password."}
+              </p>
+
+              {!supabaseConfigured ? (
+                <div className="mt-6 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm text-amber-200">
+                  Supabase Auth is not configured. Set <code className="text-slate-300">VITE_SUPABASE_URL</code> and{" "}
+                  <code className="text-slate-300">VITE_SUPABASE_ANON_KEY</code> in the frontend environment.
+                </div>
+              ) : (
+                <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+                  <div>
+                    <span className="label flex items-center gap-2">
+                      <Mail className="h-3.5 w-3.5" /> Email
+                    </span>
+                    <Input
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      autoComplete="email"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <span className="label">Password</span>
+                    <Input
+                      type="password"
+                      placeholder={mode === "signup" ? "At least 6 characters" : "Your password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                      minLength={mode === "signup" ? 6 : 1}
+                      required
+                    />
+                  </div>
+                  <Button type="submit" className="w-full" loading={busy}>
+                    {mode === "signin" ? "Sign in" : "Sign up"}
+                  </Button>
+                  <p className="text-center text-sm text-slate-500">
+                    {mode === "signin" ? (
+                      <>
+                        No account?{" "}
+                        <button type="button" className="text-brand-400 hover:underline" onClick={() => setMode("signup")}>
+                          Sign up
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        Already have an account?{" "}
+                        <button type="button" className="text-brand-400 hover:underline" onClick={() => setMode("signin")}>
+                          Sign in
+                        </button>
+                      </>
+                    )}
+                  </p>
+                </form>
+              )}
+            </>
           )}
 
-          {(showGoogle || showTelegram) && (
+          {!pendingConfirmEmail && (showGoogle || showTelegram) && (
             <div className="mt-6 space-y-4">
               <OAuthDivider />
 
