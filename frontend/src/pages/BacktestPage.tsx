@@ -974,13 +974,15 @@ export function BacktestPage() {
           )}
 
           {!can("live") && selStrategy && result.total_return_pct > 0 && (() => {
-            // Money talks: the same result, shown in dollars the user didn't make.
+            // Money talks: the same result, shown in dollars the user didn't make —
+            // anchored to the actual investment (the strategy's position size), so
+            // the number is a real projection, not an inflated headline figure.
             const posUsdt = positionUsdt(selStrategy.config_json);
             const missedUsd = (posUsdt * result.total_return_pct) / 100;
             const days = periodDays(result);
             const perMonth = (missedUsd / days) * 30;
-            // TEMPORARY: Pro is $6 during the checkout test (see backend PLAN_PRICES) — restore to 25 after.
-            const proPrice = 6;
+            const proPrice = 25;
+            const multiple = perMonth / proPrice;
             const paybackDays = perMonth > proPrice ? Math.max(1, Math.ceil(proPrice / (perMonth / 30))) : null;
             return (
               <button
@@ -994,14 +996,17 @@ export function BacktestPage() {
                   </span>
                   <div>
                     <div className="text-sm font-semibold text-slate-100">
-                      Упущено ≈ <span className="text-brand-300">{usd(missedUsd, 0)}</span> за {days} дн. — бот не был
-                      запущен ({signedPct(result.total_return_pct)} на позиции {usd(posUsdt, 0)}).
+                      С вложением <span className="text-slate-200">{usd(posUsdt, 0)}</span> ты бы заработал ≈{" "}
+                      <span className="text-brand-300">{usd(missedUsd, 0)}</span> за {days} дн. ({signedPct(result.total_return_pct)}) —
+                      бот не был запущен.
                     </div>
                     <div className="text-xs text-slate-400">
-                      В таком темпе это ≈ {usd(perMonth, 0)}/мес.
-                      {paybackDays
-                        ? ` Pro стоит $${proPrice} — окупился бы за ${paybackDays} ${paybackDays === 1 ? "день" : paybackDays < 5 ? "дня" : "дней"}.`
-                        : ` Pro — $${proPrice}/мес.`}{" "}
+                      В темпе ≈ {usd(perMonth, 0)}/мес
+                      {multiple >= 1.5
+                        ? ` — это в ${multiple.toFixed(1)}× больше цены Pro ($${proPrice}/мес).`
+                        : paybackDays
+                          ? `. Pro стоит $${proPrice} — окупился бы за ${paybackDays} ${paybackDays === 1 ? "день" : paybackDays < 5 ? "дня" : "дней"}.`
+                          : `. Pro — $${proPrice}/мес.`}{" "}
                       →
                     </div>
                   </div>

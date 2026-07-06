@@ -38,11 +38,8 @@ type Tier = {
   locked?: string[]; // shown struck-through so users feel what they're missing
 };
 
-// TEMPORARY: prices dropped to $6 (Plisio's USDT_TRX invoice minimum is $5)
-// to test the real checkout → webhook → activation path end-to-end before
-// launch. Restore to $25 / $40 after (must match backend PLAN_PRICES in
-// app/core/plans.py — that's the amount actually charged; this array is
-// display-only).
+// Display-only — must match backend PLAN_PRICES in app/core/plans.py, which
+// is the amount actually charged.
 const TIERS: Tier[] = [
   {
     id: "free",
@@ -64,11 +61,11 @@ const TIERS: Tier[] = [
   {
     id: "pro",
     name: "Pro",
-    price: "$6",
+    price: "$25",
     period: "в месяц",
     tagline: "Перестань просто смотреть на прибыль в бэктесте — запусти ботов вживую и зарабатывай.",
     highlight: "popular",
-    cta: "Открыть Pro — $6",
+    cta: "Открыть Pro — $25",
     features: [
       "Всё из Free (вся аналитика и AI)",
       "💸 Live-торговля на бирже 24/7",
@@ -79,11 +76,11 @@ const TIERS: Tier[] = [
   {
     id: "expert",
     name: "Expert",
-    price: "$6",
+    price: "$40",
     period: "в месяц",
     tagline: "Полный арсенал квант-трейдера. Дожимай стратегии до максимума. Богатство и успех. 🚀",
     highlight: "best",
-    cta: "Хочу Expert — $6",
+    cta: "Хочу Expert — $40",
     features: [
       "Всё из Pro",
       "🗺️ Карта чувствительности — устойчива ли стратегия",
