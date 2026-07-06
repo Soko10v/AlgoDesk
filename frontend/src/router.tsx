@@ -33,6 +33,7 @@ function lazyWithRetry<T extends ComponentType<unknown>>(factory: () => Promise<
 const LandingPage = lazyWithRetry(() => import("./pages/LandingPage").then((m) => ({ default: m.LandingPage })));
 const LoginPage = lazyWithRetry(() => import("./pages/LoginPage").then((m) => ({ default: m.LoginPage })));
 const AuthCallbackPage = lazyWithRetry(() => import("./pages/AuthCallbackPage").then((m) => ({ default: m.AuthCallbackPage })));
+const AuthConfirmPage = lazyWithRetry(() => import("./pages/AuthConfirmPage").then((m) => ({ default: m.AuthConfirmPage })));
 const LegalPage = lazyWithRetry(() => import("./pages/LegalPage").then((m) => ({ default: m.LegalPage })));
 const DashboardPage = lazyWithRetry(() => import("./pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
 const StrategyBuilderPage = lazyWithRetry(() => import("./pages/StrategyBuilderPage").then((m) => ({ default: m.StrategyBuilderPage })));
@@ -87,6 +88,7 @@ export const router = createBrowserRouter([
   { path: "/", element: page(<LandingPage />), errorElement: <RouteError /> },
   { path: "/login", element: page(<LoginPage />), errorElement: <RouteError /> },
   { path: "/auth/callback", element: page(<AuthCallbackPage />), errorElement: <RouteError /> },
+  { path: "/auth/confirm", element: page(<AuthConfirmPage />), errorElement: <RouteError /> },
   { path: "/privacy", element: page(<LegalPage />), errorElement: <RouteError /> },
   { path: "/terms", element: page(<LegalPage />), errorElement: <RouteError /> },
   {
