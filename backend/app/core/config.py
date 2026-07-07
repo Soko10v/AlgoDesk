@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     # engine-health alerts (recovery failure, stalled bots).
     sentry_dsn: str = ""
     admin_telegram_id: int = 0
+    # Public "best strategies" channel poster — separate bot/token from the login
+    # bot above so it can be handed posting rights without touching auth. Empty
+    # token or chat id disables posting entirely.
+    telegram_channel_bot_token: str = ""
+    telegram_channel_id: str = ""  # e.g. "@algoDeskk" or a numeric chat id
     # AI strategy analysis via DeepSeek (OpenAI-compatible). Empty key disables it.
     deepseek_api_key: str = ""
     deepseek_model: str = "deepseek-chat"
