@@ -43,6 +43,7 @@ const TradesPage = lazyWithRetry(() => import("./pages/TradesPage").then((m) => 
 const ProfilePage = lazyWithRetry(() => import("./pages/ProfilePage").then((m) => ({ default: m.ProfilePage })));
 const SettingsPage = lazyWithRetry(() => import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
 const SubscriptionPage = lazyWithRetry(() => import("./pages/SubscriptionPage").then((m) => ({ default: m.SubscriptionPage })));
+const AdminAnalyticsPage = lazyWithRetry(() => import("./pages/AdminAnalyticsPage").then((m) => ({ default: m.AdminAnalyticsPage })));
 
 function PageFallback() {
   return (
@@ -106,6 +107,7 @@ export const router = createBrowserRouter([
           { path: "/profile", element: page(<ProfilePage />) },
           { path: "/settings", element: page(<SettingsPage />) },
           { path: "/subscription", element: page(<SubscriptionPage />) },
+          { path: "/admin/analytics", element: page(<AdminAnalyticsPage />) },
         ],
       },
     ],

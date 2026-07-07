@@ -25,6 +25,7 @@ import { Badge, Button, Card, EmptyState, Field, InfoTip, PageHeader, Select, Sp
 import { dateTime, pct, pnlTone, price, signedPct, usd } from "../lib/formatters";
 import { describeEntry, describeFilters } from "../lib/strategy";
 import { MISSED_PROFIT_BASE_USD, periodDays, recordBacktest } from "../lib/missedProfit";
+import { track } from "../lib/analytics";
 import { usePlan, useUpsell } from "../hooks/usePlan";
 import type { FeatureKey } from "../api/endpoints";
 
@@ -115,6 +116,7 @@ export function BacktestPage() {
   const run = useMutation({
     mutationFn: () => runBacktest(strategyId as number, startDate || undefined, endDate || undefined),
     onSuccess: (r) => {
+      track("backtest_run");
       // Feed the dashboard's missed-profit aggregate (free-tier conversion).
       const s = strategies.data?.find((x) => x.id === strategyId);
       if (s) recordBacktest(s, r);

@@ -98,6 +98,7 @@ export type Subscription = {
   paid_in_usdt?: number;
   entitlements?: Partial<Record<FeatureKey, boolean>>;
   prices?: Partial<Record<"pro" | "expert", number>>;
+  is_admin?: boolean;
 };
 
 export type ExchangeId = "bybit" | "binance";
@@ -521,4 +522,14 @@ export async function checkout(
 export async function getPayStatus(txnId: string) {
   const { data } = await api.get(`/payments/status/${txnId}`);
   return data as { status: string; paid: boolean };
+}
+
+// ---- analytics (admin only) ----
+export type FunnelStep = { name: string; label: string; unique_users: number; conversion_pct: number | null };
+export type EventTotal = { name: string; count: number; unique_users: number };
+export type AnalyticsSummary = { since: string; funnel: FunnelStep[]; totals: EventTotal[] };
+
+export async function getAnalyticsSummary(days = 30) {
+  const { data } = await api.get("/analytics/summary", { params: { days } });
+  return data as AnalyticsSummary;
 }

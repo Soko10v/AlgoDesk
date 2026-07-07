@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Navigate, Link } from "react-router-dom";
 import {
   Activity,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 import { useAuthStore } from "../store/auth";
 import { Button } from "../components/ui";
+import { track } from "../lib/analytics";
 
 const features = [
   {
@@ -62,6 +64,10 @@ export function LandingPage() {
   const token = useAuthStore((s) => s.token);
   const ready = useAuthStore((s) => s.ready);
 
+  useEffect(() => {
+    track("page_view");
+  }, []);
+
   // Redirect authenticated users straight to the app
   if (ready && token) return <Navigate to="/dashboard" replace />;
 
@@ -83,7 +89,7 @@ export function LandingPage() {
             <Link to="/login" className="text-sm font-medium text-slate-400 hover:text-white transition">
               Sign in
             </Link>
-            <Link to="/login">
+            <Link to="/login" onClick={() => track("cta_click", { where: "nav" })}>
               <Button variant="primary" className="text-sm">Get started free</Button>
             </Link>
           </div>
@@ -106,7 +112,7 @@ export function LandingPage() {
           against real market history, then run it on Bybit or Binance — paper or live.
         </p>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-          <Link to="/login">
+          <Link to="/login" onClick={() => track("cta_click", { where: "hero" })}>
             <Button variant="primary" className="px-8 py-3 text-base">
               Start for free
             </Button>
@@ -197,7 +203,7 @@ export function LandingPage() {
         <h2 className="text-3xl font-bold text-white">Ready to automate your trading?</h2>
         <p className="mt-4 text-slate-400">Free to start. No credit card required.</p>
         <div className="mt-8">
-          <Link to="/login">
+          <Link to="/login" onClick={() => track("cta_click", { where: "footer" })}>
             <Button variant="primary" className="px-10 py-3 text-base">
               Create free account
             </Button>

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.db import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, is_admin_user
 from app.core.plans import PLAN_PRICES, effective_plan, entitlements, normalize_plan
 from app.models.subscription import Subscription
 from app.models.user import User
@@ -48,8 +48,7 @@ async def get_subscription(
     sub = (
         await db.execute(select(Subscription).where(Subscription.user_id == current_user.id))
     ).scalar_one_or_none()
-    admins = {e.strip().lower() for e in settings.admin_emails.split(",") if e.strip()}
-    is_admin = bool(current_user.email and current_user.email.lower() in admins)
+    is_admin = is_admin_user(current_user)
     plan = effective_plan(
         sub.plan if sub else None,
         sub.expires_at if sub else None,
@@ -62,6 +61,7 @@ async def get_subscription(
         paid_in_usdt=sub.paid_in_usdt if sub else 0.0,
         entitlements=entitlements(plan),
         prices=PLAN_PRICES,
+        is_admin=is_admin,
     )
 
 

@@ -10,6 +10,7 @@ import {
   type UsdtNetwork,
 } from "../api/endpoints";
 import { toast } from "../store/toast";
+import { track } from "../lib/analytics";
 import { PLAN_RANK } from "../hooks/usePlan";
 import { Badge, Button, Card, PageHeader, Spinner } from "../components/ui";
 import { dateTime } from "../lib/formatters";
@@ -102,10 +103,15 @@ export function SubscriptionPage() {
   // Plan picked but network not chosen yet → network-chooser dialog is open.
   const [pickNet, setPickNet] = useState<"pro" | "expert" | null>(null);
 
+  useEffect(() => {
+    track("subscription_view");
+  }, []);
+
   const upgrade = useMutation({
     mutationFn: ({ plan, network }: { plan: "pro" | "expert"; network: UsdtNetwork }) =>
       checkout(plan, "plisio", network),
     onSuccess: (d, { plan }) => {
+      track("checkout_started", { plan });
       if (d.address) {
         setPay(d); // on-page: show QR + address, no redirect
         setPayPlan(plan);
