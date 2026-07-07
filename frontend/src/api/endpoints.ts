@@ -67,7 +67,6 @@ export type Strategy = {
   name: string;
   config_json: StrategyConfig;
   status: string;
-  live_enabled: boolean;
   created_at: string;
 };
 
@@ -213,7 +212,7 @@ export async function listDiscovered() {
   return data as DiscoveredStrategy[];
 }
 
-export async function createStrategy(payload: { name: string; config_json: StrategyConfig; live_enabled?: boolean }) {
+export async function createStrategy(payload: { name: string; config_json: StrategyConfig }) {
   const { data } = await api.post("/strategies", payload);
   return data as Strategy;
 }

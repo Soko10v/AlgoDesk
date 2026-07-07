@@ -387,7 +387,7 @@ class BotSupervisor:
         its open records/state. Spot holdings are not auto-sold."""
         closed = False
         real, ok = await self._exchange_main_position(user, strategy)
-        if ok and real is not None and strategy.live_enabled:
+        if ok and real is not None:
             try:
                 await self._flatten_exchange_position(user, strategy, real)
                 closed = True
@@ -414,7 +414,7 @@ class BotSupervisor:
                 stopped += 1
             if strategy.status != "stopped":
                 strategy.status = "stopped"
-            if strategy.live_enabled and is_futures(strategy.config_json):
+            if is_futures(strategy.config_json):
                 real, ok = await self._exchange_main_position(user, strategy)
                 if ok and real is not None:
                     try:
