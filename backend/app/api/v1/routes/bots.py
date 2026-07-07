@@ -32,8 +32,6 @@ async def start_bot(
             status_code=402,
             detail={"error": "upgrade_required", "feature": feature, "required_plan": FEATURE_MIN_PLAN[feature], "plan": plan},
         )
-    if payload.mode == "live" and not strategy.live_enabled:
-        raise HTTPException(status_code=400, detail="Live mode disabled for this strategy")
     if payload.mode == "live":
         # A single exchange account holds one position per symbol (one-way mode) and
         # leverage is per-symbol — so two live bots on the same symbol would merge

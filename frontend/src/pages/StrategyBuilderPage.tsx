@@ -83,7 +83,6 @@ export function StrategyBuilderPage() {
 
   const [name, setName] = useState("My Strategy");
   const [cfg, setCfg] = useState<StrategyConfig>(defaultConfig());
-  const [liveEnabled, setLiveEnabled] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [tab, setTab] = useState<BuilderTab>("setup");
 
@@ -146,7 +145,7 @@ export function StrategyBuilderPage() {
 
   const save = useMutation({
     mutationFn: () => {
-      const payload = { name: name.trim(), config_json: cfg, live_enabled: liveEnabled };
+      const payload = { name: name.trim(), config_json: cfg };
       return editingId ? updateStrategy(editingId, payload) : createStrategy(payload);
     },
     onSuccess: (s) => {
@@ -170,14 +169,12 @@ export function StrategyBuilderPage() {
   function resetForm() {
     setName("My Strategy");
     setCfg(defaultConfig());
-    setLiveEnabled(false);
     setEditingId(null);
   }
 
   function loadStrategy(s: Strategy) {
     setName(s.name);
     setCfg(normalizeConfig(s.config_json));
-    setLiveEnabled(s.live_enabled);
     setEditingId(s.id);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -185,7 +182,6 @@ export function StrategyBuilderPage() {
   function loadGenerated(bot: GeneratedBot) {
     setName(bot.name);
     setCfg(normalizeConfig(bot.config));
-    setLiveEnabled(false);
     setEditingId(null);
     setTab("setup");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -746,14 +742,6 @@ export function StrategyBuilderPage() {
 
           {/* Footer: always visible regardless of the active tab. */}
           <div className="mt-5 space-y-3 border-t border-white/[0.06] pt-4">
-            <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5">
-              <div>
-                <div className="text-sm font-medium text-slate-200">Enable live trading</div>
-                <div className="text-xs text-slate-500">Required before a bot can run in live mode.</div>
-              </div>
-              <Toggle checked={liveEnabled} onChange={setLiveEnabled} />
-            </div>
-
             <Button className="w-full" onClick={() => save.mutate()} loading={save.isPending} disabled={!canSave}>
               <Save className="h-4 w-4" /> {editingId ? "Update strategy" : "Save strategy"}
             </Button>

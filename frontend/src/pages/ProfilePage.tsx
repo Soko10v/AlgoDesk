@@ -48,7 +48,6 @@ export function ProfilePage() {
   const user = profile.data;
   const items = strategies.data ?? [];
   const running = items.filter((s) => isRunning(s.status)).length;
-  const liveReady = items.filter((s) => s.live_enabled).length;
   const plan = subscription.data?.plan ?? "free";
   const freeMode = subscription.data?.free_mode ?? false;
   const connected = status.data?.connected ?? false;
@@ -101,7 +100,7 @@ export function ProfilePage() {
           icon={Boxes}
           label="Bots"
           value={items.length}
-          sub={`${running} running · ${liveReady} live-ready`}
+          sub={`${running} running`}
           valueClassName={running ? "text-brand-400" : undefined}
         />
         <StatCard

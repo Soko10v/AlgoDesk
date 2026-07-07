@@ -257,15 +257,35 @@ export function StatCard({
   value,
   sub,
   valueClassName,
+  onClick,
 }: {
   icon?: LucideIcon;
   label: string;
   value: ReactNode;
   sub?: ReactNode;
   valueClassName?: string;
+  onClick?: () => void;
 }) {
   return (
-    <Card className="animate-slide-up p-5">
+    <Card
+      className={cn(
+        "animate-slide-up p-5",
+        onClick && "cursor-pointer transition hover:border-white/[0.12] hover:bg-white/[0.03] active:scale-[0.99]"
+      )}
+      onClick={onClick}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
+    >
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium uppercase tracking-wider text-slate-400">{label}</span>
         {Icon && <Icon className="h-4 w-4 text-slate-500" />}

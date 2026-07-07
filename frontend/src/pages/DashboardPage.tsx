@@ -57,13 +57,18 @@ export function DashboardPage() {
   const subscription = useQuery({ queryKey: ["subscription"], queryFn: getSubscription });
   const discovered = useQuery({ queryKey: ["discovered"], queryFn: listDiscovered, staleTime: 5 * 60_000 });
   const navigate = useNavigate();
+  const strategiesRef = useRef<HTMLDivElement>(null);
+  const [newStrategyId, setNewStrategyId] = useState<number | null>(null);
+  const scrollToStrategies = () =>
+    strategiesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   const useDiscovered = useMutation({
     mutationFn: (d: DiscoveredStrategy) =>
       createStrategy({ name: `${d.title} · ${d.symbol}`, config_json: d.config_json }),
-    onSuccess: (s, d) => {
-      toast.success("Стратегия добавлена", "Открываю бэктест и запускаю проверку.");
+    onSuccess: (s) => {
+      toast.success("Стратегия добавлена", "Она уже в списке ниже — можно протестировать или запустить.");
       qc.invalidateQueries({ queryKey: ["strategies"] });
-      navigate(`/backtest?strategy=${s.id}&autorun=1&days=${d.period_days}`);
+      setNewStrategyId(s.id);
+      requestAnimationFrame(scrollToStrategies);
     },
     onError: () => toast.error("Не удалось добавить стратегию", "Попробуй ещё раз."),
   });
@@ -202,13 +207,20 @@ export function DashboardPage() {
       />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard icon={Boxes} label="Strategies" value={items.length} sub="Total configured" />
+        <StatCard
+          icon={Boxes}
+          label="Strategies"
+          value={items.length}
+          sub="Total configured"
+          onClick={scrollToStrategies}
+        />
         <StatCard
           icon={Radio}
           label="Running"
           value={running}
           sub={running ? "Bots active now" : "No active bots"}
           valueClassName={running ? "text-brand-400" : undefined}
+          onClick={scrollToStrategies}
         />
         <StatCard
           icon={Plug}
@@ -216,6 +228,7 @@ export function DashboardPage() {
           value={exchange.data?.connected ? "Connected" : "Not linked"}
           sub={<span className="capitalize">{exchange.data?.connected ? `${exchange.data.exchange} API` : "Bybit or Binance"}</span>}
           valueClassName={exchange.data?.connected ? "text-brand-400" : "text-slate-400"}
+          onClick={() => navigate("/settings")}
         />
         <StatCard
           icon={Crown}
@@ -229,6 +242,7 @@ export function DashboardPage() {
                 : "Upgrade for more"
           }
           valueClassName={subscription.data?.plan === "pro" ? "text-amber-300" : undefined}
+          onClick={() => navigate("/subscription")}
         />
       </div>
 
@@ -310,7 +324,7 @@ export function DashboardPage() {
       )}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 scroll-mt-6" ref={strategiesRef}>
           <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-400">Your strategies</h3>
           {items.length === 0 ? (
             <EmptyState
@@ -337,6 +351,7 @@ export function DashboardPage() {
                   syncing={sync.isPending && sync.variables === s.id}
                   closing={closePos.isPending && closePos.variables === s.id}
                   liveClash={liveClashName(s)}
+                  defaultExpanded={s.id === newStrategyId}
                   onStart={(mode, usdt) =>
                     can(mode)
                       ? start.mutate({ id: s.id, mode, usdt })
@@ -369,6 +384,7 @@ function StrategyRow({
   syncing,
   closing,
   liveClash,
+  defaultExpanded,
   onStart,
   onStop,
   onEdit,
@@ -382,6 +398,7 @@ function StrategyRow({
   syncing: boolean;
   closing: boolean;
   liveClash: string | null;
+  defaultExpanded?: boolean;
   onStart: (mode: "paper" | "live", usdt?: number) => void;
   onStop: () => void;
   onEdit: () => void;
@@ -392,7 +409,7 @@ function StrategyRow({
   const running = isRunning(strategy.status);
   const cfg = strategy.config_json;
   const futures = isFutures(cfg);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded ?? false);
   const [liveUsdt, setLiveUsdt] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -474,7 +491,6 @@ function StrategyRow({
             ) : (
               <Badge tone="neutral">Stopped</Badge>
             )}
-            {strategy.live_enabled && <Badge tone="violet">Live enabled</Badge>}
             {openCount > 0 && <Badge tone="warning">{openCount} open</Badge>}
             {liveClash !== null && <Badge tone="danger">Shares {cfg.symbol} with {liveClash}</Badge>}
           </div>
@@ -554,13 +570,11 @@ function StrategyRow({
                     size="sm"
                     variant="secondary"
                     onClick={() => setLiveUsdt(String(positionUsdt(cfg)))}
-                    disabled={pending || !strategy.live_enabled || liveClash !== null}
+                    disabled={pending || liveClash !== null}
                     title={
                       liveClash !== null
                         ? `“${liveClash}” is already live on ${cfg.symbol} — stop it first (one position per symbol/account)`
-                        : strategy.live_enabled
-                          ? "Enter position size to start live trading"
-                          : "Enable live in the builder first"
+                        : "Enter position size to start live trading"
                     }
                   >
                     <Play className="h-3.5 w-3.5" /> Live

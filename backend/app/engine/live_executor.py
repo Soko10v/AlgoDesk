@@ -175,8 +175,6 @@ async def place_live_order(
     position_side: str | None = None,
 ) -> float:
     """Market order. Returns the average fill price (0.0 if unavailable)."""
-    if not strategy.live_enabled:
-        raise ValueError("Live trading is disabled for this strategy.")
     symbol, market = _order_symbol(strategy)
     client = exchange_client(user.exchange, user, market_type=market)
     try:
@@ -219,8 +217,6 @@ async def place_stop_order(
     """Place a reduce-only stop-market order that the exchange triggers on its
     own. Best-effort: returns the order id, or None if the exchange rejected it
     (the engine keeps an in-memory stop as a fallback either way)."""
-    if not strategy.live_enabled:
-        return None
     symbol, market = _order_symbol(strategy)
     client = exchange_client(user.exchange, user, market_type=market)
     try:

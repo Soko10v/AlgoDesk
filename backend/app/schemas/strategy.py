@@ -111,7 +111,6 @@ def _validate_futures(value: dict[str, Any]) -> None:
 class StrategyBase(BaseModel):
     name: str = Field(min_length=2, max_length=255)
     config_json: dict[str, Any]
-    live_enabled: bool = False
 
     @field_validator("config_json")
     @classmethod
@@ -127,7 +126,6 @@ class StrategyUpdateIn(BaseModel):
     name: str | None = None
     config_json: dict[str, Any] | None = None
     status: str | None = None
-    live_enabled: bool | None = None
 
     @field_validator("config_json")
     @classmethod
@@ -143,7 +141,6 @@ class StrategyOut(BaseModel):
     name: str
     config_json: dict[str, Any]
     status: str
-    live_enabled: bool
     created_at: datetime
 
     model_config = {"from_attributes": True}
