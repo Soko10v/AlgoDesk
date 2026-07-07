@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { Activity, BarChart3, Boxes, Mail, Send, ShieldCheck, Zap } from "lucide-react";
 import { authTelegram } from "../api/endpoints";
+import { track } from "../lib/analytics";
 import { signInWithGoogle, useAuthConfig } from "../hooks/useAuth";
 import { supabase, supabaseConfigured } from "../lib/supabase";
 import { useAuthStore } from "../store/auth";
@@ -187,6 +188,7 @@ export function LoginPage() {
           options: { emailRedirectTo: authRedirectTo },
         });
         if (error) throw error;
+        track("signup_success");
         if (data.session) {
           // Confirmation disabled on this project — already signed in.
           setToken(data.session.access_token);

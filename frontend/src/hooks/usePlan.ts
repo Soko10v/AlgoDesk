@@ -34,6 +34,7 @@ export function usePlan() {
     requiredPlan: (f: FeatureKey): PlanId => FEATURE_MIN_PLAN[f],
     freeMode: q.data?.free_mode ?? false,
     prices: q.data?.prices,
+    isAdmin: q.data?.is_admin ?? false,
     data: q.data,
     loading: q.isLoading,
   };

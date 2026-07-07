@@ -37,3 +37,5 @@ class SubscriptionOut(BaseModel):
     # Per-feature unlock map + plan prices so the client can gate the UI.
     entitlements: dict[str, bool] = {}
     prices: dict[str, float] = {}
+    # Lets the client show the admin-only analytics summary link.
+    is_admin: bool = False

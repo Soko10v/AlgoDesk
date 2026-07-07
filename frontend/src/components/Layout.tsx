@@ -1,6 +1,7 @@
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   Activity,
+  BarChart3,
   Boxes,
   CreditCard,
   GitCompare,
@@ -25,6 +26,7 @@ const nav = [
   { to: "/trades", label: "Trade Log", icon: ScrollText, end: false, requiresSubscription: true },
   { to: "/settings", label: "Exchange", icon: SlidersHorizontal, end: false, requiresSubscription: true },
   { to: "/subscription", label: "Subscription", icon: CreditCard, end: false },
+  { to: "/admin/analytics", label: "Analytics", icon: BarChart3, end: false, adminOnly: true },
 ];
 
 function Brand() {
@@ -43,13 +45,15 @@ function Brand() {
 
 export function Layout() {
   const user = useAuthStore((s) => s.user);
-  const { plan } = usePlan();
+  const { plan, isAdmin } = usePlan();
   const handleLogout = () => {
     void signOut();
   };
   const location = useLocation();
   const initials = (user?.username ?? user?.email ?? "T").slice(0, 2).toUpperCase();
-  const visibleNav = nav.filter((item) => !item.requiresSubscription || plan !== "free");
+  const visibleNav = nav.filter(
+    (item) => (!item.requiresSubscription || plan !== "free") && (!item.adminOnly || isAdmin)
+  );
   const current =
     location.pathname.startsWith("/profile")
       ? { label: "Profile" }

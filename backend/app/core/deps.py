@@ -51,8 +51,7 @@ async def current_plan(
     """The plan in force for this user (expert for everyone while FREE_MODE is on)."""
     if settings.free_mode:
         return effective_plan(None, None, free_mode=True)
-    admins = {e.strip().lower() for e in settings.admin_emails.split(",") if e.strip()}
-    if user.email and user.email.lower() in admins:
+    if is_admin_user(user):
         return effective_plan(None, None, free_mode=True)
     sub = (
         await db.execute(select(Subscription).where(Subscription.user_id == user.id))
@@ -60,6 +59,18 @@ async def current_plan(
     plan = sub.plan if sub else None
     expires = sub.expires_at if sub else None
     return effective_plan(plan, expires, free_mode=False)
+
+
+def is_admin_user(user: User) -> bool:
+    admins = {e.strip().lower() for e in settings.admin_emails.split(",") if e.strip()}
+    return bool(user.email and user.email.lower() in admins)
+
+
+async def require_admin(user: User = Depends(get_current_user)) -> User:
+    """Dependency that 403s unless the caller's email is in ADMIN_EMAILS."""
+    if not is_admin_user(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
+    return user
 
 
 def require_feature(feature: str):
