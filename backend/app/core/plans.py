@@ -22,7 +22,7 @@ PLAN_EXPERT = "expert"
 PLAN_RANK = {PLAN_FREE: 0, PLAN_PRO: 1, PLAN_EXPERT: 2}
 
 # Monthly price in USDT per paid plan.
-PLAN_PRICES = {PLAN_PRO: 5.0, PLAN_EXPERT: 10.0}
+PLAN_PRICES = {PLAN_PRO: 7.0, PLAN_EXPERT: 15.0}
 
 # Feature key -> minimum plan that unlocks it.
 # Free is deliberately generous: build, backtest and every analysis/optimization

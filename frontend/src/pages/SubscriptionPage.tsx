@@ -63,11 +63,11 @@ const TIERS: Tier[] = [
   {
     id: "pro",
     name: "Pro",
-    price: "$5",
+    price: "$7",
     period: "в месяц",
     tagline: "Перестань просто смотреть на прибыль в бэктесте — запусти ботов вживую и зарабатывай.",
     highlight: "popular",
-    cta: "Открыть Pro — $5",
+    cta: "Открыть Pro — $7",
     features: [
       "Всё из Free (вся аналитика)",
       "💸 Live-торговля на бирже 24/7",
@@ -78,11 +78,11 @@ const TIERS: Tier[] = [
   {
     id: "expert",
     name: "Expert",
-    price: "$10",
+    price: "$15",
     period: "в месяц",
     tagline: "Полный арсенал квант-трейдера. Дожимай стратегии до максимума. Богатство и успех. 🚀",
     highlight: "best",
-    cta: "Хочу Expert — $10",
+    cta: "Хочу Expert — $15",
     features: [
       "Всё из Pro",
       "🧠 AI-аналитик и AI-сборщик ботов",

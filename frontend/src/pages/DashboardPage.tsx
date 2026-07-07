@@ -97,7 +97,7 @@ export function DashboardPage() {
   }, [items, subscription.data?.plan]);
   const missedTotal = missed.reduce((sum, e) => sum + e.profitUsd, 0);
   const missedInvested = missed.reduce((sum, e) => sum + e.investedUsd, 0);
-  const missedMultiple = missedTotal / 5; // vs Pro's monthly price
+  const missedMultiple = missedTotal / 7; // vs Pro's monthly price
 
   // Name of another LIVE bot already trading the same symbol+market, if any —
   // running two on one symbol/account merges them into one exchange position.
@@ -251,8 +251,8 @@ export function DashboardPage() {
                 По последним бэктестам: {missed.slice(0, 3).map((e) => `${e.name} ${usd(e.profitUsd, 0)}`).join(" · ")}
                 {missed.length > 3 ? ` · ещё ${missed.length - 3}` : ""}.{" "}
                 {missedMultiple >= 1.5
-                  ? `Это в ${missedMultiple.toFixed(1)}× больше цены Pro ($5/мес).`
-                  : "Запусти их вживую — Pro $5/мес."}{" "}
+                  ? `Это в ${missedMultiple.toFixed(1)}× больше цены Pro ($7/мес).`
+                  : "Запусти их вживую — Pro $7/мес."}{" "}
                 →
               </div>
             </div>
