@@ -12,6 +12,7 @@ from sqlalchemy import delete, func, select
 
 from app.models.discovered import DiscoveredStrategy
 from app.services.discovery import discover
+from app.services.telegram_channel import maybe_post_discovery
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ async def run_discovery(session_factory) -> None:
         try:
             rows = await discover()
             await _replace(session_factory, rows)
+            await maybe_post_discovery(rows)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - keep the loop alive; retry sooner
