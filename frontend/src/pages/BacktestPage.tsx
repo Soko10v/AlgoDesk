@@ -1004,7 +1004,7 @@ export function BacktestPage() {
             const missedUsd = (posUsdt * result.total_return_pct) / 100;
             const days = periodDays(result);
             const perMonth = (missedUsd / days) * 30;
-            const proPrice = 5;
+            const proPrice = 7;
             const multiple = perMonth / proPrice;
             const paybackDays = perMonth > proPrice ? Math.max(1, Math.ceil(proPrice / (perMonth / 30))) : null;
             return (
