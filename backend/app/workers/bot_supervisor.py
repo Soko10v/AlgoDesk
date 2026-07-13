@@ -551,6 +551,16 @@ class BotSupervisor:
                     raise
                 except Exception as exc:  # noqa: BLE001 - keep the bot alive
                     logger.exception("bot loop error for strategy %s: %s", strategy_id, exc)
+                    # Surface repeated failures (e.g. a close order that keeps
+                    # bouncing) to the user — throttled to one alert per hour so
+                    # a per-tick error can't flood Telegram.
+                    if await redis_client.set(f"loop_err_alert:{strategy_id}", "1", nx=True, ex=3600):
+                        await send_telegram_alert(
+                            user.telegram_id,
+                            f"⚠️ Бот «{strategy.name}» получает ошибку от биржи: {exc}. "
+                            "Проверь позицию на дашборде.",
+                        )
+                        await send_admin_alert(f"bot loop error for strategy {strategy_id}: {exc}")
             await asyncio.sleep(LOOP_INTERVAL)
 
     async def _run_once(self, db: AsyncSession, user: User, strategy: Strategy, state: BotState) -> None:
