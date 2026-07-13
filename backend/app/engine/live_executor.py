@@ -60,6 +60,28 @@ def _order_symbol(strategy: Strategy) -> tuple[str, str]:
     return symbol, "spot"
 
 
+async def _spot_sell_amount(client, symbol: str, amount: float) -> float:
+    """Sell amount that the spot wallet can actually cover.
+
+    On a spot buy the exchange takes its fee out of the bought asset, so the
+    wallet ends up holding slightly less than the ordered amount (buy 0.001146
+    BTC → hold ~0.0011446). Selling the ordered amount then bounces with
+    "Insufficient balance" — both the protective stop and the position close.
+    Clamp to the free base balance (never above the requested amount, so a
+    user's own separate holdings are never touched)."""
+    try:
+        base = symbol.split("/")[0]
+        bal = await client.fetch_balance()
+        free = float((bal.get("free") or {}).get(base) or 0.0)
+        if 0 < free < amount:
+            clamped = float(client.amount_to_precision(symbol, free))
+            if clamped > 0:
+                return clamped
+    except Exception as exc:  # noqa: BLE001 - best-effort; keep the requested amount
+        logger.warning("could not clamp spot sell amount for %s: %s", symbol, exc)
+    return amount
+
+
 def _position_params(exchange_id: str, position_side: str | None, reduce_only: bool, hedged: bool) -> dict:
     """Per-exchange params to target a position. ``hedged`` selects between the
     account's hedge mode (long/short held separately) and one-way mode."""
@@ -179,6 +201,8 @@ async def place_live_order(
     client = exchange_client(user.exchange, user, market_type=market)
     try:
         if market != "futures":
+            if side == "sell":
+                amount = await _spot_sell_amount(client, symbol, amount)
             order = await client.create_order(symbol=symbol, type="market", side=side, amount=amount, params={})
             return await _fill_price(client, symbol, order)
 
@@ -225,12 +249,25 @@ async def place_stop_order(
         if market == "futures":
             hedged = (await _cached_posmode(user)) == "hedge"
             params.update(_position_params(user.exchange, position_side, reduce_only=True, hedged=hedged))
+        elif side == "sell":
+            amount = await _spot_sell_amount(client, symbol, amount)
         order = await client.create_order(
             symbol=symbol, type="market", side=side, amount=amount, params=params
         )
         return str(order.get("id")) if order.get("id") is not None else None
     except Exception as exc:  # noqa: BLE001 - protective stop is best-effort
         logger.warning("could not place exchange stop for strategy %s: %s", strategy.id, exc)
+        # The engine's in-memory stop still guards the position, but the user
+        # should know the exchange-side safety net is missing.
+        from app.services.telegram_alerts import send_admin_alert, send_telegram_alert
+
+        await send_telegram_alert(
+            user.telegram_id,
+            f"⚠️ {strategy.name}: биржевой стоп-лосс не выставился ({exc}). "
+            "Бот продолжит следить за стопом сам, но при перезапуске сервера позиция "
+            "останется без защитного ордера на бирже.",
+        )
+        await send_admin_alert(f"stop order failed for strategy {strategy.id}: {exc}")
         return None
     finally:
         await client.close()
