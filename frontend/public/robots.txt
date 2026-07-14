@@ -1,0 +1,15 @@
+User-agent: *
+Allow: /
+# App pages behind auth — no content for crawlers there.
+Disallow: /dashboard
+Disallow: /builder
+Disallow: /backtest
+Disallow: /compare
+Disallow: /trades
+Disallow: /profile
+Disallow: /settings
+Disallow: /subscription
+Disallow: /admin
+Disallow: /auth/
+
+Sitemap: https://algodesk.pro/sitemap.xml
