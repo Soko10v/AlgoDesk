@@ -8,6 +8,7 @@ import {
   KeyRound,
   Lock,
   ShieldCheck,
+  Sparkles,
   Zap,
 } from "lucide-react";
 import { useAuthStore } from "../store/auth";
@@ -17,46 +18,73 @@ import { track } from "../lib/analytics";
 const features = [
   {
     icon: Boxes,
-    title: "Visual strategy builder",
-    text: "Drag-and-drop entry, exit, stop-loss and take-profit blocks. No programming required.",
+    title: "Визуальный конструктор стратегий",
+    text: "Собери торгового бота из готовых блоков: вход, фильтры, стоп-лосс и тейк-профит. Программировать не нужно.",
   },
   {
     icon: BarChart3,
-    title: "Instant backtesting",
-    text: "Replay your strategies against real historical Bybit and Binance market data with equity curves and drawdown charts.",
+    title: "Бэктест на реальных данных",
+    text: "Проверь стратегию на настоящей истории котировок Bybit и Binance: кривая доходности, просадка, винрейт — до того, как рисковать деньгами.",
+  },
+  {
+    icon: Sparkles,
+    title: "Готовые стратегии",
+    text: "Не разбираешься в индикаторах? Сервер сам перебирает тысячи вариантов на свежих данных и раз в пару дней публикует лучшие — выбери и запусти.",
   },
   {
     icon: Zap,
-    title: "Paper & live trading",
-    text: "Test risk-free in paper mode, then deploy to live markets on Bybit or Binance with a single click.",
-  },
-  {
-    icon: ShieldCheck,
-    title: "Non-custodial",
-    text: "We never hold your funds. API keys are restricted to trading-only — no withdrawal permission is ever needed or requested.",
+    title: "Paper и live торговля",
+    text: "Обкатай бота в paper-режиме без риска, потом запусти автоматическую торговлю на бирже — бот работает 24/7 без эмоций.",
   },
 ];
 
 const securityPoints = [
   {
     icon: Lock,
-    title: "Fernet encryption at rest",
-    text: "Your API key and secret are encrypted with Fernet symmetric encryption before being stored. The plaintext never touches the database.",
+    title: "Шифрование ключей",
+    text: "API-ключ и секрет шифруются до записи в базу. В открытом виде они никогда не хранятся.",
   },
   {
     icon: KeyRound,
-    title: "Write-only key storage",
-    text: "Once saved, your API secret is never returned to the browser. It can only be replaced or deleted.",
+    title: "Ключ нельзя прочитать",
+    text: "После сохранения секретный ключ не возвращается в браузер — его можно только заменить или удалить.",
   },
   {
     icon: ShieldCheck,
-    title: "No withdrawal access",
-    text: "AlgoDesk only requires Read and Trade permissions. Withdrawal permission must stay disabled — our platform cannot and does not move your funds off the exchange.",
+    title: "Без права вывода",
+    text: "AlgoDesk нужны только права Read и Trade. Право на вывод средств не запрашивается — платформа физически не может вывести деньги с биржи.",
   },
   {
     icon: Activity,
-    title: "You stay in control",
-    text: "Revoke the API key from your exchange at any time to instantly disconnect AlgoDesk. No lock-in.",
+    title: "Контроль у тебя",
+    text: "Отзови API-ключ на бирже в любой момент — AlgoDesk мгновенно теряет доступ. Никакой привязки.",
+  },
+];
+
+const faq = [
+  {
+    q: "Что такое торговый бот и как он работает?",
+    a: "Торговый бот — это программа, которая покупает и продаёт криптовалюту по заданной стратегии автоматически, 24/7, без эмоций. В AlgoDesk стратегия собирается из готовых блоков: условие входа, фильтры, стоп-лосс и тейк-профит.",
+  },
+  {
+    q: "Нужно ли уметь программировать?",
+    a: "Нет. Стратегия собирается в визуальном конструкторе из готовых блоков, а для новичков есть готовые стратегии, которые сервер подбирает автоматически на реальных данных.",
+  },
+  {
+    q: "Это бесплатно?",
+    a: "Конструктор, бэктесты на реальной истории, оптимизатор параметров и готовые стратегии — бесплатны и без ограничений. Платная подписка нужна только для запуска ботов в реальную торговлю (Pro от $7 в месяц).",
+  },
+  {
+    q: "На каких биржах работают боты?",
+    a: "Bybit и Binance — подключение через официальный API биржи с ключами без права вывода средств.",
+  },
+  {
+    q: "Могут ли боты украсть или вывести мои деньги?",
+    a: "Нет. AlgoDesk не хранит ваши средства — деньги остаются на вашей бирже. API-ключ создаётся без права вывода, шифруется при хранении и может быть отозван на бирже в любой момент.",
+  },
+  {
+    q: "Гарантирован ли заработок на торговых ботах?",
+    a: "Нет. Торговля криптовалютой сопряжена с риском, а прошлая доходность стратегии не гарантирует будущую. Поэтому в AlgoDesk каждая стратегия сначала проверяется бэктестом и paper-режимом без риска, и только потом запускается на реальные деньги.",
   },
 ];
 
@@ -87,10 +115,10 @@ export function LandingPage() {
           </div>
           <div className="flex items-center gap-3">
             <Link to="/login" className="text-sm font-medium text-slate-400 hover:text-white transition">
-              Sign in
+              Войти
             </Link>
             <Link to="/login" onClick={() => track("cta_click", { where: "nav" })}>
-              <Button variant="primary" className="text-sm">Get started free</Button>
+              <Button variant="primary" className="text-sm">Начать бесплатно</Button>
             </Link>
           </div>
         </div>
@@ -100,28 +128,29 @@ export function LandingPage() {
       <section className="mx-auto max-w-6xl px-5 pb-16 pt-24 text-center">
         <div className="inline-flex items-center gap-2 rounded-full border border-brand-500/30 bg-brand-500/10 px-4 py-1.5 text-xs font-medium text-brand-300 mb-8">
           <span className="h-1.5 w-1.5 rounded-full bg-brand-400 animate-pulse-soft" />
-          Supports Bybit &amp; Binance
+          Работает с Bybit и Binance
         </div>
 
         <h1 className="text-5xl font-bold leading-tight tracking-tight text-white lg:text-6xl">
-          Build crypto trading bots<br />
-          <span className="text-brand-400">without writing code</span>
+          Торговые боты для криптовалюты<br />
+          <span className="text-brand-400">без программирования</span>
         </h1>
         <p className="mx-auto mt-6 max-w-2xl text-lg text-slate-400">
-          AlgoDesk is an algorithmic trading platform. Design your strategy visually, validate it
-          against real market history, then run it on Bybit or Binance — paper or live.
+          AlgoDesk — платформа алготрейдинга: собери стратегию в визуальном конструкторе,
+          проверь её бэктестом на реальной истории и запусти автоматическую торговлю
+          на Bybit или Binance — сначала без риска, потом вживую.
         </p>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
           <Link to="/login" onClick={() => track("cta_click", { where: "hero" })}>
             <Button variant="primary" className="px-8 py-3 text-base">
-              Start for free
+              Попробовать бесплатно
             </Button>
           </Link>
           <a
             href="#how-it-works"
             className="text-sm font-medium text-slate-400 hover:text-white transition"
           >
-            How it works ↓
+            Как это работает ↓
           </a>
         </div>
       </section>
@@ -129,8 +158,8 @@ export function LandingPage() {
       {/* ── Features ─────────────────────────────────────── */}
       <section id="how-it-works" className="mx-auto max-w-6xl px-5 py-20">
         <div className="mb-12 text-center">
-          <h2 className="text-3xl font-bold text-white">Everything you need to automate trading</h2>
-          <p className="mt-3 text-slate-400">From idea to live bot in minutes — no code required.</p>
+          <h2 className="text-3xl font-bold text-white">Всё для автоматической торговли</h2>
+          <p className="mt-3 text-slate-400">От идеи до работающего бота за минуты — без единой строчки кода.</p>
         </div>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {features.map((f) => (
@@ -154,16 +183,16 @@ export function LandingPage() {
           <div className="grid gap-12 lg:grid-cols-2 lg:items-center">
             <div>
               <div className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-brand-300">
-                <ShieldCheck className="h-4 w-4" /> Security &amp; Privacy
+                <ShieldCheck className="h-4 w-4" /> Безопасность
               </div>
               <h2 className="text-3xl font-bold text-white">
-                Your exchange API keys — explained
+                Твои деньги остаются на твоей бирже
               </h2>
               <p className="mt-4 text-slate-400 leading-relaxed">
-                To place orders on your behalf, AlgoDesk connects to Bybit or Binance through their
-                official API. You create a restricted API key on your exchange and paste it here.
-                We never have access to your funds — only the ability to open and close trading
-                positions as instructed by your strategy.
+                Чтобы торговать от твоего имени, AlgoDesk подключается к Bybit или Binance через
+                их официальный API. Ты создаёшь на бирже ограниченный API-ключ и вставляешь его
+                сюда. У платформы нет доступа к твоим средствам — только возможность открывать
+                и закрывать позиции по правилам твоей стратегии.
               </p>
               <div className="mt-6 flex gap-4 text-sm text-slate-400">
                 <a
@@ -172,7 +201,7 @@ export function LandingPage() {
                   rel="noopener noreferrer"
                   className="flex items-center gap-1.5 hover:text-brand-300 transition"
                 >
-                  Bybit API docs <ExternalLink className="h-3.5 w-3.5" />
+                  API-ключи Bybit <ExternalLink className="h-3.5 w-3.5" />
                 </a>
                 <a
                   href="https://www.binance.com/en/my/settings/api-management"
@@ -180,7 +209,7 @@ export function LandingPage() {
                   rel="noopener noreferrer"
                   className="flex items-center gap-1.5 hover:text-brand-300 transition"
                 >
-                  Binance API docs <ExternalLink className="h-3.5 w-3.5" />
+                  API-ключи Binance <ExternalLink className="h-3.5 w-3.5" />
                 </a>
               </div>
             </div>
@@ -198,14 +227,30 @@ export function LandingPage() {
         </div>
       </section>
 
+      {/* ── FAQ ──────────────────────────────────────────── */}
+      <section className="mx-auto max-w-3xl px-5 py-20">
+        <h2 className="text-center text-3xl font-bold text-white">Частые вопросы</h2>
+        <div className="mt-10 space-y-3">
+          {faq.map((item) => (
+            <details key={item.q} className="card group p-5">
+              <summary className="cursor-pointer list-none font-semibold text-slate-100 marker:content-none">
+                <span className="mr-2 text-brand-400 transition-transform group-open:rotate-90 inline-block">›</span>
+                {item.q}
+              </summary>
+              <p className="mt-3 pl-5 text-sm leading-relaxed text-slate-400">{item.a}</p>
+            </details>
+          ))}
+        </div>
+      </section>
+
       {/* ── CTA ──────────────────────────────────────────── */}
       <section className="mx-auto max-w-6xl px-5 py-24 text-center">
-        <h2 className="text-3xl font-bold text-white">Ready to automate your trading?</h2>
-        <p className="mt-4 text-slate-400">Free to start. No credit card required.</p>
+        <h2 className="text-3xl font-bold text-white">Готов автоматизировать торговлю?</h2>
+        <p className="mt-4 text-slate-400">Бесплатный старт. Банковская карта не нужна.</p>
         <div className="mt-8">
           <Link to="/login" onClick={() => track("cta_click", { where: "footer" })}>
             <Button variant="primary" className="px-10 py-3 text-base">
-              Create free account
+              Создать бесплатный аккаунт
             </Button>
           </Link>
         </div>
@@ -220,12 +265,13 @@ export function LandingPage() {
                 <Activity className="h-3.5 w-3.5" strokeWidth={2.5} />
               </div>
               <span className="font-medium text-slate-400">AlgoDesk</span>
-              <span>— Algorithmic trading platform</span>
+              <span>— платформа алготрейдинга</span>
             </div>
             <div className="flex items-center gap-5">
-              <a href="mailto:sokolovpeterdev@gmail.com" className="hover:text-slate-300 transition">Support</a>
-              <Link to="/privacy" className="hover:text-slate-300 transition">Privacy Policy</Link>
-              <Link to="/terms" className="hover:text-slate-300 transition">Terms of Service</Link>
+              <a href="https://t.me/algoDeskk" target="_blank" rel="noopener noreferrer" className="hover:text-slate-300 transition">Telegram</a>
+              <a href="mailto:sokolovpeterdev@gmail.com" className="hover:text-slate-300 transition">Поддержка</a>
+              <Link to="/privacy" className="hover:text-slate-300 transition">Конфиденциальность</Link>
+              <Link to="/terms" className="hover:text-slate-300 transition">Условия</Link>
               <span>© {new Date().getFullYear()} AlgoDesk</span>
             </div>
           </div>

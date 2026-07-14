@@ -1,28 +1,99 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2310b981'/%3E%3Cpath d='M9 22l5-12 5 12M11 18h6' stroke='%23070b14' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#070b14" />
-    <meta name="description" content="AlgoDesk — no-code algorithmic trading bot constructor for crypto. Build, backtest and automate trading strategies on Bybit and Binance." />
-    <meta name="keywords" content="algorithmic trading, crypto trading bot, bybit bot, binance bot, no-code trading, backtest" />
+    <meta name="description" content="AlgoDesk — конструктор торговых ботов для криптовалюты без программирования. Собери стратегию, проверь на реальной истории Bybit и Binance, запусти автоматическую торговлю. Бесплатный бэктест и готовые стратегии." />
+    <meta name="keywords" content="торговый бот, трейдинг бот, криптовалюта, автоматическая торговля, алготрейдинг, бот для Bybit, бот для Binance, бэктест, торговые стратегии, трейдинг без кода" />
     <meta name="robots" content="index, follow" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="AlgoDesk — No-code crypto trading bots" />
-    <meta property="og:description" content="Build and automate trading strategies on Bybit and Binance without coding. Visual builder, instant backtesting, paper and live trading." />
+    <meta property="og:title" content="AlgoDesk — торговые боты для крипты без кода" />
+    <meta property="og:description" content="Собери торгового бота без программирования: визуальный конструктор, бэктест на реальных данных, готовые стратегии, автоматическая торговля на Bybit и Binance." />
     <meta property="og:url" content="https://algodesk.pro" />
     <meta property="og:site_name" content="AlgoDesk" />
+    <meta property="og:locale" content="ru_RU" />
     <meta property="og:image" content="https://algodesk.pro/og.png" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="AlgoDesk — No-code crypto trading bots" />
-    <meta name="twitter:description" content="Build, backtest and automate trading strategies on Bybit and Binance — no code." />
+    <meta name="twitter:title" content="AlgoDesk — торговые боты для крипты без кода" />
+    <meta name="twitter:description" content="Визуальный конструктор торговых ботов, бэктест на истории, автоматическая торговля на Bybit и Binance." />
     <meta name="twitter:image" content="https://algodesk.pro/og.png" />
     <link rel="canonical" href="https://algodesk.pro" />
-    <title>AlgoDesk — No-code trading bots</title>
-    <!-- Privacy-friendly analytics (no cookies). Register algodesk.pro at plausible.io
-         or self-host; the script no-ops until the domain is configured there. -->
-    <script defer data-domain="algodesk.pro" src="https://plausible.io/js/script.js"></script>
+    <title>AlgoDesk — торговые боты для криптовалюты без кода: конструктор, бэктест, автотрейдинг</title>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "AlgoDesk",
+      "url": "https://algodesk.pro",
+      "applicationCategory": "FinanceApplication",
+      "operatingSystem": "Web",
+      "description": "Конструктор торговых ботов для криптовалюты без программирования: визуальный редактор стратегий, бэктест на реальной истории, готовые стратегии, paper- и live-торговля на Bybit и Binance.",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD",
+        "description": "Бесплатный тариф: конструктор стратегий, бэктесты, оптимизатор и готовые стратегии."
+      }
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Что такое торговый бот и как он работает?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Торговый бот — это программа, которая покупает и продаёт криптовалюту по заданной стратегии автоматически, 24/7, без эмоций. В AlgoDesk стратегия собирается из готовых блоков: условие входа, фильтры, стоп-лосс и тейк-профит."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Нужно ли уметь программировать?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Нет. Стратегия собирается в визуальном конструкторе из готовых блоков, а для новичков есть готовые стратегии, которые сервер подбирает автоматически на реальных данных."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Это бесплатно?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Конструктор, бэктесты на реальной истории, оптимизатор параметров и готовые стратегии — бесплатны и без ограничений. Платная подписка нужна только для запуска ботов в реальную торговлю (Pro от $7 в месяц)."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "На каких биржах работают боты?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Bybit и Binance — подключение через официальный API биржи с ключами без права вывода средств."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Могут ли боты украсть или вывести мои деньги?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Нет. AlgoDesk не хранит ваши средства — деньги остаются на вашей бирже. API-ключ создаётся без права вывода, шифруется при хранении и может быть отозван на бирже в любой момент."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Гарантирован ли заработок на торговых ботах?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Нет. Торговля криптовалютой сопряжена с риском, а прошлая доходность стратегии не гарантирует будущую. Поэтому в AlgoDesk каждая стратегия сначала проверяется бэктестом и paper-режимом без риска, и только потом запускается на реальные деньги."
+          }
+        }
+      ]
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>
