@@ -35,6 +35,8 @@ export function usePlan() {
     freeMode: q.data?.free_mode ?? false,
     prices: q.data?.prices,
     isAdmin: q.data?.is_admin ?? false,
+    trialActive: q.data?.trial_active ?? false,
+    trialEndsAt: q.data?.trial_ends_at ?? null,
     data: q.data,
     loading: q.isLoading,
   };

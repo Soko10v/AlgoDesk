@@ -13,13 +13,26 @@ top tier, and its output is uneven enough that keeping it behind the paywall
 protects newcomers from acting on a bad AI suggestion.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 PLAN_FREE = "free"
 PLAN_PRO = "pro"
 PLAN_EXPERT = "expert"
 
 PLAN_RANK = {PLAN_FREE: 0, PLAN_PRO: 1, PLAN_EXPERT: 2}
+
+# New signups get full (expert-level) access for this many days from account
+# creation, no card required — then they land on their real (free) plan and
+# the normal paywall/upsell prompts take over.
+TRIAL_DAYS = 14
+
+
+def trial_ends_at(created_at: datetime) -> datetime:
+    return created_at + timedelta(days=TRIAL_DAYS)
+
+
+def trial_active(created_at: datetime) -> bool:
+    return datetime.now(UTC) < trial_ends_at(created_at)
 
 # Monthly price in USDT per paid plan.
 PLAN_PRICES = {PLAN_PRO: 7.0, PLAN_EXPERT: 15.0}

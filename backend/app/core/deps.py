@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.db import get_db
-from app.core.plans import FEATURE_MIN_PLAN, allows, effective_plan
+from app.core.plans import FEATURE_MIN_PLAN, allows, effective_plan, trial_active
 from app.core.security import decode_access_token
 from app.models.subscription import Subscription
 from app.models.user import User
@@ -48,10 +48,13 @@ async def current_plan(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> str:
-    """The plan in force for this user (expert for everyone while FREE_MODE is on)."""
+    """The plan in force for this user (expert for everyone while FREE_MODE is on,
+    for admins, and for new signups still inside their free trial window)."""
     if settings.free_mode:
         return effective_plan(None, None, free_mode=True)
     if is_admin_user(user):
+        return effective_plan(None, None, free_mode=True)
+    if trial_active(user.created_at):
         return effective_plan(None, None, free_mode=True)
     sub = (
         await db.execute(select(Subscription).where(Subscription.user_id == user.id))

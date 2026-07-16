@@ -50,7 +50,7 @@ import { cn } from "../lib/cn";
 
 export function DashboardPage() {
   const qc = useQueryClient();
-  const { can, requiredPlan } = usePlan();
+  const { can, requiredPlan, trialActive, trialEndsAt } = usePlan();
   const upsell = useUpsell();
   const strategies = useQuery({ queryKey: ["strategies"], queryFn: listStrategies });
   const exchange = useQuery({ queryKey: ["exchange-status"], queryFn: exchangeStatus });
@@ -110,6 +110,15 @@ export function DashboardPage() {
   const missedTotal = missed.reduce((sum, e) => sum + e.profitUsd, 0);
   const missedInvested = missed.reduce((sum, e) => sum + e.investedUsd, 0);
   const missedMultiple = missedTotal / 7; // vs Pro's monthly price
+
+  // New-signup trial: full access for 14 days, then a nudge to subscribe.
+  const trialEndsAtMs = trialEndsAt ? new Date(trialEndsAt).getTime() : null;
+  const trialDaysLeft = trialEndsAtMs ? Math.max(0, Math.ceil((trialEndsAtMs - Date.now()) / 86_400_000)) : 0;
+  const trialJustEnded =
+    !trialActive &&
+    trialEndsAtMs !== null &&
+    Date.now() - trialEndsAtMs < 5 * 86_400_000 &&
+    subscription.data?.plan === "free";
 
   // Name of another LIVE bot already trading the same symbol+market, if any —
   // running two on one symbol/account merges them into one exchange position.
@@ -244,14 +253,57 @@ export function DashboardPage() {
           sub={
             subscription.data?.free_mode
               ? "Free during launch 🎉"
-              : subscription.data?.plan === "pro"
-                ? "Pro features unlocked"
-                : "Upgrade for more"
+              : trialActive
+                ? `Триал: ${trialDaysLeft} дн.`
+                : subscription.data?.plan === "expert"
+                  ? "All features unlocked"
+                  : subscription.data?.plan === "pro"
+                    ? "Pro features unlocked"
+                    : "Upgrade for more"
           }
           valueClassName={subscription.data?.plan === "pro" ? "text-amber-300" : undefined}
           onClick={() => navigate("/subscription")}
         />
       </div>
+
+      {trialActive && (
+        <div className="mt-6 flex items-center gap-3 rounded-2xl border border-brand-500/30 bg-brand-500/[0.07] p-4 shadow-glow">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-500/15 text-brand-300">
+            <Crown className="h-5 w-5" />
+          </span>
+          <div>
+            <div className="text-sm font-semibold text-slate-100">
+              Пробный период: осталось {trialDaysLeft} {trialDaysLeft === 1 ? "день" : trialDaysLeft < 5 ? "дня" : "дней"}
+            </div>
+            <div className="text-xs text-slate-400">
+              Весь функционал открыт бесплатно — включая live-торговлю и AI. Потом можно продолжить на бесплатном тарифе или оформить подписку.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {trialJustEnded && (
+        <button
+          type="button"
+          onClick={() => navigate("/subscription")}
+          className="mt-6 flex w-full items-center justify-between gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/[0.07] p-4 text-left shadow-glow transition hover:bg-amber-500/[0.12]"
+        >
+          <div className="flex items-center gap-3">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-amber-500/15 text-amber-300">
+              <Crown className="h-5 w-5" />
+            </span>
+            <div>
+              <div className="text-sm font-semibold text-slate-100">Пробный период закончился</div>
+              <div className="text-xs text-slate-400">
+                Live-торговля и AI снова платные. Бэктесты, оптимизатор и лучшие стратегии остаются бесплатными навсегда.
+              </div>
+            </div>
+          </div>
+          <span className="hidden shrink-0 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-ink-950 sm:block">
+            Оформить подписку
+          </span>
+        </button>
+      )}
 
       {missedTotal > 0 && (
         <button
