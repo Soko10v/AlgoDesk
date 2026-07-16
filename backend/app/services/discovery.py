@@ -34,7 +34,7 @@ from app.services.backtest import (
 
 logger = logging.getLogger(__name__)
 
-DISCOVERY_SYMBOLS = ["BTC/USDT", "ETH/USDT"]
+DISCOVERY_SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
 DISCOVERY_TIMEFRAMES = ["15m", "1h", "4h"]
 ENTRY_TYPES = ["ma_cross", "ema_cross", "rsi", "breakout", "macd"]
 
