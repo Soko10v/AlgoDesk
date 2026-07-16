@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactFlow, { Background, Controls, MarkerType, type Edge, type Node } from "reactflow";
 import "reactflow/dist/style.css";
-import { Activity, Anchor, ArrowDownUp, Coins, Crosshair, Filter, LogIn, LogOut, Pencil, Plus, Save, Send, Shield, SlidersHorizontal, Sparkles, Target, Trash2, Umbrella, Wand2, X, Zap } from "lucide-react";
+import { Activity, Anchor, ArrowDownUp, Clock, Coins, Crosshair, Filter, LogIn, LogOut, Pencil, Plus, Save, Send, Shield, SlidersHorizontal, Snowflake, Sparkles, Target, Trash2, Umbrella, Wand2, X, Zap } from "lucide-react";
 import {
   authConfig,
   createStrategy,
@@ -578,22 +578,34 @@ export function StrategyBuilderPage() {
                   {isBidirectional(cfg) ? (
                     <p className="text-xs text-slate-500">Flips on the opposite signal, or exits via SL / TP / Trailing stop.</p>
                   ) : (
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="Condition">
-                        <Select value={cfg.exit[0].op} onChange={(e) => setExit({ op: e.target.value as ">" | "<" })}>
-                          <option value=">">RSI above</option>
-                          <option value="<">RSI below</option>
-                        </Select>
-                      </Field>
-                      <Field label="Value">
-                        <NumberField
-                          min={0}
-                          max={100}
-                          value={cfg.exit[0].value}
-                          onValueChange={(v) => setExit({ value: v })}
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="Condition">
+                          <Select value={cfg.exit[0].op} onChange={(e) => setExit({ op: e.target.value as ">" | "<" })}>
+                            <option value=">">RSI above</option>
+                            <option value="<">RSI below</option>
+                          </Select>
+                        </Field>
+                        <Field label="Value">
+                          <NumberField
+                            min={0}
+                            max={100}
+                            value={cfg.exit[0].value}
+                            onValueChange={(v) => setExit({ value: v })}
+                          />
+                        </Field>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between gap-3">
+                        <span className="text-sm text-slate-300">
+                          Exit on opposite signal{" "}
+                          <InfoTip text="Close the position as soon as the entry signal turns bearish (e.g. the fast MA crosses back under the slow one) — instead of waiting for the RSI exit or the stop." />
+                        </span>
+                        <Toggle
+                          checked={cfg.exit_on_opposite ?? false}
+                          onChange={(v) => setCfg((c) => ({ ...c, exit_on_opposite: v }))}
                         />
-                      </Field>
-                    </div>
+                      </div>
+                    </>
                   )}
                 </Block>
 
@@ -627,6 +639,46 @@ export function StrategyBuilderPage() {
                     />
                   </Field>
                 </Block>
+
+                <Block icon={Target} title="Break-even stop" tone="text-lime-300">
+                  <Field
+                    label="Arm after +% (0 = off)"
+                    hint="Once price moves this % in your favour, the stop tightens to the entry price — a winner can no longer turn into a loser."
+                  >
+                    <NumberField
+                      min={0}
+                      value={cfg.break_even_pct ?? 0}
+                      onValueChange={(v) => setCfg((c) => ({ ...c, break_even_pct: v }))}
+                    />
+                  </Field>
+                </Block>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Block icon={Snowflake} title="Cooldown after stop" tone="text-sky-300">
+                    <Field
+                      label="Bars (0 = off)"
+                      hint="Pause entries for N bars after a stop-out, so the bot doesn't re-enter the same chop immediately."
+                    >
+                      <NumberField
+                        min={0}
+                        value={cfg.cooldown_bars ?? 0}
+                        onValueChange={(v) => setCfg((c) => ({ ...c, cooldown_bars: Math.round(v) }))}
+                      />
+                    </Field>
+                  </Block>
+                  <Block icon={Clock} title="Time exit" tone="text-violet-300">
+                    <Field
+                      label="Bars (0 = off)"
+                      hint="Force-close the position after N bars, win or lose — for strategies whose edge decays with time."
+                    >
+                      <NumberField
+                        min={0}
+                        value={cfg.time_exit_bars ?? 0}
+                        onValueChange={(v) => setCfg((c) => ({ ...c, time_exit_bars: Math.round(v) }))}
+                      />
+                    </Field>
+                  </Block>
+                </div>
 
                 <Block icon={Shield} title="Daily loss limit" tone="text-rose-300">
                   <Field label="Percent" hint="Pause new entries after this much realized loss in a day. 0 = off.">

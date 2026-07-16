@@ -1,12 +1,14 @@
 from datetime import UTC, datetime
 
+from app.engine.risk import SLIPPAGE_PER_SIDE
 from app.models.trade import Trade
 from app.models.strategy import Strategy
 
 
 def paper_fill_price(price: float, side: str) -> float:
-    slippage = 0.0005
-    return price * (1 + slippage if side == "buy" else 1 - slippage)
+    """Market-order fill with the shared slippage assumption (see risk.py), so
+    paper results line up with what the backtest charges."""
+    return price * (1 + SLIPPAGE_PER_SIDE if side == "buy" else 1 - SLIPPAGE_PER_SIDE)
 
 
 def build_paper_trade(

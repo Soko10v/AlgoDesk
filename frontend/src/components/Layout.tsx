@@ -10,6 +10,7 @@ import {
   LogOut,
   Mail,
   ScrollText,
+  Send,
   SlidersHorizontal,
   UserCircle,
 } from "lucide-react";
@@ -88,6 +89,16 @@ export function Layout() {
             </NavLink>
           ))}
         </nav>
+        <a
+          href="https://t.me/algoDeskk"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Лучшие стратегии в Telegram"
+          className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-400 transition hover:bg-white/[0.04] hover:text-slate-200"
+        >
+          <Send className="h-[18px] w-[18px]" />
+          Telegram-канал
+        </a>
         <a
           href="mailto:sokolovpeterdev@gmail.com"
           title="Email support"

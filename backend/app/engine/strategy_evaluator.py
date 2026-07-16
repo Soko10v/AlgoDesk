@@ -3,7 +3,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from app.engine.risk import allow_short
+from app.engine.risk import allow_short, exit_on_opposite
 from app.services.indicators import (
     adx,
     adx_series,
@@ -167,6 +167,7 @@ def _decide(
     long_ok: bool,
     short_ok: bool,
     rsi_exit_flag: bool,
+    opp_exit_flag: bool = False,
 ) -> str | None:
     """The position-aware decision, shared by the live (per-bar) and backtest
     (precomputed) paths so they can never diverge."""
@@ -178,7 +179,9 @@ def _decide(
         return None
     if position_side is None:
         return "long" if (bullish and long_ok) else None
-    if position_side == "long" and rsi_exit_flag:
+    # Long-only exits: the configured RSI rule, and (opt-in) the entry signal
+    # turning bearish — e.g. the fast MA crossing back under the slow one.
+    if position_side == "long" and (rsi_exit_flag or (opp_exit_flag and bearish)):
         return "close"
     return None
 
@@ -303,6 +306,7 @@ def build_signals(config: dict[str, Any], candles: list[list[float]]) -> dict[st
     return {
         "allow_short": allow_short(config),
         "reverse": bool(config.get("reverse")),
+        "exit_on_opposite": exit_on_opposite(config),
         "bullish": bullish,
         "bearish": bearish,
         "long_ok": long_ok,
@@ -327,6 +331,7 @@ def signal_at(sig: dict[str, Any], idx: int, position_side: str | None) -> str |
         bool(sig["long_ok"][idx]),
         bool(sig["short_ok"][idx]),
         bool(sig["rsi_exit"][idx]),
+        bool(sig.get("exit_on_opposite")),
     )
     return _flip_action(action) if reverse else action
 
@@ -365,5 +370,6 @@ def evaluate_signal(
         _passes_filters(config, closes, "long", candles),
         _passes_filters(config, closes, "short", candles),
         _rsi_exit(config, closes),
+        exit_on_opposite(config),
     )
     return _flip_action(action) if reverse else action

@@ -36,6 +36,18 @@ def validate_strategy_config(value: dict[str, Any]) -> dict[str, Any]:
     if vt is not None and not (isinstance(vt, (int, float)) and not isinstance(vt, bool) and vt >= 0):
         raise ValueError("vol_target_pct must be a number ≥ 0 (0 = off)")
 
+    # Optional risk/exit extras (0/absent = off).
+    for key in ("cooldown_bars", "time_exit_bars"):
+        v = value.get(key)
+        if v is not None and not (isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 10_000):
+            raise ValueError(f"{key} must be an integer ≥ 0 (0 = off)")
+    be = value.get("break_even_pct")
+    if be is not None and not (isinstance(be, (int, float)) and not isinstance(be, bool) and 0 <= be <= 100):
+        raise ValueError("break_even_pct must be a number between 0 and 100 (0 = off)")
+    eo = value.get("exit_on_opposite")
+    if eo is not None and not isinstance(eo, bool):
+        raise ValueError("exit_on_opposite must be true or false")
+
     # Reverse mirrors the strategy (long↔short, stop-loss↔take-profit). It needs
     # futures because spot can't open shorts.
     rev = value.get("reverse")

@@ -18,6 +18,13 @@ DEFAULT_RELEASE_PCT = 1.5
 # Conservative taker fees (per side); a round trip pays entry + exit.
 SPOT_TAKER_FEE = 0.001        # 0.10%
 FUTURES_TAKER_FEE = 0.00055   # 0.055%
+# Market-order slippage per side, charged in the backtest and in paper fills so
+# both stay consistent (and slightly conservative) versus live execution.
+SLIPPAGE_PER_SIDE = 0.0005    # 0.05%
+# A leveraged position is liquidated by the exchange before the full margin is
+# gone (maintenance margin + fees eat the rest). Approximate: liquidation hits
+# at 90% of the naive 100%/leverage adverse move.
+LIQUIDATION_BUFFER = 0.9
 # Average funding drag on perpetuals (paid ~every 8h). Approximate and always
 # treated as a cost so simulated futures returns stay conservative.
 FUNDING_PER_8H = 0.0001       # ~0.01%
@@ -37,6 +44,52 @@ def round_trip_fee(config: dict[str, Any]) -> float:
 def round_trip_fee_pct(config: dict[str, Any]) -> float:
     """Entry + exit taker fee as a percent of notional (price-move equivalent)."""
     return round_trip_fee(config) * 100
+
+
+def round_trip_slippage(_config: dict[str, Any] | None = None) -> float:
+    """Entry + exit market-order slippage as a fraction of notional."""
+    return SLIPPAGE_PER_SIDE * 2
+
+
+def liquidation_move_pct(config: dict[str, Any]) -> float | None:
+    """Adverse price move (percent) at which the exchange liquidates a leveraged
+    position, or None for unleveraged (spot / 1x) positions."""
+    lev = leverage(config)
+    if lev <= 1:
+        return None
+    return 100.0 / lev * LIQUIDATION_BUFFER
+
+
+def cooldown_bars(config: dict[str, Any]) -> int:
+    """Bars to pause entries after a stop-loss/trailing/liquidation exit (0 = off)."""
+    return _nonneg_int(config.get("cooldown_bars"))
+
+
+def time_exit_bars(config: dict[str, Any]) -> int:
+    """Force-close a position after this many bars in it (0 = off)."""
+    return _nonneg_int(config.get("time_exit_bars"))
+
+
+def break_even_pct(config: dict[str, Any]) -> float | None:
+    """Once price moves this % in favour, the stop moves to entry (None/0 = off)."""
+    try:
+        out = float(config.get("break_even_pct") or 0)
+    except (TypeError, ValueError):
+        return None
+    return out if out > 0 else None
+
+
+def exit_on_opposite(config: dict[str, Any]) -> bool:
+    """Close a long-only position when the entry signal turns bearish."""
+    return bool(config.get("exit_on_opposite"))
+
+
+def _nonneg_int(value: Any) -> int:
+    try:
+        out = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, out)
 
 
 def timeframe_hours(config: dict[str, Any]) -> float:
