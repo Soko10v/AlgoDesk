@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { Activity, BarChart3, Boxes, Mail, Send, ShieldCheck, Zap } from "lucide-react";
 import { authTelegram } from "../api/endpoints";
 import { track } from "../lib/analytics";
@@ -38,7 +38,10 @@ export function LoginPage() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const confirmPollBusy = useRef(false);
   const [tgScaleX, setTgScaleX] = useState(1);
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [searchParams] = useSearchParams();
+  // Landing CTAs like "Create free account" link here with ?mode=signup so the
+  // signup form is what actually opens, instead of dumping everyone on sign-in.
+  const [mode, setMode] = useState<"signin" | "signup">(searchParams.get("mode") === "signup" ? "signup" : "signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -348,11 +351,11 @@ export function LoginPage() {
                     <span className="label">Password</span>
                     <Input
                       type="password"
-                      placeholder={mode === "signup" ? "At least 6 characters" : "Your password"}
+                      placeholder={mode === "signup" ? "At least 8 characters" : "Your password"}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       autoComplete={mode === "signup" ? "new-password" : "current-password"}
-                      minLength={mode === "signup" ? 6 : 1}
+                      minLength={mode === "signup" ? 8 : 1}
                       required
                     />
                   </div>
@@ -385,6 +388,20 @@ export function LoginPage() {
             <div className="mt-6 space-y-4">
               <OAuthDivider />
 
+              {showTelegram && (
+                <div ref={containerRef} className="relative h-10 w-full overflow-hidden rounded-xl">
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 bg-indigo-500 text-sm font-semibold text-white">
+                    <Send className="h-4 w-4" />
+                    Continue with Telegram
+                  </div>
+                  <div
+                    ref={widgetRef}
+                    className="absolute left-0 top-0 opacity-0"
+                    style={{ transform: `scaleX(${tgScaleX})`, transformOrigin: "left top" }}
+                  />
+                </div>
+              )}
+
               {showGoogle && (
                 <Button
                   type="button"
@@ -392,6 +409,7 @@ export function LoginPage() {
                   className="w-full"
                   loading={oauthBusy}
                   onClick={() => void handleGoogleSignIn()}
+                  title="May not work inside an in-app browser (e.g. Telegram) — open in Chrome/Safari if it fails"
                 >
                   <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
                     <path
@@ -413,20 +431,6 @@ export function LoginPage() {
                   </svg>
                   Continue with Google
                 </Button>
-              )}
-
-              {showTelegram && (
-                <div ref={containerRef} className="relative h-10 w-full overflow-hidden rounded-xl">
-                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 bg-indigo-500 text-sm font-semibold text-white">
-                    <Send className="h-4 w-4" />
-                    Continue with Telegram
-                  </div>
-                  <div
-                    ref={widgetRef}
-                    className="absolute left-0 top-0 opacity-0"
-                    style={{ transform: `scaleX(${tgScaleX})`, transformOrigin: "left top" }}
-                  />
-                </div>
               )}
             </div>
           )}
