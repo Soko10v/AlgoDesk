@@ -102,6 +102,8 @@ export type Subscription = {
   entitlements?: Partial<Record<FeatureKey, boolean>>;
   prices?: Partial<Record<"pro" | "expert", number>>;
   is_admin?: boolean;
+  trial_active?: boolean;
+  trial_ends_at?: string | null;
 };
 
 export type ExchangeId = "bybit" | "binance";

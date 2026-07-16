@@ -39,3 +39,6 @@ class SubscriptionOut(BaseModel):
     prices: dict[str, float] = {}
     # Lets the client show the admin-only analytics summary link.
     is_admin: bool = False
+    # New-signup trial: full (expert) access for TRIAL_DAYS from account creation.
+    trial_active: bool = False
+    trial_ends_at: datetime | None = None

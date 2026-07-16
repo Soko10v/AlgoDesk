@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.deps import get_current_user, is_admin_user
-from app.core.plans import PLAN_PRICES, effective_plan, entitlements, normalize_plan
+from app.core.plans import PLAN_PRICES, effective_plan, entitlements, normalize_plan, trial_active, trial_ends_at
 from app.models.subscription import Subscription
 from app.models.user import User
 from app.schemas.payment import CheckoutIn, CheckoutOut, PayStatusOut, SubscriptionOut
@@ -49,10 +49,11 @@ async def get_subscription(
         await db.execute(select(Subscription).where(Subscription.user_id == current_user.id))
     ).scalar_one_or_none()
     is_admin = is_admin_user(current_user)
+    in_trial = trial_active(current_user.created_at)
     plan = effective_plan(
         sub.plan if sub else None,
         sub.expires_at if sub else None,
-        free_mode=settings.free_mode or is_admin,
+        free_mode=settings.free_mode or is_admin or in_trial,
     )
     return SubscriptionOut(
         plan=plan,
@@ -62,6 +63,8 @@ async def get_subscription(
         entitlements=entitlements(plan),
         prices=PLAN_PRICES,
         is_admin=is_admin,
+        trial_active=in_trial,
+        trial_ends_at=trial_ends_at(current_user.created_at),
     )
 
 

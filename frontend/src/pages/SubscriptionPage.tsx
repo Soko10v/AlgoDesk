@@ -96,6 +96,10 @@ export function SubscriptionPage() {
   const subscription = useQuery({ queryKey: ["subscription"], queryFn: getSubscription });
   const current: PlanId = subscription.data?.plan ?? "free";
   const freeMode = subscription.data?.free_mode ?? false;
+  const trialActive = subscription.data?.trial_active ?? false;
+  const trialDaysLeft = subscription.data?.trial_ends_at
+    ? Math.max(0, Math.ceil((new Date(subscription.data.trial_ends_at).getTime() - Date.now()) / 86_400_000))
+    : 0;
 
   const qc = useQueryClient();
   const [pay, setPay] = useState<CheckoutResult | null>(null);
@@ -161,6 +165,20 @@ export function SubscriptionPage() {
           <div>
             <div className="font-semibold text-slate-100">Бесплатный доступ ко всему 🎉</div>
             <div className="text-sm text-slate-400">Идёт промо запуска — все функции Expert открыты для всех.</div>
+          </div>
+        </Card>
+      ) : trialActive ? (
+        <Card className="mb-6 flex animate-slide-up items-center gap-3 border-brand-500/30 p-5 shadow-glow">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-500/15 text-brand-300">
+            <Gift className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="font-semibold text-slate-100">
+              Пробный период — осталось {trialDaysLeft} {trialDaysLeft === 1 ? "день" : trialDaysLeft < 5 ? "дня" : "дней"}
+            </div>
+            <div className="text-sm text-slate-400">
+              Все функции Expert открыты бесплатно первые 14 дней. Дальше — бесплатный тариф или подписка ниже.
+            </div>
           </div>
         </Card>
       ) : (
