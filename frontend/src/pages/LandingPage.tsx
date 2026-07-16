@@ -117,7 +117,7 @@ export function LandingPage() {
             <Link to="/login" className="text-sm font-medium text-slate-400 hover:text-white transition">
               Войти
             </Link>
-            <Link to="/login" onClick={() => track("cta_click", { where: "nav" })}>
+            <Link to="/login?mode=signup" onClick={() => track("cta_click", { where: "nav" })}>
               <Button variant="primary" className="text-sm">Начать бесплатно</Button>
             </Link>
           </div>
@@ -131,7 +131,7 @@ export function LandingPage() {
           Работает с Bybit и Binance
         </div>
 
-        <h1 className="text-5xl font-bold leading-tight tracking-tight text-white lg:text-6xl">
+        <h1 className="break-words text-3xl font-bold leading-tight tracking-tight text-white sm:text-5xl lg:text-6xl">
           Торговые боты для криптовалюты<br />
           <span className="text-brand-400">без программирования</span>
         </h1>
@@ -140,8 +140,11 @@ export function LandingPage() {
           проверь её бэктестом на реальной истории и запусти автоматическую торговлю
           на Bybit или Binance — сначала без риска, потом вживую.
         </p>
+        <p className="mx-auto mt-3 max-w-2xl text-sm font-medium text-brand-300">
+          🎁 14 дней полного доступа бесплатно — включая live-торговлю и AI. Карта не нужна.
+        </p>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-          <Link to="/login" onClick={() => track("cta_click", { where: "hero" })}>
+          <Link to="/login?mode=signup" onClick={() => track("cta_click", { where: "hero" })}>
             <Button variant="primary" className="px-8 py-3 text-base">
               Попробовать бесплатно
             </Button>
@@ -248,7 +251,7 @@ export function LandingPage() {
         <h2 className="text-3xl font-bold text-white">Готов автоматизировать торговлю?</h2>
         <p className="mt-4 text-slate-400">Бесплатный старт. Банковская карта не нужна.</p>
         <div className="mt-8">
-          <Link to="/login" onClick={() => track("cta_click", { where: "footer" })}>
+          <Link to="/login?mode=signup" onClick={() => track("cta_click", { where: "footer" })}>
             <Button variant="primary" className="px-10 py-3 text-base">
               Создать бесплатный аккаунт
             </Button>

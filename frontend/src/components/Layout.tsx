@@ -24,8 +24,8 @@ const nav = [
   { to: "/builder", label: "Strategy Builder", icon: Boxes, end: false },
   { to: "/backtest", label: "Backtest", icon: LineChart, end: false },
   { to: "/compare", label: "Compare", icon: GitCompare, end: false },
-  { to: "/trades", label: "Trade Log", icon: ScrollText, end: false, requiresSubscription: true },
-  { to: "/settings", label: "Exchange", icon: SlidersHorizontal, end: false, requiresSubscription: true },
+  { to: "/trades", label: "Trade Log", icon: ScrollText, end: false },
+  { to: "/settings", label: "Exchange", icon: SlidersHorizontal, end: false },
   { to: "/subscription", label: "Subscription", icon: CreditCard, end: false },
   { to: "/admin/analytics", label: "Analytics", icon: BarChart3, end: false, adminOnly: true },
 ];
@@ -46,15 +46,13 @@ function Brand() {
 
 export function Layout() {
   const user = useAuthStore((s) => s.user);
-  const { plan, isAdmin } = usePlan();
+  const { isAdmin } = usePlan();
   const handleLogout = () => {
     void signOut();
   };
   const location = useLocation();
   const initials = (user?.username ?? user?.email ?? "T").slice(0, 2).toUpperCase();
-  const visibleNav = nav.filter(
-    (item) => (!item.requiresSubscription || plan !== "free") && (!item.adminOnly || isAdmin)
-  );
+  const visibleNav = nav.filter((item) => !item.adminOnly || isAdmin);
   const current =
     location.pathname.startsWith("/profile")
       ? { label: "Profile" }
