@@ -431,20 +431,21 @@ export function BacktestPage() {
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <Button onClick={() => run.mutate()} loading={run.isPending} disabled={!strategyId}>
-            <Play className="h-4 w-4" /> Run
+            <Play className="h-4 w-4" /> Run backtest
           </Button>
-          <div className="flex gap-2">
-            <Select
-              value={optGroup}
-              onChange={(e) => setOptGroup(e.target.value as OptimizeGroup)}
-              className="w-auto"
-              title="Pick what the optimizer tunes — the rest of the strategy stays as is"
-            >
-              <option value="entry">Entry params</option>
-              <option value="exits">SL / TP / Trailing {can("optimize_exits") ? "" : "🔒"}</option>
-              <option value="long_filters">Long filters {can("optimize_filters") ? "" : "🔒"}</option>
-              {optBidir && <option value="short_filters">Short filters {can("optimize_filters") ? "" : "🔒"}</option>}
-            </Select>
+          <div className="flex items-end gap-2">
+            <Field label="Optimize" hint="Pick what the optimizer tunes — the rest of the strategy stays as is">
+              <Select
+                value={optGroup}
+                onChange={(e) => setOptGroup(e.target.value as OptimizeGroup)}
+                className="w-auto"
+              >
+                <option value="entry">Entry params</option>
+                <option value="exits">SL / TP / Trailing {can("optimize_exits") ? "" : "🔒"}</option>
+                <option value="long_filters">Long filters {can("optimize_filters") ? "" : "🔒"}</option>
+                {optBidir && <option value="short_filters">Short filters {can("optimize_filters") ? "" : "🔒"}</option>}
+              </Select>
+            </Field>
             <Button
               variant="secondary"
               onClick={() => (can(optFeature) ? optimize.mutate(optGroup) : upsell(requiredPlan(optFeature), "Этот оптимизатор"))}
