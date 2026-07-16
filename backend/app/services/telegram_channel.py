@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # timestamp file survives redeploys, which an in-memory guard wouldn't: without
 # it, every backend restart would re-run discovery immediately and repost.
 STATE_PATH = "/data/telegram_channel_state.json"
-POST_INTERVAL_SEC = 2 * 24 * 3600.0  # don't post more often than the board itself refreshes
+POST_INTERVAL_SEC = 4 * 24 * 3600.0  # post cadence — independent of the board's own refresh cycle
 
 
 def _last_posted_at() -> float:

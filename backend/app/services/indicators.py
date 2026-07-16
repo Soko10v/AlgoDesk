@@ -15,18 +15,13 @@ def ema(values: list[float], period: int) -> float | None:
 
 
 def rsi(values: list[float], period: int = 14) -> float | None:
+    """Wilder's RSI (the TradingView/exchange standard) at the latest bar.
+    Delegates to rsi_series so the per-bar and whole-series paths can never
+    disagree on the math."""
     if len(values) <= period:
         return None
-    series = pd.Series(values, dtype=float)
-    delta = series.diff()
-    gain = np.where(delta > 0, delta, 0.0)
-    loss = np.where(delta < 0, -delta, 0.0)
-    avg_gain = pd.Series(gain).rolling(period).mean()
-    avg_loss = pd.Series(loss).rolling(period).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    out = 100 - (100 / (1 + rs))
-    last = out.iloc[-1]
-    return float(last) if pd.notna(last) else None
+    last = rsi_series(values, period)[-1]
+    return float(last) if last == last else None  # NaN-safe
 
 
 def macd(values: list[float], fast: int = 12, slow: int = 26, signal: int = 9) -> tuple[float, float] | None:
@@ -98,15 +93,38 @@ def ema_series(values: list[float], period: int) -> "np.ndarray":
     return _mask(arr, period - 1)
 
 
+def _wilder_rma(values: "np.ndarray", period: int) -> "np.ndarray":
+    """Wilder's moving average: SMA over the first window as the seed, then the
+    recursive smoothing avg = (prev*(period-1) + x) / period. NaN during warmup."""
+    n = len(values)
+    out = np.full(n, np.nan)
+    if n <= period:
+        return out
+    # values[0] is the NaN from diff(); the first window is values[1..period].
+    out[period] = np.nanmean(values[1 : period + 1])
+    alpha = 1.0 / period
+    for i in range(period + 1, n):
+        out[i] = out[i - 1] + alpha * (values[i] - out[i - 1])
+    return out
+
+
 def rsi_series(values: list[float], period: int = 14) -> "np.ndarray":
+    """Wilder's RSI (SMA-seeded RMA smoothing) — matches TradingView/exchange
+    charts, so users comparing values see the same numbers."""
     series = pd.Series(values, dtype=float)
-    delta = series.diff()
+    delta = series.diff().to_numpy()
     gain = np.where(delta > 0, delta, 0.0)
     loss = np.where(delta < 0, -delta, 0.0)
-    avg_gain = pd.Series(gain).rolling(period).mean()
-    avg_loss = pd.Series(loss).rolling(period).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    out = (100 - (100 / (1 + rs))).to_numpy()
+    # Keep the leading diff-NaN so the seed window is aligned to real deltas.
+    gain[0] = np.nan
+    loss[0] = np.nan
+    avg_gain = _wilder_rma(gain, period)
+    avg_loss = _wilder_rma(loss, period)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        out = np.where(avg_loss > 0, 100 - 100 / (1 + avg_gain / avg_loss), np.nan)
+        # A window of pure gains is RSI 100 by definition, not NaN.
+        out = np.where((avg_loss == 0) & (avg_gain > 0), 100.0, out)
+        out = np.where((avg_loss == 0) & (avg_gain == 0), 50.0, out)  # flat market
     return _mask(out, period)
 
 

@@ -53,6 +53,10 @@ export type StrategyConfig = {
   take_profit: PctRule;
   trailing_stop?: PctRule; // 0 = off; trails the high/low-water mark
   vol_target_pct?: number; // 0 = off; scale position size inversely to ATR volatility
+  cooldown_bars?: number; // 0 = off; pause entries N bars after a stop-out
+  time_exit_bars?: number; // 0 = off; force-close the position after N bars
+  break_even_pct?: number; // 0 = off; move the stop to entry after +N% in favour
+  exit_on_opposite?: boolean; // close a long when the entry signal turns bearish
   reverse?: boolean; // mirror the strategy: long↔short and stop-loss↔take-profit (futures only)
   // Futures-only fields; spot strategies omit them and the backend defaults market to "spot".
   market?: Market;

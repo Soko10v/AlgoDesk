@@ -23,12 +23,16 @@ from app.engine.live_executor import (
 from app.engine.paper_executor import build_paper_trade, paper_fill_price
 from app.engine.risk import (
     adverse_excursion_pct,
+    break_even_pct,
+    cooldown_bars,
     hedge_params,
     is_futures,
     leverage,
     round_trip_fee_pct,
     stop_loss_pct,
     take_profit_pct,
+    time_exit_bars,
+    timeframe_hours,
     trailing_pct,
 )
 from app.engine.strategy_evaluator import evaluate_signal
@@ -43,14 +47,19 @@ from app.services.telegram_alerts import send_admin_alert, send_telegram_alert
 logger = logging.getLogger(__name__)
 
 # Enough history for a 200-period trend filter (+ the dropped forming candle and
-# a safety margin) to evaluate live the same way it does in the backtest.
-SEED_CANDLES = 350
+# a safety margin) to evaluate live the same way it does in the backtest. 600
+# also shrinks the EMA warmup drift vs the backtest's full history to <0.5%.
+SEED_CANDLES = 600
 LOOP_INTERVAL = 2.0
 # Signals run on real OHLCV candles for the strategy's timeframe, not the 2s
 # price ticks. Candles are cached in Redis and refreshed at most this often
 # (shared across bots), which is frequent enough to spot a freshly closed candle
 # while keeping exchange calls bounded.
 CANDLE_REFRESH_SEC = 60.0
+# If the OHLCV cache hasn't been refreshed successfully for this long (fetch
+# failures), signals are frozen — block new entries (exits/SL/TP still run off
+# the live price stream) and tell the user.
+STALE_OHLCV_SEC = 600.0
 
 # Health monitoring (watchdog + position-drift detection).
 HEARTBEAT_TTL = 120          # seconds a bot's heartbeat key stays valid
@@ -77,6 +86,8 @@ class BotState:
     # Base size of the open main position, so closes/hedges reuse the exact amount.
     position_amount: float | None = None
     entry_price: float | None = None
+    # When the position opened — drives the optional time exit (close after N bars).
+    entry_at: datetime | None = None
     # Best price reached since entry (high-water for long, low-water for short) — trailing stop.
     extreme_price: float | None = None
     # Exchange-side protective stop for the main position (live only).
@@ -167,14 +178,14 @@ class BotSupervisor:
 
         if not is_futures(strategy.config_json):
             # Spot: can't reliably verify a position; resume tracking from the DB.
-            self._restore_state(state, position_side, open_trade.price, open_trade.amount)
+            self._restore_state(state, position_side, open_trade.price, open_trade.amount, open_trade.timestamp)
             return
 
         real_pos, ok = await self._exchange_main_position(user, strategy)
         if not ok:
             # Couldn't reach the exchange — resume tracking from the DB record
             # rather than risk wrongly discarding a real position.
-            self._restore_state(state, position_side, open_trade.price, open_trade.amount)
+            self._restore_state(state, position_side, open_trade.price, open_trade.amount, open_trade.timestamp)
             return
 
         if real_pos is not None:
@@ -184,6 +195,7 @@ class BotSupervisor:
                 state, position_side,
                 entry if entry > 0 else open_trade.price,
                 amount if amount > 0 else open_trade.amount,
+                open_trade.timestamp,
             )
             logger.info("Reconciled: restored %s position for strategy %s", position_side, strategy.id)
         else:
@@ -197,17 +209,25 @@ class BotSupervisor:
     # ---- position / reconciliation helpers --------------------------------
 
     @staticmethod
-    def _restore_state(state: BotState, position_side: str, entry_price: float, amount: float) -> None:
+    def _restore_state(
+        state: BotState,
+        position_side: str,
+        entry_price: float,
+        amount: float,
+        entry_at: datetime | None = None,
+    ) -> None:
         state.position_side = position_side
         state.entry_price = entry_price
         state.position_amount = amount
         state.extreme_price = entry_price
+        state.entry_at = entry_at
 
     @staticmethod
     def _clear_position(state: BotState) -> None:
         state.position_side = None
         state.position_amount = None
         state.entry_price = None
+        state.entry_at = None
         state.extreme_price = None
         state.stop_order_id = None
         state.hedge_open = False
@@ -287,6 +307,7 @@ class BotSupervisor:
                     state, position_side,
                     entry if entry > 0 else main_open.price,
                     amount if amount > 0 else main_open.amount,
+                    main_open.timestamp,
                 )
             removed = 0
             for t in open_trades:
@@ -591,6 +612,8 @@ class BotSupervisor:
 
         if not state.has_position:
             if signal in ("long", "short"):
+                if await self._ohlcv_stale(user, strategy):
+                    return
                 if await self._entry_on_cooldown(strategy):
                     return
                 if await self._entry_blocked_by_risk(db, user, strategy):
@@ -670,6 +693,27 @@ class BotSupervisor:
     async def _entry_on_cooldown(self, strategy: Strategy) -> bool:
         return bool(await redis_client.get(f"entry_cd:{strategy.id}"))
 
+    async def _ohlcv_stale(self, user: User, strategy: Strategy) -> bool:
+        """True when the candle cache for this market hasn't refreshed in too long
+        — the signal is frozen, so entering on it would be trading blind."""
+        symbol = strategy.config_json.get("symbol", "BTC/USDT").replace("/", "_")
+        timeframe = strategy.config_json.get("timeframe", "1h")
+        stamp = await redis_client.get(f"ohlcv_at:{symbol}:{timeframe}")
+        if stamp is None:
+            return False  # nothing cached yet — the refresh path will populate it
+        try:
+            age = time.time() - float(stamp)
+        except (TypeError, ValueError):
+            return False
+        if age < STALE_OHLCV_SEC:
+            return False
+        await self._warn_once(
+            user, strategy, "stale",
+            f"market data is {int(age // 60)} min stale (exchange fetch failing) — "
+            "new entries are paused; open positions and stops keep working.",
+        )
+        return True
+
     async def _cooldown_and_warn(self, user: User, strategy: Strategy, kind: str) -> None:
         """Pause entries for this strategy and tell the user why — at most once an
         hour — so a funding/sizing problem doesn't hammer the exchange every tick."""
@@ -703,6 +747,16 @@ class BotSupervisor:
             pnl_now = ((state.entry_price - current_price) / state.entry_price) * 100
         else:
             pnl_now = ((current_price - state.entry_price) / state.entry_price) * 100
+        # Break-even: once price has moved be_val% in favour (tracked via the
+        # trailing extreme), the stop tightens to the entry price.
+        be_val = break_even_pct(config)
+        if be_val is not None and state.extreme_price and state.entry_price:
+            if state.position_side == "long":
+                armed = state.extreme_price >= state.entry_price * (1 + be_val / 100)
+            else:
+                armed = state.extreme_price <= state.entry_price * (1 - be_val / 100)
+            if armed and pnl_now <= 0:
+                return "break_even"
         # Reverse swaps stop/target (the entry side is already flipped upstream).
         sl_val = stop_loss_pct(config)
         tp_val = take_profit_pct(config)
@@ -716,6 +770,13 @@ class BotSupervisor:
                 return "trailing_stop"
             if state.position_side == "short" and current_price >= state.extreme_price * (1 + trail / 100):
                 return "trailing_stop"
+        # Time exit: force-close after N bars in the position (0/None = off).
+        te = time_exit_bars(config)
+        if te > 0 and state.entry_at is not None:
+            entry_at = state.entry_at if state.entry_at.tzinfo else state.entry_at.replace(tzinfo=UTC)
+            held_sec = (datetime.now(UTC) - entry_at).total_seconds()
+            if held_sec >= te * timeframe_hours(config) * 3600.0:
+                return "time_exit"
         return None
 
     async def _open_position(
@@ -751,6 +812,7 @@ class BotSupervisor:
         state.position_side = side
         state.position_amount = amount
         state.entry_price = trade.price
+        state.entry_at = trade.timestamp
         state.extreme_price = trade.price  # seed the trailing-stop high/low-water mark
         state.recent_prices = []  # fresh window so a stale extreme cannot trigger a hedge
         await db.commit()
@@ -844,8 +906,17 @@ class BotSupervisor:
         state.position_side = None
         state.position_amount = None
         state.entry_price = None
+        state.entry_at = None
         state.extreme_price = None
         await db.commit()
+        # Optional cooldown after a stop-out: level-based entry signals usually
+        # still hold right after a stop, so without a pause the bot re-enters the
+        # same chop immediately (matching the backtest's cooldown_bars).
+        cd = cooldown_bars(strategy.config_json)
+        if cd > 0 and reason in ("stop_loss", "trailing_stop", "break_even"):
+            ttl = int(cd * timeframe_hours(strategy.config_json) * 3600)
+            if ttl > 0:
+                await redis_client.set(f"entry_cd:{strategy.id}", "1", ex=ttl)
         await publish_user_event(
             user.id,
             {

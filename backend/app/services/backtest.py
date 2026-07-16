@@ -5,13 +5,19 @@ import random
 from typing import Any
 
 from app.engine.risk import (
+    break_even_pct,
+    cooldown_bars,
     funding_cost,
     hedge_params,
     leverage,
+    liquidation_move_pct,
     pct_value,
     round_trip_fee,
+    round_trip_slippage,
     stop_loss_pct,
     take_profit_pct,
+    time_exit_bars,
+    timeframe_hours,
     trailing_pct,
 )
 from app.engine.strategy_evaluator import build_signals, signal_at
@@ -242,7 +248,22 @@ def _simulate(
     tp_val = take_profit_pct(config)
     trail_val = trailing_pct(config)
     hedge = hedge_params(config)  # None unless this is a futures strategy with hedging on
-    fee = round_trip_fee(config)  # entry+exit taker fee, charged on every closed leg
+    # Entry+exit taker fee and market-order slippage, charged on every closed leg.
+    cost = round_trip_fee(config) + round_trip_slippage(config)
+    # Leveraged positions die at the exchange's liquidation level, not at a
+    # farther stop-loss — model it so 10x backtests can't ride through it.
+    liq_val = liquidation_move_pct(config)
+    be_val = break_even_pct(config)
+    time_exit = time_exit_bars(config)
+    cooldown = cooldown_bars(config)
+    # The live auto_squeeze hedge triggers on an adverse move within a ~60s tick
+    # window; a whole candle spans far longer, so an unscaled candle-range check
+    # would fire constantly where live almost never would. Scale the trigger by
+    # √(bar/window) (Brownian scaling) to approximate the same rarity per bar.
+    hedge_trigger = None
+    if hedge:
+        bar_sec = timeframe_hours(config) * 3600.0
+        hedge_trigger = hedge["trigger_pct"] * math.sqrt(max(1.0, bar_sec / hedge["window_sec"]))
 
     # Volatility targeting (optional): scale each position so risk per trade stays
     # even — smaller in volatile periods, larger in calm ones. 0 = off (fixed size).
@@ -278,12 +299,14 @@ def _simulate(
     bars_in_pos = 0
     wins = 0
     loss = 0
+    cooldown_until = -1  # first bar index allowed to enter after a stop-out
 
     def realize(ret: float, mult: float = 1.0) -> None:
         """Compound a fractional return into equity, amplified by leverage (and the
-        position's volatility-sizing multiplier)."""
+        position's volatility-sizing multiplier). A position can't lose more than
+        its margin, so the factor floors at 0 — equity never goes negative."""
         nonlocal equity
-        equity *= 1 + ret * lev * mult
+        equity *= max(0.0, 1 + max(ret * lev * mult, -1.0))
 
     def main_ret(open_side: str, exit_price: float, entry_price: float) -> float:
         return (exit_price - entry_price) / entry_price if open_side == "long" else (entry_price - exit_price) / entry_price
@@ -298,7 +321,7 @@ def _simulate(
         sig = signal_at(signals, idx, side)
 
         if side is None:
-            if sig in ("long", "short"):
+            if sig in ("long", "short") and idx >= cooldown_until:
                 side = sig
                 entry = close
                 entry_idx = idx
@@ -322,7 +345,7 @@ def _simulate(
                     released = low <= release_price
                 if released:
                     hret = (release_price - hedge_entry) / hedge_entry if hedge_side == "long" else (hedge_entry - release_price) / hedge_entry
-                    hnet = hret - fee
+                    hnet = hret - cost
                     realize(hedge["ratio"] * hnet)
                     trades.append({
                         "side": "buy" if hedge_side == "short" else "sell", "price": release_price,
@@ -334,42 +357,61 @@ def _simulate(
             #    (gap-aware fills; the trailing extreme is updated with this candle first.)
             exit_price: float | None = None
             reason: str | None = None
+            # Effective protective stop: the configured SL, tightened to the
+            # liquidation level when leverage would liquidate first. Break-even
+            # (once armed by a favourable move) tightens it further to the entry.
+            stop_pct: float | None = sl_val
+            stop_reason = "stop_loss"
+            if liq_val is not None and (stop_pct is None or liq_val < stop_pct):
+                stop_pct, stop_reason = liq_val, "liquidation"
             if side == "long":
                 extreme = max(extreme if extreme is not None else high, high)
-                if sl_val is not None and low <= entry * (1 - sl_val / 100):
-                    exit_price = min(entry * (1 - sl_val / 100), open_)  # gap-down fills at the open
-                    reason = "stop_loss"
-                elif trail_val is not None and low <= extreme * (1 - trail_val / 100):
+                be_armed = be_val is not None and extreme >= entry * (1 + be_val / 100)
+                if be_armed and low <= entry:
+                    exit_price = min(entry, open_)  # gap through entry fills at the open
+                    reason = "break_even"
+                if exit_price is None and stop_pct is not None and low <= entry * (1 - stop_pct / 100):
+                    exit_price = min(entry * (1 - stop_pct / 100), open_)  # gap-down fills at the open
+                    reason = stop_reason
+                elif exit_price is None and trail_val is not None and low <= extreme * (1 - trail_val / 100):
                     # Trail level is set intrabar (after the open), so fill at the level,
                     # bounded by the candle high (covers a gap-down through the level).
                     exit_price = min(extreme * (1 - trail_val / 100), high)
                     reason = "trailing_stop"
-                elif tp_val is not None and high >= entry * (1 + tp_val / 100):
+                elif exit_price is None and tp_val is not None and high >= entry * (1 + tp_val / 100):
                     exit_price = entry * (1 + tp_val / 100)
                     reason = "take_profit"
             else:  # short
                 extreme = min(extreme if extreme is not None else low, low)
-                if sl_val is not None and high >= entry * (1 + sl_val / 100):
-                    exit_price = max(entry * (1 + sl_val / 100), open_)  # gap-up fills at the open
-                    reason = "stop_loss"
-                elif trail_val is not None and high >= extreme * (1 + trail_val / 100):
+                be_armed = be_val is not None and extreme <= entry * (1 - be_val / 100)
+                if be_armed and high >= entry:
+                    exit_price = max(entry, open_)  # gap through entry fills at the open
+                    reason = "break_even"
+                if exit_price is None and stop_pct is not None and high >= entry * (1 + stop_pct / 100):
+                    exit_price = max(entry * (1 + stop_pct / 100), open_)  # gap-up fills at the open
+                    reason = stop_reason
+                elif exit_price is None and trail_val is not None and high >= extreme * (1 + trail_val / 100):
                     exit_price = max(extreme * (1 + trail_val / 100), low)
                     reason = "trailing_stop"
-                elif tp_val is not None and low <= entry * (1 - tp_val / 100):
+                elif exit_price is None and tp_val is not None and low <= entry * (1 - tp_val / 100):
                     exit_price = entry * (1 - tp_val / 100)
                     reason = "take_profit"
             if exit_price is None:
-                if sig == "close":
+                if time_exit > 0 and entry_idx is not None and idx - entry_idx >= time_exit:
+                    exit_price, reason = close, "time_exit"
+                elif sig == "close":
                     exit_price, reason = close, "signal"
                 elif sig in ("long", "short") and sig != side:
                     exit_price, reason = close, "flip"
 
             if exit_price is not None:
                 ret = main_ret(side, exit_price, entry)
-                # Net of round-trip taker fee and (futures) funding over the hold.
-                net = ret - fee - funding_cost(config, idx - (entry_idx or idx))
+                # Net of round-trip fee+slippage and (futures) funding over the hold.
+                net = ret - cost - funding_cost(config, idx - (entry_idx or idx))
                 realize(net, pos_mult)
-                trade_returns.append(net * lev * pos_mult)
+                trade_returns.append(max(net * lev * pos_mult, -1.0))
+                if cooldown > 0 and reason in ("stop_loss", "trailing_stop", "break_even", "liquidation"):
+                    cooldown_until = idx + 1 + cooldown
                 wins += net > 0
                 loss += net <= 0
                 trades.append({
@@ -379,7 +421,7 @@ def _simulate(
                 # Unwind any hedge alongside the main position.
                 if hedge and hedge_entry is not None:
                     hret = (exit_price - hedge_entry) / hedge_entry if hedge_side == "long" else (hedge_entry - exit_price) / hedge_entry
-                    hnet = hret - fee
+                    hnet = hret - cost
                     realize(hedge["ratio"] * hnet)
                     trades.append({
                         "side": "buy" if hedge_side == "short" else "sell", "price": exit_price,
@@ -390,11 +432,11 @@ def _simulate(
                 pos_mult = 1.0
             elif hedge and hedge["mode"] == "auto_squeeze" and hedge_entry is None and high > 0 and low > 0:
                 # Still holding: open a hedge if this candle shows a fast adverse intrabar move.
-                if side == "long" and (high - low) / high * 100 >= hedge["trigger_pct"]:
-                    hedge_side, hedge_entry, hedge_extreme = "short", high * (1 - hedge["trigger_pct"] / 100), low
+                if side == "long" and (high - low) / high * 100 >= hedge_trigger:
+                    hedge_side, hedge_entry, hedge_extreme = "short", high * (1 - hedge_trigger / 100), low
                     trades.append({"side": "sell", "price": hedge_entry, "index": idx, "leg": "hedge", "reason": "squeeze"})
-                elif side == "short" and (high - low) / low * 100 >= hedge["trigger_pct"]:
-                    hedge_side, hedge_entry, hedge_extreme = "long", low * (1 + hedge["trigger_pct"] / 100), high
+                elif side == "short" and (high - low) / low * 100 >= hedge_trigger:
+                    hedge_side, hedge_entry, hedge_extreme = "long", low * (1 + hedge_trigger / 100), high
                     trades.append({"side": "buy", "price": hedge_entry, "index": idx, "leg": "hedge", "reason": "squeeze"})
 
         if side is not None:
