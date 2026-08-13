@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ScrollText, Trash2 } from "lucide-react";
 import { listStrategies, listTrades, resetTrades } from "../api/endpoints";
+import { isArbStrategy } from "../arbitrage/api";
 import { Badge, Button, Card, EmptyState, Field, PageHeader, Select, Spinner, StatCard } from "../components/ui";
 import { dateTime, num, pct, pnlTone, price, signedPct } from "../lib/formatters";
 
@@ -13,6 +14,9 @@ export function TradesPage() {
   const [strategyId, setStrategyId] = useState<number | null>(null);
   const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
   const [confirmClear, setConfirmClear] = useState(false);
+
+  const directional = (strategies.data ?? []).filter((s) => !isArbStrategy(s.config_json));
+  const arbIds = new Set((strategies.data ?? []).filter((s) => isArbStrategy(s.config_json)).map((s) => s.id));
 
   const trades = useQuery({
     queryKey: ["trades", strategyId, modeFilter],
@@ -32,7 +36,7 @@ export function TradesPage() {
     },
   });
 
-  const rows = trades.data ?? [];
+  const rows = (trades.data ?? []).filter((t) => strategyId != null || !arbIds.has(t.strategy_id));
   const summary = useMemo(() => {
     const closed = rows.filter((t) => t.pnl !== null && t.pnl !== undefined);
     const wins = closed.filter((t) => (t.pnl ?? 0) > 0).length;
@@ -84,7 +88,7 @@ export function TradesPage() {
           <Field label="Filter by strategy">
             <Select value={strategyId ?? ""} onChange={(e) => setStrategyId(Number(e.target.value) || null)}>
               <option value="">All strategies</option>
-              {strategies.data?.map((s) => (
+              {directional.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
                 </option>

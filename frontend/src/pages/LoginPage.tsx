@@ -8,27 +8,31 @@ import { supabase, supabaseConfigured } from "../lib/supabase";
 import { useAuthStore } from "../store/auth";
 import { toast } from "../store/toast";
 import { Button, Card, Input, Spinner } from "../components/ui";
+import { LangSwitch } from "../components/LangSwitch";
+import { useT, type TranslationKey } from "../lib/i18n";
 
 const authRedirectTo = `${window.location.origin}/auth/callback`;
 
-const features = [
-  { icon: Boxes, title: "Visual builder", text: "Compose entry, exit, stop-loss and take-profit blocks — no code." },
-  { icon: BarChart3, title: "Backtest instantly", text: "Replay strategies on real Bybit history with equity & drawdown." },
-  { icon: Zap, title: "Paper & live", text: "Same engine, real-time prices over WebSocket, one click to go live." },
-  { icon: ShieldCheck, title: "Keys stay encrypted", text: "API keys are Fernet-encrypted at rest. You stay in control." },
+const features: { icon: typeof Boxes; titleKey: TranslationKey; textKey: TranslationKey }[] = [
+  { icon: Boxes, titleKey: "login.feature1Title", textKey: "login.feature1Text" },
+  { icon: BarChart3, titleKey: "login.feature2Title", textKey: "login.feature2Text" },
+  { icon: Zap, titleKey: "login.feature3Title", textKey: "login.feature3Text" },
+  { icon: ShieldCheck, titleKey: "login.feature4Title", textKey: "login.feature4Text" },
 ];
 
 function OAuthDivider() {
+  const t = useT();
   return (
     <div className="flex items-center gap-3 text-xs text-slate-600">
       <span className="h-px flex-1 bg-white/[0.08]" />
-      or continue with
+      {t("login.orContinueWith")}
       <span className="h-px flex-1 bg-white/[0.08]" />
     </div>
   );
 }
 
 export function LoginPage() {
+  const t = useT();
   const token = useAuthStore((s) => s.token);
   const ready = useAuthStore((s) => s.ready);
   const setToken = useAuthStore((s) => s.setToken);
@@ -56,8 +60,8 @@ export function LoginPage() {
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
-    const t = setInterval(() => setResendCooldown((s) => Math.max(0, s - 1)), 1000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => setResendCooldown((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(timer);
   }, [resendCooldown]);
 
   // Supabase's rate-limit error names the exact wait time — surface that
@@ -88,18 +92,19 @@ export function LoginPage() {
         setToken(data.session.access_token);
         setPendingConfirmEmail(null);
         setPendingConfirmPassword(null);
-        toast.success("Email confirmed", "You are signed in.");
+        toast.success(t("login.toast.emailConfirmedTitle"), t("login.toast.emailConfirmedText"));
         navigate("/dashboard");
       } finally {
         confirmPollBusy.current = false;
       }
     };
 
-    const t = setInterval(() => void tryFinishSignIn(), 5000);
+    const t2 = setInterval(() => void tryFinishSignIn(), 5000);
     return () => {
       active = false;
-      clearInterval(t);
+      clearInterval(t2);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigate, pendingConfirmEmail, pendingConfirmPassword, setToken]);
 
   async function resendConfirmation() {
@@ -112,16 +117,16 @@ export function LoginPage() {
         options: { emailRedirectTo: authRedirectTo },
       });
       if (error) throw error;
-      toast.success("Email sent", `Check ${pendingConfirmEmail} again.`);
+      toast.success(t("login.toast.emailSentTitle"), t("login.toast.emailSentText", { email: pendingConfirmEmail }));
       setResendCooldown(60);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Could not resend";
+      const message = err instanceof Error ? err.message : t("login.toast.couldNotResendTitle");
       const wait = secondsFromRateLimitError(message);
       if (wait) {
         setResendCooldown(wait);
-        toast.info("Please wait", `You can resend in ${wait}s.`);
+        toast.info(t("login.toast.pleaseWaitTitle"), t("login.toast.resendInText", { s: wait }));
       } else {
-        toast.error("Could not resend", message);
+        toast.error(t("login.toast.couldNotResendTitle"), message);
       }
     } finally {
       setResendBusy(false);
@@ -147,7 +152,7 @@ export function LoginPage() {
         setToken(access_token);
         navigate("/dashboard");
       } catch {
-        toast.error("Telegram login failed", "Check the bot domain configuration.");
+        toast.error(t("login.toast.telegramLoginFailedTitle"), t("login.toast.telegramLoginFailedText"));
       }
     };
 
@@ -161,6 +166,7 @@ export function LoginPage() {
     script.setAttribute("data-request-access", "write");
     widgetRef.current.innerHTML = "";
     widgetRef.current.appendChild(script);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config?.telegram_bot_username, navigate, setToken]);
 
   // While Supabase resolves the session (e.g. finishing an OAuth redirect),
@@ -179,7 +185,7 @@ export function LoginPage() {
     e.preventDefault();
     if (!email.trim() || !password) return;
     if (!supabaseConfigured) {
-      toast.error("Auth not configured", "Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
+      toast.error(t("login.toast.authNotConfiguredTitle"), t("login.toast.authNotConfiguredText"));
       return;
     }
     setBusy(true);
@@ -195,7 +201,7 @@ export function LoginPage() {
         if (data.session) {
           // Confirmation disabled on this project — already signed in.
           setToken(data.session.access_token);
-          toast.success("Signed in", "Your account is ready.");
+          toast.success(t("login.toast.signedInTitle"), t("login.toast.accountReady"));
           navigate("/dashboard");
         } else {
           setPendingConfirmEmail(email.trim());
@@ -209,15 +215,15 @@ export function LoginPage() {
         });
         if (error) throw error;
         if (!data.session?.access_token) {
-          throw new Error("No session returned");
+          throw new Error(t("login.toast.noSessionError"));
         }
         setToken(data.session.access_token);
-        toast.success("Signed in", "Welcome back.");
+        toast.success(t("login.toast.signedInTitle"), t("login.toast.welcomeBack"));
         navigate("/dashboard");
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Authentication failed";
-      toast.error(mode === "signup" ? "Sign up failed" : "Sign in failed", message);
+      const message = err instanceof Error ? err.message : t("login.toast.authFailedGeneric");
+      toast.error(mode === "signup" ? t("login.toast.signUpFailed") : t("login.toast.signInFailed"), message);
     } finally {
       setBusy(false);
     }
@@ -225,15 +231,15 @@ export function LoginPage() {
 
   async function handleGoogleSignIn() {
     if (!supabaseConfigured) {
-      toast.error("Auth not configured", "Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
+      toast.error(t("login.toast.authNotConfiguredTitle"), t("login.toast.authNotConfiguredText"));
       return;
     }
     setOauthBusy(true);
     try {
       await signInWithGoogle();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Google sign-in failed";
-      toast.error("Google sign-in failed", message);
+      const message = err instanceof Error ? err.message : t("login.toast.googleSignInFailedTitle");
+      toast.error(t("login.toast.googleSignInFailedTitle"), message);
       setOauthBusy(false);
     }
   }
@@ -244,44 +250,50 @@ export function LoginPage() {
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
       <div className="relative hidden flex-col justify-between overflow-hidden border-r border-white/[0.06] p-12 lg:flex">
-        <div className="flex items-center gap-3">
-          <div className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-brand-400 to-brand-600 text-ink-950 shadow-glow">
-            <Activity className="h-6 w-6" strokeWidth={2.5} />
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-brand-400 to-brand-600 text-ink-950 shadow-glow">
+              <Activity className="h-6 w-6" strokeWidth={2.5} />
+            </div>
+            <div>
+              <div className="text-lg font-bold tracking-tight text-white">AlgoDesk</div>
+              <div className="text-xs uppercase tracking-[0.2em] text-slate-500">{t("login.tagline")}</div>
+            </div>
           </div>
-          <div>
-            <div className="text-lg font-bold tracking-tight text-white">AlgoDesk</div>
-            <div className="text-xs uppercase tracking-[0.2em] text-slate-500">No-code trading bots</div>
-          </div>
+          <LangSwitch />
         </div>
 
         <div className="max-w-md">
           <h1 className="text-4xl font-bold leading-tight tracking-tight text-white">
-            Build, backtest and run <span className="text-brand-400">crypto trading bots</span> — without code.
+            {t("login.heroTitleBefore")}<span className="text-brand-400">{t("login.heroTitleHighlight")}</span>{t("login.heroTitleAfter")}
           </h1>
           <p className="mt-4 text-slate-400">
-            Design strategies visually, validate them on real market data, then deploy to paper or live trading on Bybit or Binance.
+            {t("login.heroSub")}
           </p>
           <div className="mt-8 grid grid-cols-2 gap-4">
             {features.map((f) => (
-              <div key={f.title} className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+              <div key={f.titleKey} className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
                 <f.icon className="h-5 w-5 text-brand-400" />
-                <div className="mt-2.5 text-sm font-semibold text-slate-200">{f.title}</div>
-                <div className="mt-1 text-xs leading-relaxed text-slate-500">{f.text}</div>
+                <div className="mt-2.5 text-sm font-semibold text-slate-200">{t(f.titleKey)}</div>
+                <div className="mt-1 text-xs leading-relaxed text-slate-500">{t(f.textKey)}</div>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="text-xs text-slate-600">Built for crypto traders · Bybit · USDT</div>
+        <div className="text-xs text-slate-600">{t("login.builtFor")}</div>
       </div>
 
       <div className="flex items-center justify-center p-6">
         <Card className="w-full max-w-md animate-slide-up p-8">
-          <div className="mb-6 flex items-center gap-3 lg:hidden">
-            <div className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-ink-950 shadow-glow">
-              <Activity className="h-5 w-5" strokeWidth={2.5} />
+          <div className="mb-6 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 lg:hidden">
+              <div className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-ink-950 shadow-glow">
+                <Activity className="h-5 w-5" strokeWidth={2.5} />
+              </div>
+              <div className="text-lg font-bold text-white">AlgoDesk</div>
             </div>
-            <div className="text-lg font-bold text-white">AlgoDesk</div>
+            <LangSwitch className="ml-auto lg:hidden" />
           </div>
 
           {pendingConfirmEmail ? (
@@ -289,12 +301,9 @@ export function LoginPage() {
               <div className="grid h-12 w-12 place-items-center rounded-2xl bg-brand-500/15 text-brand-300">
                 <Mail className="h-6 w-6" />
               </div>
-              <h2 className="mt-4 text-xl font-bold text-white">Confirm your email</h2>
+              <h2 className="mt-4 text-xl font-bold text-white">{t("login.confirmEmailTitle")}</h2>
               <p className="mt-1 text-sm text-slate-400">
-                We sent a confirmation link to{" "}
-                <span className="font-medium text-slate-200">{pendingConfirmEmail}</span>. Open it and we will finish
-                signing you in automatically. If you confirm from another device, keep this page open and it will
-                continue here too.
+                {t("login.confirmEmailText", { email: pendingConfirmEmail })}
               </p>
               <div className="mt-6 space-y-3">
                 <Button
@@ -305,7 +314,7 @@ export function LoginPage() {
                   disabled={resendCooldown > 0}
                   onClick={() => void resendConfirmation()}
                 >
-                  {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend email"}
+                  {resendCooldown > 0 ? t("login.resendIn", { s: resendCooldown }) : t("login.resendEmail")}
                 </Button>
                 <button
                   type="button"
@@ -316,31 +325,30 @@ export function LoginPage() {
                     setMode("signin");
                   }}
                 >
-                  Back to sign in
+                  {t("login.backToSignIn")}
                 </button>
               </div>
             </>
           ) : (
             <>
-              <h2 className="text-xl font-bold text-white">{mode === "signin" ? "Sign in" : "Create account"}</h2>
+              <h2 className="text-xl font-bold text-white">{mode === "signin" ? t("login.signInTitle") : t("login.createAccountTitle")}</h2>
               <p className="mt-1 text-sm text-slate-400">
-                {mode === "signin" ? "Welcome back — enter your email and password." : "Start with email and password."}
+                {mode === "signin" ? t("login.signInSub") : t("login.signUpSub")}
               </p>
 
               {!supabaseConfigured ? (
                 <div className="mt-6 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm text-amber-200">
-                  Supabase Auth is not configured. Set <code className="text-slate-300">VITE_SUPABASE_URL</code> and{" "}
-                  <code className="text-slate-300">VITE_SUPABASE_ANON_KEY</code> in the frontend environment.
+                  {t("login.notConfigured")}
                 </div>
               ) : (
                 <form onSubmit={handleSubmit} className="mt-6 space-y-4">
                   <div>
                     <span className="label flex items-center gap-2">
-                      <Mail className="h-3.5 w-3.5" /> Email
+                      <Mail className="h-3.5 w-3.5" /> {t("login.email")}
                     </span>
                     <Input
                       type="email"
-                      placeholder="you@example.com"
+                      placeholder={t("login.emailPlaceholder")}
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       autoComplete="email"
@@ -348,10 +356,10 @@ export function LoginPage() {
                     />
                   </div>
                   <div>
-                    <span className="label">Password</span>
+                    <span className="label">{t("login.password")}</span>
                     <Input
                       type="password"
-                      placeholder={mode === "signup" ? "At least 8 characters" : "Your password"}
+                      placeholder={mode === "signup" ? t("login.passwordPlaceholderSignup") : t("login.passwordPlaceholderSignin")}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       autoComplete={mode === "signup" ? "new-password" : "current-password"}
@@ -360,21 +368,21 @@ export function LoginPage() {
                     />
                   </div>
                   <Button type="submit" className="w-full" loading={busy}>
-                    {mode === "signin" ? "Sign in" : "Sign up"}
+                    {mode === "signin" ? t("login.signInButton") : t("login.signUpButton")}
                   </Button>
                   <p className="text-center text-sm text-slate-500">
                     {mode === "signin" ? (
                       <>
-                        No account?{" "}
+                        {t("login.noAccount")}{" "}
                         <button type="button" className="text-brand-400 hover:underline" onClick={() => setMode("signup")}>
-                          Sign up
+                          {t("login.signUpButton")}
                         </button>
                       </>
                     ) : (
                       <>
-                        Already have an account?{" "}
+                        {t("login.haveAccount")}{" "}
                         <button type="button" className="text-brand-400 hover:underline" onClick={() => setMode("signin")}>
-                          Sign in
+                          {t("login.signInButton")}
                         </button>
                       </>
                     )}
@@ -392,7 +400,7 @@ export function LoginPage() {
                 <div ref={containerRef} className="relative h-10 w-full overflow-hidden rounded-xl">
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 bg-indigo-500 text-sm font-semibold text-white">
                     <Send className="h-4 w-4" />
-                    Continue with Telegram
+                    {t("login.continueWithTelegram")}
                   </div>
                   <div
                     ref={widgetRef}
@@ -409,7 +417,7 @@ export function LoginPage() {
                   className="w-full"
                   loading={oauthBusy}
                   onClick={() => void handleGoogleSignIn()}
-                  title="May not work inside an in-app browser (e.g. Telegram) — open in Chrome/Safari if it fails"
+                  title={t("login.googleWebviewHint")}
                 >
                   <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
                     <path
@@ -429,16 +437,17 @@ export function LoginPage() {
                       d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
                     />
                   </svg>
-                  Continue with Google
+                  {t("login.continueWithGoogle")}
                 </Button>
               )}
             </div>
           )}
           <p className="mt-5 text-center text-[11px] leading-relaxed text-slate-500">
-            Продолжая, вы соглашаетесь с{" "}
-            <a href="/terms" className="text-slate-400 underline hover:text-slate-300">Условиями</a> и{" "}
-            <a href="/privacy" className="text-slate-400 underline hover:text-slate-300">Политикой</a> и понимаете,
-            что алгоритмическая торговля сопряжена с риском потери средств — прошлые результаты не гарантируют будущих.
+            {t("login.disclaimerBefore")}{" "}
+            <a href="/terms" className="text-slate-400 underline hover:text-slate-300">{t("login.disclaimerTerms")}</a>{" "}
+            {t("login.disclaimerAnd")}{" "}
+            <a href="/privacy" className="text-slate-400 underline hover:text-slate-300">{t("login.disclaimerPrivacy")}</a>{" "}
+            {t("login.disclaimerAfter")}
           </p>
         </Card>
       </div>

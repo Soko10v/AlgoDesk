@@ -3,6 +3,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.arbitrage.kinds import ARB_KINDS
+from app.arbitrage.validate import validate_arb_config
 from app.engine.risk import MAX_LEVERAGE
 
 ALLOWED_TIMEFRAMES = frozenset({"5m", "15m", "1h", "4h", "1d"})
@@ -20,6 +22,10 @@ def _positive_number(value: Any) -> bool:
 
 
 def validate_strategy_config(value: dict[str, Any]) -> dict[str, Any]:
+    kind = value.get("kind")
+    if kind in ARB_KINDS:
+        return validate_arb_config(value)
+
     required = ["symbol", "timeframe", "entry", "exit", "stop_loss", "take_profit"]
     for key in required:
         if key not in value:

@@ -52,6 +52,7 @@ import {
   normalizeConfig,
   positionUsdt,
 } from "../lib/strategy";
+import { isArbStrategy } from "../arbitrage/api";
 
 const NODE_BASE = {
   color: "#e2e8f0",
@@ -101,7 +102,7 @@ export function StrategyBuilderPage() {
   useEffect(() => {
     const editId = Number(searchParams.get("edit"));
     if (!editId || !strategies.data) return;
-    const target = strategies.data.find((s) => s.id === editId);
+    const target = strategies.data.find((s) => s.id === editId && !isArbStrategy(s.config_json));
     if (target) {
       loadStrategy(target);
       setSearchParams({}, { replace: true }); // clean up URL
@@ -819,9 +820,9 @@ export function StrategyBuilderPage() {
       {/* Existing strategies */}
       <div className="mt-8">
         <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-400">Saved strategies</h3>
-        {strategies.data?.length ? (
+        {strategies.data?.filter((s) => !isArbStrategy(s.config_json)).length ? (
           <div className="grid gap-3 sm:grid-cols-2">
-            {strategies.data.map((s) => (
+            {strategies.data.filter((s) => !isArbStrategy(s.config_json)).map((s) => (
               <Card key={s.id} className="card-hover flex items-center justify-between gap-3 p-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
