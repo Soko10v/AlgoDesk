@@ -13,6 +13,7 @@ from app.core.db import SessionLocal
 from app.core.ratelimit import limiter
 from app.services import candle_store
 from app.services.telegram_alerts import send_admin_alert
+from app.arbitrage.scanner import run_arb_scanner
 from app.workers.bot_supervisor import bot_supervisor
 from app.workers.candle_sync import sync_candles
 from app.workers.discovery_runner import run_discovery
@@ -39,6 +40,8 @@ async def lifespan(_: FastAPI):
     candle_store.init_db()
     background_tasks.append(asyncio.create_task(sync_candles()))
     background_tasks.append(asyncio.create_task(stream_symbols(SessionLocal)))
+    # Public funding/basis (+ educational triangular) board for /arbitrage.
+    background_tasks.append(asyncio.create_task(run_arb_scanner()))
     # Rebuild the auto-discovered "best strategies" board on a slow cadence.
     background_tasks.append(asyncio.create_task(run_discovery(SessionLocal)))
     try:

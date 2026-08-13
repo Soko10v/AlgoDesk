@@ -37,6 +37,7 @@ const AuthConfirmPage = lazyWithRetry(() => import("./pages/AuthConfirmPage").th
 const LegalPage = lazyWithRetry(() => import("./pages/LegalPage").then((m) => ({ default: m.LegalPage })));
 const DashboardPage = lazyWithRetry(() => import("./pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
 const StrategyBuilderPage = lazyWithRetry(() => import("./pages/StrategyBuilderPage").then((m) => ({ default: m.StrategyBuilderPage })));
+const ArbitragePage = lazyWithRetry(() => import("./arbitrage/ArbitragePage").then((m) => ({ default: m.ArbitragePage })));
 const BacktestPage = lazyWithRetry(() => import("./pages/BacktestPage").then((m) => ({ default: m.BacktestPage })));
 const ComparePage = lazyWithRetry(() => import("./pages/ComparePage").then((m) => ({ default: m.ComparePage })));
 const TradesPage = lazyWithRetry(() => import("./pages/TradesPage").then((m) => ({ default: m.TradesPage })));
@@ -101,6 +102,7 @@ export const router = createBrowserRouter([
         children: [
           { path: "/dashboard", element: page(<DashboardPage />) },
           { path: "/builder", element: page(<StrategyBuilderPage />) },
+          { path: "/arbitrage", element: page(<ArbitragePage />) },
           { path: "/backtest", element: page(<BacktestPage />) },
           { path: "/compare", element: page(<ComparePage />) },
           { path: "/trades", element: page(<TradesPage />) },

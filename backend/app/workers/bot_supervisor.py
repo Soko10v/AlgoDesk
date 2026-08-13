@@ -36,6 +36,8 @@ from app.engine.risk import (
     trailing_pct,
 )
 from app.engine.strategy_evaluator import evaluate_signal
+from app.arbitrage.kinds import is_arb_config
+from app.arbitrage.executor import close_arb_position, run_arb_once
 from app.services.indicators import atr
 from app.models.strategy import Strategy
 from app.models.trade import Trade
@@ -406,6 +408,15 @@ class BotSupervisor:
     async def close_position(self, db: AsyncSession, user: User, strategy: Strategy) -> dict:
         """Flatten one strategy's live position now (market reduce-only) and clear
         its open records/state. Spot holdings are not auto-sold."""
+        if is_arb_config(strategy.config_json):
+            state = self.states.get(strategy.id)
+            if state is not None and state.has_position:
+                closed = await close_arb_position(self, db, user, strategy, state)
+                return {"closed": closed}
+            await self._delete_open_rows(db, strategy.id)
+            await db.commit()
+            return {"closed": False}
+
         closed = False
         real, ok = await self._exchange_main_position(user, strategy)
         if ok and real is not None:
@@ -430,6 +441,20 @@ class BotSupervisor:
         stopped = 0
         closed = 0
         for strategy in strategies:
+            if is_arb_config(strategy.config_json):
+                # Close legs while BotState still exists, then stop the loop.
+                try:
+                    result = await self.close_position(db, user, strategy)
+                    if result.get("closed"):
+                        closed += 1
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("panic arb close failed for strategy %s: %s", strategy.id, exc)
+                if self.is_running(strategy.id):
+                    await self.stop(strategy.id)
+                    stopped += 1
+                if strategy.status != "stopped":
+                    strategy.status = "stopped"
+                continue
             if self.is_running(strategy.id):
                 await self.stop(strategy.id)
                 stopped += 1
@@ -585,6 +610,10 @@ class BotSupervisor:
             await asyncio.sleep(LOOP_INTERVAL)
 
     async def _run_once(self, db: AsyncSession, user: User, strategy: Strategy, state: BotState) -> None:
+        if is_arb_config(strategy.config_json):
+            await run_arb_once(self, db, user, strategy, state)
+            return
+
         symbol = strategy.config_json.get("symbol", "BTC/USDT").replace("/", "_")
         current = await redis_client.get(f"price:{symbol}")
         if current is None:

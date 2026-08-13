@@ -25,9 +25,12 @@ async def _active_symbols(session_factory) -> set[str]:
                 await db.execute(select(Strategy.config_json).where(Strategy.status.in_(["paper", "live"])))
             ).scalars().all()
         for cfg in configs:
-            sym = (cfg or {}).get("symbol")
-            if sym:
-                symbols.add(sym)
+            if not cfg:
+                continue
+            for key in ("symbol", "symbol_a", "symbol_b"):
+                sym = cfg.get(key)
+                if sym:
+                    symbols.add(sym)
     except Exception as exc:  # noqa: BLE001 - keep the previous set on a DB hiccup
         logger.warning("could not refresh active symbols: %s", exc)
     return symbols

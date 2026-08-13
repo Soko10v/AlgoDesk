@@ -41,7 +41,10 @@ export type HedgeConfig = {
 };
 
 export type StrategyConfig = {
+  kind?: "directional" | "cash_and_carry" | "pairs";
   symbol: string;
+  symbol_a?: string;
+  symbol_b?: string;
   timeframe: string;
   position_size_usdt?: number; // position notional in USD (preferred)
   position_size_pct?: number; // legacy: percent of balance (strategies saved before USD)
@@ -63,6 +66,13 @@ export type StrategyConfig = {
   direction?: Direction; // "long" (default) or "both" — futures can trade both ways
   leverage?: number;
   hedge?: HedgeConfig;
+  // Arbitrage (cash_and_carry / pairs)
+  funding_entry_apr?: number;
+  funding_exit_apr?: number;
+  basis_min_pct?: number | null;
+  lookback?: number;
+  z_entry?: number;
+  z_exit?: number;
 };
 
 export type Strategy = {
@@ -115,6 +125,7 @@ export type ExchangeBalance = {
   usdt: number;
   balances: BalanceItem[];
   error?: string | null;
+  note?: string | null;
 };
 
 export type TradeStats = {

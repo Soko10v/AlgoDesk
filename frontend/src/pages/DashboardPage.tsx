@@ -43,6 +43,7 @@ import {
 import { toast } from "../store/toast";
 import { Badge, Button, Card, EmptyState, Field, InfoTip, Input, NumberField, PageHeader, Spinner, StatCard } from "../components/ui";
 import { describeEntry, describeExit, describeHedge, describeSize, isBidirectional, isFutures, isRunning, positionUsdt } from "../lib/strategy";
+import { isArbStrategy } from "../arbitrage/api";
 import { num, pnlTone, price, signedPct, timeAgo, usd } from "../lib/formatters";
 import { usePlan, useUpsell } from "../hooks/usePlan";
 import { missedEntries } from "../lib/missedProfit";
@@ -86,6 +87,7 @@ export function DashboardPage() {
     staleTime: 30_000,
   });
   const availableUsdt = balanceQuery.data?.usdt ?? null;
+  const balanceNote = balanceQuery.data?.note ?? null;
   // Drives the live feed. useWsEvents invalidates ["trades"] on every bot event,
   // so this refetches and the feed updates in near real time — while still being
   // backfilled with history so the panel is never empty on load.
@@ -95,7 +97,7 @@ export function DashboardPage() {
     refetchInterval: 15000,
   });
 
-  const items = strategies.data ?? [];
+  const items = (strategies.data ?? []).filter((s) => !isArbStrategy(s.config_json));
   const running = items.filter((s) => isRunning(s.status)).length;
   const nameById = useMemo(() => new Map(items.map((s) => [s.id, s.name])), [items]);
 
@@ -423,6 +425,7 @@ export function DashboardPage() {
                   strategy={s}
                   pending={pending}
                   availableUsdt={availableUsdt}
+                  balanceNote={balanceNote}
                   trades={allTrades}
                   syncing={sync.isPending && sync.variables === s.id}
                   closing={closePos.isPending && closePos.variables === s.id}
@@ -456,6 +459,7 @@ function StrategyRow({
   strategy,
   pending,
   availableUsdt,
+  balanceNote,
   trades,
   syncing,
   closing,
@@ -470,6 +474,7 @@ function StrategyRow({
   strategy: Strategy;
   pending: boolean;
   availableUsdt: number | null;
+  balanceNote?: string | null;
   trades: Trade[];
   syncing: boolean;
   closing: boolean;
@@ -597,13 +602,20 @@ function StrategyRow({
                   className={`w-28 text-sm ${insufficient ? "border-rose-500/60 focus:ring-rose-500/40" : ""}`}
                   autoFocus
                 />
-                {belowMin ? (
+                {availableUsdt !== null && minSize > 0 && availableUsdt < minSize ? (
+                  <p className="mt-1 max-w-xs text-xs text-rose-400">
+                    Need at least ${minSize.toFixed(2)}, but only ${availableUsdt.toFixed(2)} is in the
+                    tradeable wallet. Transfer USDT from Funding to Unified/Spot on Bybit.
+                    {balanceNote ? ` ${balanceNote}` : ""}
+                  </p>
+                ) : belowMin ? (
                   <p className="mt-1 text-xs text-rose-400">
                     Min for {cfg.symbol}: ${minSize.toFixed(2)}{lev > 1 ? ` at ${lev}x` : ""}
                   </p>
                 ) : insufficient && availableUsdt !== null ? (
                   <p className="mt-1 text-xs text-rose-400">
                     Max available: ${availableUsdt.toFixed(2)}
+                    {balanceNote ? ` · ${balanceNote}` : ""}
                   </p>
                 ) : (
                   <p className="mt-1 text-xs text-slate-500">

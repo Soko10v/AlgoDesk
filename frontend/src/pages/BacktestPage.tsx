@@ -23,6 +23,7 @@ import { toast } from "../store/toast";
 import { Badge, Button, Card, EmptyState, Field, InfoTip, PageHeader, Select, Spinner, StatCard } from "../components/ui";
 import { dateTime, pct, pnlTone, price, signedPct, usd } from "../lib/formatters";
 import { describeEntry, describeFilters } from "../lib/strategy";
+import { isArbStrategy } from "../arbitrage/api";
 import { MISSED_PROFIT_BASE_USD, periodDays, recordBacktest } from "../lib/missedProfit";
 import { track } from "../lib/analytics";
 import { usePlan, useUpsell } from "../hooks/usePlan";
@@ -99,6 +100,7 @@ export function BacktestPage() {
   const initialStrategyId = Number(searchParams.get("strategy") ?? "");
   const initialDays = Number(searchParams.get("days") ?? "");
   const strategies = useQuery({ queryKey: ["strategies"], queryFn: listStrategies });
+  const directional = (strategies.data ?? []).filter((s) => !isArbStrategy(s.config_json));
   const [strategyId, setStrategyId] = useState<number | null>(Number.isFinite(initialStrategyId) && initialStrategyId > 0 ? initialStrategyId : null);
   const [startDate, setStartDate] = useState(dateDaysAgo(initialDays));
   const [endDate, setEndDate] = useState("");
@@ -112,7 +114,7 @@ export function BacktestPage() {
     onSuccess: (r) => {
       track("backtest_run");
       // Feed the dashboard's missed-profit aggregate (free-tier conversion).
-      const s = strategies.data?.find((x) => x.id === strategyId);
+      const s = directional.find((x) => x.id === strategyId);
       if (s) recordBacktest(s, r);
     },
     onError: () => toast.error("Backtest failed", "Try another symbol or timeframe."),
@@ -121,7 +123,7 @@ export function BacktestPage() {
 
   useEffect(() => {
     if (autoRunDone.current || searchParams.get("autorun") !== "1" || !strategyId || strategies.isLoading) return;
-    if (!strategies.data?.some((s) => s.id === strategyId)) return;
+    if (!directional.some((s) => s.id === strategyId)) return;
 
     autoRunDone.current = true;
     run.mutate();
@@ -153,7 +155,7 @@ export function BacktestPage() {
 
   // How much history the local cache holds for the selected strategy's symbol/tf.
   const dataStatus = useQuery({ queryKey: ["data-status"], queryFn: getDataStatus, refetchInterval: 60_000 });
-  const selStrategy = strategies.data?.find((s) => s.id === strategyId);
+  const selStrategy = directional.find((s) => s.id === strategyId);
   const coverage = dataStatus.data?.find(
     (c) => selStrategy && c.symbol === selStrategy.config_json.symbol && c.timeframe === selStrategy.config_json.timeframe
   );
@@ -199,7 +201,7 @@ export function BacktestPage() {
   const aiData = aiStatus.data?.status === "done" ? aiStatus.data.result : null;
   const aiAttempt = aiStatus.data?.attempt ?? 1;
 
-  const stratName = strategies.data?.find((s) => s.id === strategyId)?.name ?? "Strategy";
+  const stratName = directional.find((s) => s.id === strategyId)?.name ?? "Strategy";
   const saveOptimized = useMutation({
     mutationFn: (r: OptimizeResult) => createStrategy({ name: `${stratName} (optimized)`, config_json: r.config }),
     onSuccess: (s) => {
@@ -412,7 +414,7 @@ export function BacktestPage() {
           <Field label="Strategy">
             <Select value={strategyId ?? ""} onChange={(e) => setStrategyId(Number(e.target.value) || null)}>
               <option value="">Select strategy…</option>
-              {strategies.data?.map((s) => (
+              {directional.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name} ({s.config_json.symbol})
                 </option>

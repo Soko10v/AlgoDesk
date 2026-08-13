@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.routes import analytics, auth, backtest, bots, discovered, exchange, payments, strategies, trades, ws
+from app.arbitrage.routes import router as arbitrage_router
 
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -12,4 +13,5 @@ api_router.include_router(backtest.router, prefix="/backtest", tags=["backtest"]
 api_router.include_router(trades.router, prefix="/trades", tags=["trades"])
 api_router.include_router(payments.router, prefix="/payments", tags=["payments"])
 api_router.include_router(discovered.router, prefix="/discovery", tags=["discovery"])
+api_router.include_router(arbitrage_router, prefix="/arbitrage", tags=["arbitrage"])
 api_router.include_router(ws.router, prefix="", tags=["ws"])

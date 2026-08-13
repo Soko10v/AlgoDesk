@@ -7,6 +7,7 @@ import { Badge, Button, Card, EmptyState, Field, PageHeader, Spinner } from "../
 import { cn } from "../lib/cn";
 import { pct, pnlTone, signedPct } from "../lib/formatters";
 import { describeEntry, isBidirectional, isFutures } from "../lib/strategy";
+import { isArbStrategy } from "../arbitrage/api";
 
 type Row = { strategy: Strategy; result: BacktestResult; closed: number };
 
@@ -36,7 +37,7 @@ export function ComparePage() {
   const toggle = (id: number) =>
     setSelected((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
 
-  const items = strategies.data ?? [];
+  const items = (strategies.data ?? []).filter((s) => !isArbStrategy(s.config_json));
   const rows = compare.data ?? [];
 
   return (
