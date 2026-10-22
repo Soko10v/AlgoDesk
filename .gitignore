@@ -17,3 +17,7 @@ ds-bundle/
 .design-sync/learnings/
 .design-sync/node_modules
 frontend/ds-styles.generated.css
+
+# Local tool settings / editor swap files
+.claude/settings.local.json
+*.swp
